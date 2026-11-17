@@ -2,129 +2,108 @@
 sidebar_label: FAQ
 slug: /faq
 title: Frequently asked questions
-description: Practical answers about access, findings, feedback, storage, and failures.
+description: Short answers about access, sharing, review scope, feedback, storage, and failures, with links to the pages that own each topic.
 status: current
-last_verified: 2026-09-29
+last_verified: 2026-11-17
 ---
 
 # Frequently asked questions
 
-> **Current** — Answers describe the reviewer available now unless they
-> explicitly say planned or deferred.
-
 ## My organization already runs Review Agent. What does my team need to do?
 
-Nothing to install or deploy. Comment `/review` on a pull request in a
-repository covered by the organization's GitHub App installation; you need
-GitHub write or admin permission, or a per-repository grant in the console's
-**Who can request reviews** list. If reviews are not enabled for the
-repository yet, a team maintainer can request it from the team's
-**Repositories** tab in the [admin console](./ADMIN_PANEL.md). Add an optional
-[`.review-agent/` package](./REPOSITORY_CONTEXT.md) for team instructions,
-architecture context, accepted ADRs, and documentation mappings.
+Nothing to install. Comment `/review` on a pull request in a repository covered
+by the organization's GitHub App installation. You need GitHub write or admin
+permission, or a grant in the console's **Who can request reviews** list; see
+[Who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review). If
+the repository is not enabled yet, a team maintainer can request it from the
+team's **Repositories** tab in the [admin console](./ADMIN_PANEL.md). An
+optional [`.review-agent/` package](./REPOSITORY_CONTEXT.md) adds team
+instructions, architecture context, and accepted ADRs.
 
 ## Does it review automatically when a pull request opens?
 
-Code review starts when a user with GitHub write or admin permission, or an
-additional-user grant in the console, comments `/review`. Comments from bots,
-including GitHub Actions, are ignored.
-Push fixes and comment `/review` again for a new round. Documentation review can
-also run automatically when a team or repository selects its Automatic mode; see
-[Documentation review](./DOCUMENTATION_REVIEW.md#choose-when-reviews-run).
+No. Code review starts when an authorized user comments `/review`; comments from
+bots, including GitHub Actions, are ignored. Comment `/review` again after
+pushing fixes. Documentation review can run automatically when a team or
+repository selects Automatic mode; see
+[Documentation review](./DOCUMENTATION_REVIEW.md).
 
-## What does the reviewer inspect?
+## Can another organization use our GitHub App?
 
-It reviews behavior introduced or worsened by the exact pull-request base/head
-snapshot. It reads bounded metadata, diffs, changed-file lists, and selected file
-content. Unchanged code may be supporting evidence, but it is not a license for
-unrelated cleanup findings.
+Yes. Make the App public, have the other organization install it, and approve
+that installation as an operator. Every installation shares the deployment's
+database, job queue, and model route, unless a team has its own model
+connection. See
+[Share the App with other organizations](./GITHUB_APP_PILOT.md#share-the-app-with-other-organizations).
+
+## How do I serve many repositories or a whole organization?
+
+Deploy once, install the App on the organization, and approve the installation
+once. Repositories then activate on their first authorized `/review`. See
+[Set up and share the GitHub App](./GITHUB_APP_PILOT.md), and
+[scale workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when queue wait
+time grows.
 
 ## Is it a merge gate?
 
-No. The current deployment is advisory. Teams should measure false positives,
-accepted findings, missed-issue feedback, and operational failures before any
-separate decision to make review status blocking.
+No. Reviews are advisory.
 
 ## Can it run contributor code?
 
-No. The live reviewer has no shell, browser, repository writer, delegation, or
-arbitrary code execution. It reads through bounded GitHub tools.
+No. The reviewer has no shell, browser, repository write access, delegation, or
+code execution. It reads the pull request through bounded GitHub tools. See
+[Security](./SECURITY.md).
 
-## What are `F1`, `F2`, and later-round states?
+## Does it use RAG or reranking?
 
-They are stable finding references. A later review can report a finding as
-resolved, still present, returned, or not checked. The new round never rewrites
-the historical record of a successfully published prior round.
-
-## How are native suggestions different from the coding-agent brief?
-
-Native suggestions are small, exact, independently safe patches that GitHub can
-apply directly. The coding-agent brief groups coordinated changes that need
-broader reasoning, edits, or validation. Applying either path still requires CI
-and a fresh review round.
-
-## Does feedback affect later reviews?
-
-Two exact decisions can do so directly. `/review false-positive` suppresses the
-same stable finding while its code-context hash still matches. `/review
-intentional` also requires the same accepted ADR ID and metadata in the current
-base snapshot. Changed code, changed ADR metadata, or a superseded ADR requires
-a new review.
-
-`/review feedback scope` and `/review feedback missed` record quality evidence
-for metrics, replay cases, and private improvement analysis. They do not suppress
-findings or rewrite prompts, skills, or policy. Broader reviewer changes remain
-human-reviewed and replay-tested before deployment.
-
-[Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) gives the operator
-commands and explains which canonical owner should change for each signal.
-
-## What is stored in PostgreSQL?
-
-Review runs, findings, coverage, publication and suggestion state, human
-decisions, and review-quality feedback. The database can contain unpublished
-findings and maintainer reasons, so back it up and handle exports as sensitive
-operator data.
+The reviewer reads the diff and the files it asks for. The optional
+[code graph](./CODE_GRAPH.md) is a retrieval path that returns up to ten
+locations per query. Nothing reranks findings or context. See
+[How reviews work](./HOW_REVIEWS_WORK.md).
 
 ## Does it find security problems?
 
-Yes, within the pull request. Every code review applies guidance adapted from
-Cloudflare's security-audit skill. It traces untrusted input across trust
-boundaries in the changed code, checks authorization, data isolation, secrets,
-personal data, and injection paths, and looks for existing controls that
-disprove a suspected vulnerability. It reports vulnerabilities and flawed
-security logic that the pull request introduces or worsens.
-
-It does not run exploits, look up known CVEs, audit unchanged parts of the
-repository, or certify a repository as secure. Keep deterministic scanners in
-CI. [How reviews work](./HOW_REVIEWS_WORK.md#review-in-two-passes) describes the
-checks.
+Yes, within the pull request. Every code review applies security-audit guidance
+to the changed code and reports vulnerabilities and flawed security logic the
+pull request introduces or worsens. It does not run exploits, query a CVE
+database, audit unchanged code, or certify a repository as secure; keep
+deterministic scanners in CI. See [How reviews work](./HOW_REVIEWS_WORK.md).
 
 ## Can it review architecture?
 
-For the code a pull request changes, yes. It reports rules implemented outside
-their owner, duplicated policy, hidden coupling, and conflicts with accepted
-ADRs. Describe the intended structure in the repository so the review can check
-against it; see
-[Get architecture-aware reviews](./REPOSITORY_CONTEXT.md#get-architecture-aware-reviews).
-It does not assess the whole repository or hold open design discussions. Use an
-interactive coding-agent session for those.
+For the code a pull request changes, yes: rules implemented outside their owner,
+duplicated policy, hidden coupling, and conflicts with accepted ADRs. Describe
+the intended structure in the repository's
+[`.review-agent/` package](./REPOSITORY_CONTEXT.md) so the review can check
+against it. It does not assess the whole repository.
 
-## Does it scan dependencies for CVEs?
+## Does feedback affect later reviews?
 
-The live reviewer does not query a vulnerability database. Repository CI scans
-the Python requirements and both npm lockfiles with Trivy, while release CI
-scans each exact published platform digest. The model may still discuss a risky
-dependency change, but the deterministic scanner owns the CVE verdict.
+`/review false-positive` and `/review intentional` suppress the same finding in
+later rounds while the code and ADR still match. `/review feedback scope` and
+`/review feedback missed` record evidence only. See
+[Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md).
+
+## Can each repository have its own reviewer voice or rules?
+
+Each repository can add review focus, communication preferences, technical
+context, and accepted ADRs through its [`.review-agent/`
+package](./REPOSITORY_CONTEXT.md), read from the pull request's base commit. The
+deployment profile owns identity, procedure, evidence gates, severity, tools,
+authorization, and publication; see
+[Behavior ownership](./BEHAVIOR_OWNERSHIP.md).
+
+## What is stored in PostgreSQL?
+
+Review runs, findings, coverage, publication state, human decisions, and
+feedback. The database can contain unpublished findings and maintainer reasons,
+so back it up and treat exports as sensitive. See [Security](./SECURITY.md).
 
 ## Why did a review fail or stop?
 
-Common causes include an unauthorized requester, a disabled or removed
-repository, an invalid GitHub App signature, a stale head SHA, GitHub permission
-failure, oversized output, or a stalled lifecycle transition. Use the exact
-status and
-[Operations runbook](./OPERATIONS.md#runbook); do not infer success from a
-workflow that merely started.
+Common causes are an unauthorized requester, a disabled repository, a stale head
+SHA, or a GitHub permission failure. Check the run's failure code in the
+[Operations runbook](./OPERATIONS.md#runbook).
 
 ## Can we follow reviews in Slack or Microsoft Teams?
 
@@ -135,53 +114,8 @@ publications to a channel:
 - Microsoft Teams: `@GitHub subscribe <owner>/<repo> reviews` (comments are on
   by default)
 
-A code review arrives as a pull-request comment and, when it has suggestions, a
-pull-request review. Recommended documentation changes also arrive as a
-comment whenever the open findings change, for example when one is found or
-resolved. Other documentation results, such as an unchanged, clean or skipped
-review, appear only as a GitHub check unless the report is too large for it. These subscriptions do not
-list checks; open the pull request's **Checks** tab. Subscribe in a channel whose members can already read the
+Code reviews arrive as comments and reviews. Documentation results that do not
+change open findings appear only as a GitHub check, which these subscriptions
+do not relay. Subscribe in a channel whose members can already read the
 repository, because relayed comments contain review content. Starting a review
-or chatting with the reviewer from Slack or Teams is not supported.
-
-## How do I serve many repositories or a whole organization?
-
-Deploy once per environment, install the GitHub App on the organization, and
-approve that installation once for automatic activation. Current and future
-repositories included by the GitHub installation become usable on their first
-signed `/review` delivery; requester authorization still gates whether the
-review starts. No per-repository deployment command is required. New public App
-installations remain locked until an operator approves their exact installation
-ID. [Getting started](./GETTING_STARTED.md#serve-many-repositories) walks
-through it. One deployment queues reviews across all activated repositories;
-[scale workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when wait time grows.
-
-## Can each repository have its own reviewer voice or rules?
-
-Each repository can add engineering principles, review focus, communication
-preferences, ordered technical context, and accepted ADRs through its reviewed
-[`.review-agent/` package](./REPOSITORY_CONTEXT.md). Review Agent reads that
-package from the exact pull-request base commit, so a pull request cannot change
-the rules used to review itself.
-
-The deployment profile still owns the neutral identity, review procedure,
-evidence gates, severity rules, tools, authorization, and publication. A
-repository cannot override those controls. If two repository groups truly need
-different core review contracts or model routes, run separate deployments with
-reviewed profiles rather than adding repository-name branches to the engine.
-
-## What are `SOUL.md` and profiles, and where do I learn more?
-
-A profile bundles the reviewer's identity (`SOUL.md`), stable review rules
-(`workspace/AGENTS.md`), and reviewed skills. [Behavior
-ownership](./BEHAVIOR_OWNERSHIP.md) explains each owner and how to create a
-profile. The identity mechanism is Hermes' native
-[personality and `SOUL.md` ownership](https://hermes-agent.nousresearch.com/docs/user-guide/features/personality);
-Hermes also documents [deploying a custom soul](https://hermes-agent.nousresearch.com/docs/guides/use-soul-with-hermes).
-
-## How do I add another repository or change reviewer behavior?
-
-Use [Getting started](./GETTING_STARTED.md) for repository onboarding and
-[Repository context](./REPOSITORY_CONTEXT.md) for team-owned focus and project
-facts. [Behavior ownership](./BEHAVIOR_OWNERSHIP.md) maps deployment-wide policy
-and runtime owners.
+from Slack or Teams is not supported.

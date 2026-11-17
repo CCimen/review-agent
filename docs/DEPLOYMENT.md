@@ -2,21 +2,15 @@
 sidebar_label: Deploy
 slug: /deployment
 title: Deploy Review Agent
-description: Create GitHub credentials and deploy with Compose, Dokploy, Coolify, Portainer, or OpenShift.
+description: Choose an image, set secrets, and deploy with Compose, Dokploy, Coolify, Portainer, or OpenShift; upgrade and roll back.
 status: current
-last_verified: 2026-09-10
+last_verified: 2026-11-17
 ---
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
 # Deploy Review Agent
-
-> **TL;DR**: Choose a released image or build locally, provide PostgreSQL and a
-> least-privilege GitHub App, then expose the admission endpoint. The optional
-> [admin panel](ADMIN_PANEL.md) uses a separate authenticated hostname. Tune
-> bounded worker concurrency before adding replicas. Queue limits protect shared
-> compute and do not limit PR size.
 
 ## Runtime shape
 
@@ -26,33 +20,20 @@ One box represents one worker type, not one replica. Scale review workers and
 publishers independently. Expose admission on port `8644`. Keep the GitHub
 gateway, Hermes `8642`, and PostgreSQL off the shared proxy network.
 
-The optional [admin panel](ADMIN_PANEL.md) adds a separate image and an authenticated service
-on port `8090` in the same deployment. It provides repository statistics, review
-history, team access, and platform administration. Use its documented image,
-migration, and account-creation requirements.
+The optional [admin panel](ADMIN_PANEL.md) adds a separate image and an
+authenticated service on port `8090` in the same deployment.
 
-The GitHub App receives review commands directly. The private gateway uses its
-key for bounded source and publication operations; Hermes and the publisher do
-not receive the key or installation tokens.
+The private gateway holds the GitHub App key and uses it for bounded source and
+publication operations. Hermes and the publisher do not receive the key or
+installation tokens.
 
 ## Create the credentials
 
 ### GitHub App
 
-Create a GitHub App with webhook events and permissions from [GitHub App
-setup](./GITHUB_APP_PILOT.md). Use **All repositories** with one audited
-installation approval for organization-managed operation, or **Only select
-repositories** with an explicit allowlist.
-Store the App ID, webhook secret, and private-key file in the deployment secret
-manager. The App needs Contents read, Issues write, Pull requests write, and
-Metadata read; it does not need Actions, Administration, Secrets, or Contents
-write.
-
-Documentation review additionally requires **Checks write** and the **Pull request**
-and **Check run** webhook subscriptions. Existing code-only installations continue
-without those optional capabilities. Check each installation's accepted grant
-before enabling documentation review. See [Documentation review](DOCUMENTATION_REVIEW.md)
-for deployment enablement, manual adoption, and team/repository modes.
+Register the App as described in
+[Set up and share the GitHub App](./GITHUB_APP_PILOT.md). Store the App ID,
+webhook secret, and private-key file in the deployment secret manager.
 
 ### Service secrets
 
@@ -93,17 +74,16 @@ docker compose pull
 
 Set `REVIEW_AGENT_ADMIN_IMAGE` to the admin manifest reference from that same
 file when installing the console. Every release publishes only its exact
-version tag, after both images pass qualification. Production deployments pin
-digests because a rebuild can change image contents without changing source.
-The registry cannot update two tags atomically; a single available tag does
-not establish that the release workflow has completed.
+version tag, after both images pass qualification. Pin digests in production:
+a rebuild can change image contents without changing source. The registry
+cannot update two tags atomically, so a single available tag does not show that
+the release workflow has completed.
 
-The examples use the upstream `ghcr.io/ccimen/review-agent` package. Fork
-maintainers publish under `ghcr.io/<owner>/<repository>` and
-`ghcr.io/<owner>/<repository>-admin`, in lowercase. The workflow derives these
-names from its own GitHub repository. Organizations using upstream releases
-can keep the upstream image references with their own GitHub App, database,
-hostnames, and secrets.
+The examples use the upstream `ghcr.io/ccimen/review-agent` package.
+Organizations using upstream releases keep these image references with their own
+GitHub App, database, hostnames, and secrets. A fork publishes under
+`ghcr.io/<owner>/<repository>` and `ghcr.io/<owner>/<repository>-admin`, in
+lowercase.
 
 Pin PostgreSQL as well. For a Compose deployment, resolve the selected
 PostgreSQL tag once and store the resulting repository digest as `POSTGRES_IMAGE`:
@@ -118,18 +98,10 @@ printf 'Review Agent: %s\nPostgreSQL: %s\n' \
   "$REVIEW_AGENT_IMAGE" "$POSTGRES_IMAGE"
 ```
 
-Record all selected image references with the deployment. The OpenShift template uses
-an external database, so its operator must pin and record that database image
+Record all selected image references with the deployment. The OpenShift template
+uses an external database, so its operator pins and records that database image
 separately. Do not combine a PostgreSQL major-version change with a Review Agent
 upgrade.
-
-GitHub creates the first package as private even for a public repository. After
-the first release, check the visibility and repository access of both packages.
-Open **Packages > package name > Package settings > Change visibility** to
-make anonymous pulls available. Public visibility cannot be
-reversed. See GitHub's guides to
-[publishing container images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)
-and [package visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
 
 ## Deploy
 
@@ -138,8 +110,10 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
 
 1. Copy `.env.example` to the platform secret store and replace each
    `replace-with...` placeholder: the GitHub App values, service secrets, and
-   both PostgreSQL credentials and URLs.
-   Every other value is a documented tuning default you can keep.
+   both PostgreSQL credentials and URLs. The file holds the required values and
+   the optional integrations. Tuning variables keep their Compose defaults and
+   are listed in the
+   [configuration reference](./OPERATIONS.md#configuration-reference).
 
    `REVIEW_AGENT_DATABASE_URL` is the migration-owner URL used only by the
    one-shot `review-db-migrate` service. `REVIEW_AGENT_RUNTIME_DATABASE_URL`
@@ -158,12 +132,11 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    name the review model" when it is missing. Set it to a model the provider
    account can use; after the account is connected, the console suggests the
    models Hermes lists for it. Once the console saves settings, their model
-   governs new reviews instead of this variable. The provider defaults to `openai-codex` and the
-   effort to `xhigh`. We recommend the Codex route for the first deployment
-   because Hermes supports a ChatGPT device-code login and you do not need to
-   provision a model API key. Hermes
-   does not document how this traffic counts against each ChatGPT plan's Codex
-   allowance, so check your provider usage after the pilot.
+   governs new reviews instead of this variable. The provider defaults to
+   `openai-codex` and the effort to `xhigh`. The Codex route is the simplest
+   first deployment: Hermes supports a ChatGPT device-code login, so no model API
+   key is needed. Hermes does not document how this traffic counts against each
+   ChatGPT plan's Codex allowance.
 
    You can use any provider/model pair supported by the installed Hermes
    release. For Claude, set provider `anthropic` and choose a Claude model from
@@ -178,9 +151,8 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    Hermes' persisted credential store or Hermes-owned `.env`; do not add them
    to the shared Review Agent `.env`.
 
-   On Dokploy, add the App PEM as the file mount described in
-   [GitHub App setup](./GITHUB_APP_PILOT.md#2-configure-and-start-the-deployment),
-   then set:
+   On Dokploy, create a **File Mount** named `github-app-private-key.pem`, paste
+   the complete PEM including its `BEGIN` and `END` lines, then set:
 
    ```dotenv
    REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=../files/github-app-private-key.pem
@@ -191,8 +163,8 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    absent or unreadable, Compose fails before it creates the gateway container.
 
    Treat Dokploy project access as secret access because authorized UI and API
-   clients can read file-mount content. Rotate the key before broader use if
-   it has appeared in a terminal, log, screenshot, ticket, or model conversation.
+   clients can read file-mount content. Rotate the key if it has appeared in a
+   terminal, log, screenshot, ticket, or model conversation.
 2. Create the external ingress network. Dokploy already provides
    `dokploy-network`; a plain Docker host can create its configured name:
 
@@ -284,9 +256,9 @@ successful deployment. Do not open a shell in those completed containers.
 </TabItem>
 <TabItem value="coolify-portainer" label="Coolify / Portainer">
 
-Import `compose.yaml` as a Compose stack and enter the values from `.env.example`
-in the platform secret UI. Set `REVIEW_AGENT_INGRESS_NETWORK` to the external
-proxy network used by the platform. Point the public proxy at
+Import `compose.yaml` as a Compose stack and enter the required values from
+`.env.example` in the platform secret UI. Set `REVIEW_AGENT_INGRESS_NETWORK` to
+the external proxy network used by the platform. Point the public proxy at
 `review-admission:8644`.
 
 Both platforms run the same containers and health checks. Platform-specific
@@ -355,6 +327,10 @@ can assign an arbitrary UID under `restricted-v2`.
 </TabItem>
 </Tabs>
 
+After the services are running, install and approve the App as described in
+[Set up and share the GitHub App](./GITHUB_APP_PILOT.md), then run
+`review-agent-admin doctor` in `hermes-review`.
+
 ## Upgrade and roll back production
 
 Before an upgrade, make a tested PostgreSQL backup as described in
@@ -373,12 +349,12 @@ overlay, hostname, and post-upgrade version check. The platform examples below
 cover the main services.
 
 The review worker requires the private GitHub gateway at startup, even when
-documentation review is disabled. In Compose, set its `REVIEW_AGENT_GITHUB_GATEWAY_URL` to
-`http://review-github-gateway:8646` and attach it to `review-github-control`.
-In OpenShift, use `http://review-agent-github-gateway:8646` and permit the
-`review-agent-worker` pod in the gateway ingress policy. Both use the existing
-`API_SERVER_KEY`; no new secret or shared environment-file entry is needed.
-Include this wiring when upgrading an existing deployment, including rc.8.
+documentation review is disabled. In Compose, its `REVIEW_AGENT_GITHUB_GATEWAY_URL`
+is `http://review-github-gateway:8646` and it is attached to
+`review-github-control`. In OpenShift, it uses
+`http://review-agent-github-gateway:8646` and the gateway ingress policy permits
+the `review-agent-worker` pod. Both use the existing `API_SERVER_KEY`. Keep this
+wiring if you maintain a modified Compose file or template.
 
 Drain every long-running Review Agent component before running a migration.
 This prevents an old process from writing against a schema that changed after
@@ -505,18 +481,12 @@ the new template until every old application pod is gone.
 
 ### Rollback boundary
 
-Migration 015 adds diff-page evidence to existing run-file rows. It preserves
-complete observations and leaves older truncated observations incomplete until
-the diff is read again. Keep the added columns when recovering; no data removal
-or reverse migration is needed. The previous coverage queries remain compatible,
-but an image rollback still requires the release-specific checks below.
-
-The current admin API requires every migration shipped with its source revision. Schema 22 introduced team access and
-separate owner/admin roles in the console.
-Earlier console images do not enforce these boundaries and treat new team members
-as global viewers. Do not roll back the console image alone after this upgrade;
-use a forward fix or coordinated image and database recovery. Database-ahead
-readiness alone does not prove that an older image preserves access policy.
+The admin API requires every migration shipped with its source revision. Older
+console images do not enforce team access and the separate owner and admin
+roles, and treat new team members as global viewers. Do not roll back the
+console image alone; use a forward fix or coordinated image and database
+recovery. Database-ahead readiness alone does not prove that an older image
+preserves access policy.
 
 Roll back only to the exact prior Review Agent digest named in the release
 record. That record must include the post-migration schema version and a receipt
@@ -534,25 +504,10 @@ run against the current schema, either deploy a forward fix or restore the
 pre-upgrade backup into a separate database and verify it before switching
 traffic.
 
-Future incompatible schema changes must use an expand-first sequence: add
+Incompatible schema changes use an expand-first sequence: add
 backward-compatible schema, deploy code that accepts both forms, backfill, and
 remove the old form only in a later release after every older application
 digest has been retired as a rollback target.
-
-## Configure GitHub
-
-Register the App and choose one activation model. The recommended
-organization-managed model installs it with **All repositories** and records one
-audited installation approval; repositories then activate on their first
-signed `/review` delivery. Requester authorization still gates the review. The
-explicit model uses **Only select repositories** and
-an operator allowlist. The [GitHub App setup guide](./GITHUB_APP_PILOT.md) has
-the exact permissions, commands, and rollback behavior. Neither mode requires a
-repository workflow or Actions secrets.
-
-Run `review-agent-admin doctor` in `hermes-review` after approving the
-installation. In automatic mode it is valid for zero repositories to be enabled
-before the first signed `/review` delivery.
 
 ## Scale and operate the queue
 
@@ -577,8 +532,7 @@ reviews you intend to accept. The bundled Compose database allows 200
 connections; use the pool formula in Operations to size an external database.
 Confirm that the model provider accepts the chosen concurrency. Compose limits
 each worker container to 64 PIDs. Keep per-replica concurrency at or below 25
-for thread headroom, or raise the PID limit after a capacity test. The shown
-value of 10 stays within the shipped limit.
+for thread headroom, or raise the PID limit after a capacity test.
 
 The OpenShift worker reads the managed profile from a `ReadWriteOnce` PVC.
 Keep one worker replica unless the storage class provides `ReadWriteMany` or
@@ -589,17 +543,8 @@ contract.
 Scale `review-publisher` the same way when publication wait time grows. The
 database prevents two publishers from owning the same delivery generation.
 
-Inspect active jobs, release a delayed retry, or cancel the owning run:
-
-```bash
-review-agent-admin queues inspect
-review-agent-admin jobs list --limit 100
-review-agent-admin jobs retry 42
-review-agent-admin jobs cancel 42
-```
-
-Tune `REVIEW_AGENT_ACTIVE_JOB_LIMIT` from observed wait time and model capacity.
 `REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS` controls how long one priority point
-can move a ready job forward. Neither value limits files, lines, tokens, or total
-review depth. Keep the active-job limit near measured capacity: each idle worker
-checks the bounded ready queue at its configured poll interval.
+can move a ready job forward. Each idle worker checks the bounded ready queue at
+its configured poll interval, so keep the active-job limit near measured
+capacity. The queue and job commands are in the
+[Operations runbook](./OPERATIONS.md#runbook).

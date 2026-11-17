@@ -26,6 +26,7 @@ const sidebars: SidebarsConfig = {
         'docs/REPOSITORY_CONTEXT',
         'docs/CODE_GRAPH',
         'docs/ADMIN_PANEL',
+        'docs/TEAM_ACCESS_AND_MODEL_ACCOUNTS',
       ],
     },
     {

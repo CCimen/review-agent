@@ -4,88 +4,47 @@ slug: /repository-context
 title: Configure reviews in a repository
 description: Add optional team instructions, ordered platform context, typed design decisions, and maintained-document mappings without changing the shared safety contract.
 status: current
-last_verified: 2026-09-29
+last_verified: 2026-11-17
 ---
 
 # Configure reviews in a repository
 
-> **TL;DR:** If the repository has no `.review-agent/` directory, copy the
-> versioned starter into it. Otherwise preserve and edit the existing package.
-> List context files in `config.toml`, then run the offline validator from a
-> Review Agent checkout or release image. Repositories without this directory
-> continue to use the neutral deployment baseline.
+A repository can add an optional `.review-agent/` package with review
+instructions, technical context, accepted design decisions, and documentation
+mappings. It is ordinary version-controlled content; no operator change is
+needed. A repository without the package gets the deployment's neutral
+baseline.
 
-Repository owners can add reviewed project knowledge without asking the Review
-Agent operator to create another deployment profile. The package is ordinary
-version-controlled repository content.
+The deployment still owns the reviewer identity, the evidence and security
+contract, tools, the model route, and GitHub publication
+([Behavior ownership](./BEHAVIOR_OWNERSHIP.md)). Repository content can focus the
+review and its wording; it cannot replace authorization, finding gates,
+severity rules, tools, or publication.
 
-## Understand the ownership boundary
-
-The deployment owns controls that must stay consistent across every repository.
-Each repository owns only its optional review focus and accepted project facts:
-
-```text
-Deployment
-├── bootstrap/profiles/default-standard/
-│   ├── SOUL.md                 Neutral reviewer identity and baseline tone
-│   ├── workspace/AGENTS.md     Non-overridable review and evidence contract
-│   └── skills/               Code and documentation review procedures
-└── Environment
-    ├── Provider and model
-    ├── Reasoning effort
-    ├── Secrets
-    └── Capacity settings
-
-Repository
-└── .review-agent/
-    ├── config.toml             Enables the package and orders context files
-    ├── documentation.toml      Maps maintained documents to source areas
-    ├── instructions.md         Engineering principles, focus, and response style
-    ├── context/
-    │   ├── backend.md
-    │   ├── platform.md
-    │   ├── frontend/framework.md
-    │   └── ui/design-system.md
-    ├── decisions.toml          Explicit ADR index
-    └── decisions/              Typed, accepted repository ADRs
-```
-
-The environment can be Dokploy, OpenShift, Docker Compose, or another supported
-container platform. None of the product defaults depend on one organization or
-one deployment provider.
-
-The effective review combines the neutral deployment contract, repository
-instructions, context files in their declared order, indexed decisions, and the
-exact pull request snapshot. Repository content is additive: it cannot replace
-the deployment's authorization, evidence, severity, tooling, or publication
-rules.
-
-## See the repository package
+## The package
 
 ```text
 .review-agent/
-├── config.toml
-├── documentation.toml
-├── instructions.md
-├── context/
+├── config.toml           Turns guidance on and lists context files in order
+├── instructions.md       Engineering principles, review focus, and response style
+├── context/              Technical facts the reviewer cannot infer from one PR
 │   ├── platform.md
 │   ├── backend.md
-│   └── frontend/
-│       └── framework.md
-├── decisions.toml
-└── decisions/
-    └── ADR-0001-example.md
+│   └── frontend/framework.md
+├── decisions.toml        Index of accepted ADRs and the paths they cover
+├── decisions/            Typed ADRs
+│   └── ADR-0001-example.md
+└── documentation.toml    Maps source areas to maintained documents
 ```
 
-The deployment still owns the neutral reviewer identity, security and evidence
-contract, tools, model route, lifecycle, and GitHub publication. Repository
-content can focus the review and its wording; it cannot weaken those controls.
+Every file is optional. `documentation.toml` and the decision files work without
+`config.toml`.
 
 ## Start with the copyable package
 
-From a Review Agent checkout with its documented virtual environment, copy the
-starter only when the repository has no package. Preserve and edit an existing
-package in place, then validate the target repository:
+From a Review Agent checkout with its virtual environment, copy the starter
+only when the repository has no package. Edit an existing package in place.
+Then validate the target repository:
 
 ```bash
 repository_root=/path/to/repository
@@ -98,9 +57,8 @@ fi
   "$repository_root"
 ```
 
-A repository owner who does not keep a Review Agent checkout can run the same
-offline validator from the release image while standing in the target
-repository:
+Without a checkout, run the same validator from the release image inside the
+target repository:
 
 ```bash
 docker run --rm --read-only \
@@ -111,14 +69,14 @@ docker run --rm --read-only \
   repository-context validate /repo
 ```
 
-The validator is offline: it does not need GitHub, PostgreSQL, Hermes, a model,
-or secrets. It validates optional `documentation.toml` mappings even when the
-repository has no guidance configuration or ADR index. Its JSON receipt contains
-paths, hashes, area IDs, counts, and validation status, never Markdown bodies.
+The validator needs no GitHub, PostgreSQL, Hermes, model, or secrets. It checks
+`documentation.toml` even when the repository has no guidance or ADR index. Its
+JSON receipt contains paths, hashes, area IDs, counts, and status, never file
+contents.
 
-## Select files explicitly
+## Select context files
 
-`config.toml` is the only context index:
+`config.toml` is the only index of guidance files:
 
 ```toml title=".review-agent/config.toml"
 version = 1
@@ -131,26 +89,21 @@ context = [
 ]
 ```
 
-Review Agent reads the optional fixed `instructions.md` first, then only the
-context files listed in this array, in this exact order. Paths are relative to
-`.review-agent/`, must stay under `context/`, and must end in `.md`. It does not
-scan directories, infer frameworks from repository names, fetch remote
-packages, or load unlisted Markdown.
+Review Agent reads `instructions.md` first, if present, then only the listed
+context files, in order. Paths are relative to `.review-agent/`, must be under
+`context/`, end in `.md`, and appear once. Nothing is discovered by scanning
+directories, inferred from repository names, or fetched from elsewhere.
 
-Set `enabled = false` to keep the package in the repository without applying
-its instructions or context. Removing `config.toml` opts out and uses only the
-deployment baseline. A missing indexed file or invalid package disables the
-whole optional guidance snapshot for that review; the normal code review still
-runs.
+`enabled = false` keeps the files without applying the instructions or context,
+and removing `config.toml` opts out of them. A missing listed file or an invalid package drops all
+guidance for that review; the code review still runs.
 
-## Write one instruction layer
+## Write instructions
 
-Use `instructions.md` for repository-wide engineering principles, review focus,
-and communication style. A separate `personality.md` is not part of version 1;
-one repository-owned instruction layer keeps ownership clear.
-
-Good instructions are specific enough to influence a review but broad enough
-to survive ordinary refactors. For example:
+`instructions.md` holds repository-wide engineering principles, review focus,
+and communication style. There is one instruction file; a separate
+`personality.md` is not supported. Write rules that survive ordinary
+refactors, for example:
 
 - prefer the existing transaction owner for multi-step writes;
 - check generated API clients when a public schema changes;
@@ -158,47 +111,37 @@ to survive ordinary refactors. For example:
 - use concise, direct, constructive wording.
 
 Instructions cannot request credentials, change tools or authorization, lower
-finding gates, suppress verified problems, or redefine publication behavior.
-They may guide the review prose when that guidance is compatible with the fixed
-contract. Public headings, hidden markers, finding fields, operator errors, and
-other machine-readable wording remain deployment-owned English protocol.
+finding gates, suppress verified problems, or change publication. They can
+shape the review's prose. Headings, hidden markers, finding fields, and other
+machine-readable text stay in the deployment's fixed English format.
 
-## Compose platform and project context
+## Add platform and project context
 
-Use `context/` for facts and contracts the reviewer cannot reliably infer from
-one pull request. A service built on a shared backend platform can copy the
-platform context into `context/platform.md`, then add service-specific context
-in another file. A frontend can combine framework, starter-kit, and UI-system
-files in the order declared by `config.toml`.
-
-This is copy-and-edit composition, not inheritance. There is no remote import
-resolver or central package registry. Teams can update a shared starter and copy
-its reviewed package into a new repository without coupling every review to an
-external repository or network request.
-
-Keep context factual: supported extension points, integration boundaries,
-known coupled settings, required validation, and failure modes. Keep general
-review preferences in `instructions.md`.
+Use `context/` for facts and contracts the reviewer cannot infer from one pull
+request: extension points, integration boundaries, coupled settings, required
+validation, and failure modes. A service on a shared platform can copy the
+platform's context into `context/platform.md` and add its own file; a frontend
+can combine framework and design-system files in the order `config.toml`
+declares. Composition is copy-and-edit: there is no remote import or central
+registry. Keep general review preferences in `instructions.md`.
 
 ## Record durable decisions
 
 Store accepted ADRs under `.review-agent/decisions/` and list them in
-`.review-agent/decisions.toml`. Review Agent ignores unlisted decision files.
-The full typed format and feedback lifecycle are documented in [Feedback and
-design decisions](./FEEDBACK_AND_DECISIONS.md#repository-decision-contract).
-
-Decisions are separate from general context. Use an ADR when changing one
-accepted invariant needs explicit downstream checks and evidence. Use a context
-file when the information is a reusable platform fact or review aid.
+`.review-agent/decisions.toml`; unlisted files are ignored. Use an ADR when
+changing one invariant needs explicit checks and evidence, and a context file
+for reusable facts.
+[Repository decision contract](./FEEDBACK_AND_DECISIONS.md#repository-decision-contract)
+gives the format and limits.
 
 ## Get architecture-aware reviews
 
-Every code review already checks whether the pull request introduces or worsens
-an architecture problem in the changed code: a rule implemented outside its
-owner, duplicated policy, hidden coupling, a misleading abstraction, or
-complexity that creates a concrete defect or change cost. Without repository
-context, the reviewer infers the intended structure from the diff and the files
-it reads. Two files make that intent explicit.
+Every code review checks whether the pull request introduces or worsens an
+architecture problem in the changed code: a rule implemented outside its owner,
+duplicated policy, hidden coupling, a misleading abstraction, or complexity that
+causes a concrete defect or change cost. Without context, the reviewer infers
+the intended structure from the diff and the files it reads. Two files make
+that intent explicit.
 
 First, describe the structure in a context file and list it in `config.toml`:
 
@@ -220,28 +163,20 @@ First, describe the structure in a context file and list it in `config.toml`:
 ```
 
 Second, record each invariant that must not change without a decision as an
-accepted ADR, with `applies_to` covering the paths it protects. A pull request
-that breaks it receives a `design.adr-conflict` finding when the reviewer traces
-a real consequence in the changed code. The
-[repository decision contract](./FEEDBACK_AND_DECISIONS.md#repository-decision-contract)
-shows the format.
+accepted ADR whose `applies_to` covers the paths it protects. A pull request
+that breaks it gets a `design.adr-conflict` finding when the reviewer traces a
+real consequence in the changed code.
 
-Keep the file factual and short: owners, allowed dependencies, boundaries, and
-the checks a change must preserve. The reviewer treats it as evidence and still
-reports a problem only when it can trace a concrete consequence.
-
-Code review does not assess the architecture of the whole repository, report
-existing structure that a pull request did not change, or propose speculative
-redesigns. Hold open design discussions in an interactive coding-agent session
-instead. Point the repository's `AGENTS.md` or `CLAUDE.md` at the same
-architecture file so local agents and the pull-request review share one
+The reviewer treats both as evidence. It does not assess the whole repository's
+architecture, report structure the pull request did not change, or propose
+speculative redesigns. Point the repository's `AGENTS.md` or `CLAUDE.md` at the
+same architecture file so local coding agents and the review share one
 description.
 
 ## Map maintained documentation
 
-Use `.review-agent/documentation.toml` to declare which exact documents explain
-an area of the repository. The mapping stands on its own: a repository does not
-need to enable optional guidance or add ADRs to validate it.
+`.review-agent/documentation.toml` declares which documents explain which
+source areas. [Documentation review](./DOCUMENTATION_REVIEW.md) uses it.
 
 ```toml title=".review-agent/documentation.toml"
 version = 1
@@ -261,28 +196,27 @@ paths = ["docs/archive/**"]
 reason = "These guides intentionally describe previous releases."
 ```
 
-Each area has a unique ID, one or more source globs, one or more exact document
-paths, and a reader-facing intent. Source and exclusion globs support `*` and `?` within a path segment,
-and `**` as a complete path segment. Paths are normalized repository-relative
-paths. An exclusion needs a reason, and a document cannot be both explicitly
-listed and ignored. The validator also rejects unknown fields, duplicate values,
-escaping paths, unsupported glob syntax, oversized policy data, symlinks,
-submodules, and missing listed documents.
+Format rules:
 
-`ignore_changes` removes only otherwise-unmapped changes. An explicit area
-mapping wins when both match. `ignore_documents` records why current-version
-freshness does not apply to a document; it does not exempt policy files or other
-deterministic checks.
+- Top-level fields are `version` (`1`), `area`, `ignore_changes`, and
+  `ignore_documents`. An area has exactly `id` (unique), `sources`, `documents`,
+  and `intent`. An exclusion has exactly `paths` and `reason`.
+- Paths are normalized and relative to the repository root. Globs support `*`
+  and `?` within a path segment and `**` as a whole segment.
+- Listed documents must exist, and a document cannot be both listed and ignored.
+  The validator also rejects unknown fields, duplicates, paths that escape the
+  repository, unsupported glob syntax, and symlinks.
+- `ignore_changes` applies only to changes no area maps; an area mapping wins.
+  `ignore_documents` says why a document need not match the current version; it
+  does not exempt policy files or other checks.
 
-The copyable starter maps a generic platform source area to its existing
-`context/platform.md` file so the copied package validates immediately. Replace
-that example with the source and document relationships maintained by the target
-repository.
+The starter maps a sample source area to its own `context/platform.md` so the
+copied package validates. Replace it with the repository's real mappings.
 
 ## Preview documentation scope from committed revisions
 
-After committing a proposed change locally, preview its exact documentation
-scope without GitHub, PostgreSQL, a model, or repository command execution:
+After committing a change locally, preview its documentation scope without
+GitHub, PostgreSQL, a model, or running repository commands:
 
 ```bash
 .venv/bin/python tools/review_agent_admin.py repository-context docs-scope \
@@ -291,69 +225,58 @@ scope without GitHub, PostgreSQL, a model, or repository command execution:
   --head <pull-request-head-commit>
 ```
 
-Both `--base` and `--head` must resolve to local commits. The command resolves
-their merge base separately and emits a JSON receipt with all three commit IDs,
-the changed-file inventory, previous rename paths, selected areas and intents,
-deduplicated documents, explained exclusions, unmapped paths, proposal status,
-and incomplete inputs. It reads local Git objects with literal paths and bounded
-output. Dirty working-tree edits do not affect the receipt.
+`--base` and `--head` must be local commits. The command computes their merge
+base and prints a JSON receipt with the three commit IDs, changed files and
+previous rename paths, selected areas and intents, documents, exclusions,
+unmapped paths, proposal status, and incomplete inputs. It reads Git objects
+only; uncommitted edits do not affect it.
 
-The target-base copy of `documentation.toml` is the accepted policy. A head edit
-is reported as a proposal and cannot replace or weaken valid base rules. When the
-head first adds the file, the command can show its proposed scope but reports the
-repository as `not_configured`; it makes no semantic verification claim. An
-invalid head proposal is reported separately while valid base scope remains
-active. An invalid accepted policy reports `invalid_configuration`.
-
-Use this preview before requesting a [live documentation review](DOCUMENTATION_REVIEW.md).
-The live workflow uses the same relationship rules, with team/repository operating
-modes, exact GitHub source reads, and an advisory check on the reviewed commit.
+The base commit's `documentation.toml` is the accepted policy. A head edit is
+reported as a proposal and cannot replace or weaken valid base rules. When the
+head adds the file for the first time, the command shows the proposed scope but
+reports `not_configured`. An invalid head proposal is reported separately while
+valid base rules stay active; an invalid base policy reports
+`invalid_configuration`.
 
 ## Check the package in CI
 
 Copy the [example workflow](https://github.com/CCimen/review-agent/blob/main/examples/workflows/review-agent-context.yml)
-to `.github/workflows/` in a repository that keeps a `.review-agent/` package.
-On every pull request it validates the package and adds the documentation scope
-preview to the job summary. Both commands run in the release image with no
-network, secrets, model, or App access. An invalid package fails the job.
+to `.github/workflows/`. On every pull request it validates the package and adds
+the documentation scope preview to the job summary. Both commands run in the
+release image with no network, secrets, model, or App access, and an invalid
+package fails the job.
 
-The workflow has no path filter, so every pull request reaches a result. It can
-serve as a required check in repositories without a merge queue; it does not
-handle `merge_group` events. The container runs as the runner user because Git
-refuses to read a checkout owned by another user. Keep the image tag on the release your
+The workflow has no path filter, so every pull request gets a result and it can
+be a required check. It does not handle `merge_group` events, so it does not
+suit a merge queue. The container runs as the runner user because Git refuses a
+checkout owned by another user. Keep the image tag on the release your
 organization runs.
 
-## Know when changes become active
+## When changes take effect
 
-Review Agent reads the package from the pull request's exact **base commit** and
-stores an immutable snapshot with the review run. A pull request cannot change
-its own active review instructions. Changes to `.review-agent/` become active
-after they are reviewed and merged, when a later pull request uses that commit
-as its base.
+Review Agent reads the package from the pull request's **base commit** and
+stores it with the review run, so a pull request cannot change its own review.
+Changes to `.review-agent/` apply once merged, to pull requests based on a
+commit that contains them. Protect the package with branch review and
+CODEOWNERS.
 
-Protect `config.toml`, `documentation.toml`, `instructions.md`, `context/`,
-`decisions.toml`, and `decisions/` with normal branch review and CODEOWNERS where
-appropriate.
+## Limits
 
-The current contract accepts ADRs only under `.review-agent/decisions/`; it has
-no compatibility path for other locations. New deployments should follow the
-clean initialization sequence in
-[Operations](./OPERATIONS.md#start-the-repository-context-release-cleanly).
+| Item | Limit |
+| --- | --- |
+| `config.toml` | 16 KiB, 100 lines |
+| Context files listed | 10 |
+| Lines per instruction or context file | 400 |
+| Instructions and context combined, live review | one text page (the per-result limit divided by 7), at most 81,920 characters; 14,285 with the packaged settings and a context window of 166,667 tokens or more |
+| Instructions and context combined, offline validator | 22,857 characters (the packaged 160,000-character result limit divided by 7) |
+| Stored guidance snapshot | 512 KiB |
+| `documentation.toml` | 64 KiB |
+| Areas; `ignore_changes`; `ignore_documents` tables | 200 each |
+| Patterns per entry; patterns in total | 20; 1,000 |
+| Documents per area | 20 |
+| Area ID; `intent`; `reason` | 64; 1,000; 500 characters |
 
-## Capacity is not review depth
-
-The package is optional model context, so it is bounded to avoid accidental
-multi-megabyte GitHub reads, database rows, RAM use, and prompt expansion. A
-configuration can list at most 10 context files; each file is limited to 400
-lines. The combined instructions and context use the smaller of the plugin's
-JSON-safe text-page capacity (a seventh of the session's result limit, the
-smaller of `result_max_chars` and Hermes' single-result limit) and 81,920
-characters. With the packaged settings and a context window of 166,667 tokens or
-more, repository guidance can use 14,285 characters. The storage ceiling is derived from the 512 KiB immutable
-snapshot contract with space reserved for paths, hashes, and lifecycle
-metadata. These guards do not limit pull request size, changed files, diff
-pagination, source reads, findings, or review depth.
-
-If a package exceeds the guidance capacity, the review records a bounded reason,
-omits the optional guidance for that run, and continues the complete review
-contract.
+The validator accepts more than a live review can use, so keep instructions and
+context below the live figure. These limits apply only to the package: guidance
+that is too large is left out with a recorded reason, and the pull request is
+still reviewed in full.

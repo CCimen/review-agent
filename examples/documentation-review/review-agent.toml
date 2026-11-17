@@ -18,7 +18,3 @@ id = "deployment"
 sources = ["compose.yaml", "Dockerfile", "admin/Dockerfile", "bootstrap/plugins/review_agent_tools/operator_setup.py", "bootstrap/plugins/review_agent_tools/deployment_settings.py"]
 documents = ["docs/DEPLOYMENT.md", "docs/OPERATIONS.md", "docs/GITHUB_APP_PILOT.md", "docs/ADMIN_PANEL.md"]
 intent = "Keep installation permissions, service topology, operator settings, upgrade and recovery instructions accurate."
-
-[[ignore_documents]]
-paths = ["docs/assessments/**"]
-reason = "Dated assessments preserve their historical context."

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from .review_contract import REASONING_EFFORTS
 from .settings import (
@@ -164,8 +164,6 @@ class DeploymentSettings:
             or embeddings not in {"none", "openai"}
         ):
             raise ValueError("Unsupported model or embedding selection")
-        from typing import cast
-
         return cls(
             active_job_limit=core.active_job_limit,
             capacity_retry_seconds=int(

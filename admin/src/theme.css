@@ -137,30 +137,10 @@
   }
 }
 
-/* Two transitions from transitions.dev, tuned to the theme's motion tokens
-   rather than to a second token block, so the console keeps one motion scale.
-
-   Text states swap (transitions.dev 04): a label that changes in place
-   ("Copy" → "Copied") enters from a few pixels below with a touch of blur,
-   which reads as the same slot changing rather than two labels overlapping.
-   React remounts the label, so only the enter half is needed; the exit is
-   the old node leaving, which the eye has already moved past. */
-.t-text-swap {
-  display: inline-block;
-  animation: t-text-swap-enter var(--duration-fast) var(--ease-standard)
-    backwards;
-}
-@keyframes t-text-swap-enter {
-  from {
-    transform: translateY(4px);
-    filter: blur(2px);
-    opacity: 0;
-  }
-}
-
-/* Error state shake (transitions.dev 12): a rejected sign-in shakes the
-   message once. Percent stops are the cumulative segment durations
-   (80, 60, 80, 60 ms of 280 ms); each leg carries the theme's ease. */
+/* Error state shake (transitions.dev 12), tuned to the theme's motion tokens:
+   a rejected sign-in shakes the message once. Percent stops are the cumulative
+   segment durations (80, 60, 80, 60 ms of 280 ms); each leg carries the
+   theme's ease. */
 .t-shake {
   animation: t-shake 280ms linear;
 }
@@ -186,10 +166,6 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .t-text-swap {
-    animation-name: console-fade;
-    animation-duration: var(--duration-fast-min);
-  }
   .t-shake {
     animation: none;
   }

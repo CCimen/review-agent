@@ -14,7 +14,6 @@ from review_agent_tools.settings import (  # noqa: E402
     ReviewAgentSettings,
     SettingsError,
 )
-from review_agent_tools import memory_validation  # noqa: E402
 
 
 class ReviewAgentSettingsTests(unittest.TestCase):
@@ -169,18 +168,6 @@ class ReviewAgentSettingsTests(unittest.TestCase):
             "policy_revision exceeds 120 characters",
         ):
             ReviewAgentSettings({}).policy_revision("x" * 121)
-
-    def test_invalid_policy_revisions_keep_validation_error_contract(self) -> None:
-        for revision, message in (
-            (" ", "policy_revision is required"),
-            ("x" * 121, "policy_revision exceeds 120 characters"),
-        ):
-            with self.subTest(revision=revision):
-                with self.assertRaisesRegex(
-                    memory_validation.ReviewMemoryError,
-                    message,
-                ):
-                    memory_validation.current_policy_revision(revision)
 
 
 if __name__ == "__main__":

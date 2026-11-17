@@ -6,24 +6,18 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Literal, get_args
 
-from .domain.finding import MAX_FINDINGS_PER_REVIEW as _MAX_FINDINGS_PER_REVIEW
-from .settings import ReviewAgentSettings, SettingsError
+from .domain import finding as _finding
 
-SEVERITY_ORDER = ("Critical", "High", "Medium", "Low")
+# Finding policy is owned by domain.finding; these are its string-keyed views
+# for tool schemas and rendering.
+SEVERITY_ORDER = tuple(severity.value for severity in _finding.Severity)
 SEVERITY_PRIORITY = {severity: index for index, severity in enumerate(SEVERITY_ORDER)}
 SEVERITY_SCORE_GATES = {
-    severity: 8 if severity in {"Critical", "High"} else 7
-    for severity in SEVERITY_ORDER
+    severity.value: gate for severity, gate in _finding.SCORE_GATES.items()
 }
 SEVERITIES = set(SEVERITY_ORDER)
-MAX_FINDINGS_PER_REVIEW = _MAX_FINDINGS_PER_REVIEW
-FINDING_TEXT_LIMITS = {
-    "title": 160,
-    "evidence": 900,
-    "disproof_checks": 600,
-    "impact": 700,
-    "smallest_fix": 700,
-}
+MAX_FINDINGS_PER_REVIEW = _finding.MAX_FINDINGS_PER_REVIEW
+FINDING_TEXT_LIMITS = _finding.TEXT_LIMITS
 PRIOR_VERDICT_EVIDENCE_MAX = 320
 PRIOR_VERDICTS_REQUIRING_EVIDENCE = frozenset({"resolved", "invalidated"})
 PriorFindingVerdictValue = Literal[
@@ -35,22 +29,6 @@ PriorFindingVerdictValue = Literal[
     "not_checked",
 ]
 PRIOR_FINDING_VERDICTS = get_args(PriorFindingVerdictValue)
-DECISIONS = {
-    "false_positive",
-    "intentional_by_design",
-    "accepted_risk",
-    "duplicate",
-    "resolved",
-    "reopen",
-}
-SUPPRESSIVE_DECISIONS = {
-    "false_positive",
-    "intentional_by_design",
-    "accepted_risk",
-    "duplicate",
-}
-# accepted_risk acknowledges a real risk and needs the stronger governance path,
-# not the lightweight in-PR feedback loop.
 REVIEW_FEEDBACK_CATEGORIES = {
     "useful",
     "too_verbose",
@@ -62,7 +40,7 @@ REVIEW_FEEDBACK_CATEGORIES = {
     "missed_issue",
     "scope_confusion",
 }
-MIN_CONFIDENCE = 0.85
+MIN_CONFIDENCE = _finding.MIN_CONFIDENCE
 MIN_PUBLICATION_SCORE = min(SEVERITY_SCORE_GATES.values())
 _ELLIPSIS = "..."
 
@@ -83,13 +61,6 @@ def isoformat(value: datetime | None = None) -> str:
         .isoformat()
         .replace("+00:00", "Z")
     )
-
-
-def current_policy_revision(explicit: str | None = None) -> str:
-    try:
-        return ReviewAgentSettings.from_environment().policy_revision(explicit)
-    except SettingsError as exc:
-        raise ReviewMemoryError(str(exc)) from exc
 
 
 def clean_text(value: Any, *, field: str, maximum: int, required: bool = True) -> str:

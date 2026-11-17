@@ -193,8 +193,8 @@ def group_diff_coverage(
 
 MAX_REVIEW_PARTS = 12
 # Part sizes follow the session's context window. This initial empirical policy
-# comes from the first split review (web-app-draken-public#1122 at cec7dd7,
-# 2026-10-13, reasoning xhigh, 500K-token window): 11 parts of 302K-400K diff
+# comes from the first split review in production (2026-10-13, reasoning
+# xhigh, 500K-token window): 11 parts of 302K-400K diff
 # characters peaked at 174K-258K prompt tokens and none compacted.
 # The session's prompt before it reads any diff.
 PART_SESSION_OVERHEAD_TOKENS = 14_000

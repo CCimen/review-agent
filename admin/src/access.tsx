@@ -69,11 +69,6 @@ type RepositoryAccessPage = components["schemas"]["RepositoryAccessPage"];
 type RepositoryAccess =
   components["schemas"]["review_agent_tools__admin_access_api__RepositoryAccess"];
 
-const dateTime = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
 type Connection = components["schemas"]["AppConnection"];
 type LiveInstallation = components["schemas"]["LiveInstallationStatus"];
 const connectionLabels = {
@@ -270,7 +265,7 @@ function InstallationPanel({
             <dt>
               <Text color="secondary">Stored state updated</Text>
             </dt>
-            <dd>{dateTime.format(new Date(installation.updated_at))}</dd>
+            <dd>{time(installation.updated_at)}</dd>
           </HStack>
         </VStack>
         <VStack gap={3}>

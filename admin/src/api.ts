@@ -13,11 +13,9 @@ export type UsageReport = components["schemas"]["UsageReport"];
 export type UsageRow = components["schemas"]["UsageRow"];
 export type ActivityCounts = components["schemas"]["ActivityCounts"];
 export type ActivityDay = components["schemas"]["ActivityDay"];
-export type FailureCount = components["schemas"]["FailureCount"];
 export type Operations = components["schemas"]["Operations"];
 export type QueueStatus = components["schemas"]["QueueStatus"];
 export type WorkerInstance = components["schemas"]["WorkerInstance"];
-export type WorkerEvent = components["schemas"]["WorkerEvent"];
 export type WorkerEventPage = components["schemas"]["WorkerEventPage"];
 export type Account = components["schemas"]["Account"];
 export type NewAccount = components["schemas"]["NewAccount"];
@@ -29,11 +27,9 @@ export type OIDCStart = components["schemas"]["OIDCStart"];
 
 export type Team = components["schemas"]["Team"];
 export type TeamPage = components["schemas"]["TeamPage"];
-export type TeamMember = components["schemas"]["TeamMember"];
 export type TeamMemberPage = components["schemas"]["TeamMemberPage"];
 export type AuditPage = components["schemas"]["AuditPage"];
 export type AuditEvent = components["schemas"]["AuditEvent"];
-export type RepositoryRequest = components["schemas"]["RepositoryRequest"];
 export type RepositoryRequestPage =
   components["schemas"]["RepositoryRequestPage"];
 export type TeamRepositoryPage = components["schemas"]["TeamRepositoryPage"];

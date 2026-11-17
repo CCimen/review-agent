@@ -131,7 +131,6 @@ _COACH_SOURCE_KEYS: Final[frozenset[str]] = frozenset(
 )
 PROPOSAL_SUPPORTED_EVENT_GROUPS: Final[frozenset[str]] = COACH_EVENT_GROUPS
 PROPOSAL_SUPPORTED_SIGNAL_STRENGTHS: Final[frozenset[str]] = EMITTED_SIGNAL_STRENGTHS
-PROPOSAL_DECISIONS: Final[frozenset[str]] = frozenset({"propose", "no_change"})
 PROPOSAL_FORBIDDEN_ACTIONS: Final[tuple[str, ...]] = (
     "Do not open a pull request automatically.",
     "Do not edit reviewer policy, prompts, skills, or code from this artifact alone.",

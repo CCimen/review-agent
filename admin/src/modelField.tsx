@@ -6,7 +6,7 @@ import type { components } from "./api.generated";
 type ProviderModel = components["schemas"]["ProviderModel"];
 
 /** Whether Hermes' model list for the account is loading, listed, or unavailable. */
-export type ModelListState = "loading" | "listed" | "unavailable";
+type ModelListState = "loading" | "listed" | "unavailable";
 
 const descriptions: Record<ModelListState, string> = {
   loading: "Loading the models Hermes lists for this account.",

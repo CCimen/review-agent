@@ -53,7 +53,7 @@ const modeOptions = [
   { value: "manual", label: "Manual" },
   { value: "automatic", label: "Automatic" },
 ];
-export function documentationModeLabel(mode: Mode) {
+function documentationModeLabel(mode: Mode) {
   return modeOptions.find((option) => option.value === mode)?.label ?? mode;
 }
 
@@ -1115,12 +1115,10 @@ export function ApprovalDocumentationSummary({ teamId }: { teamId: number }) {
 
 /** Where documentation reviews stand across the deployment.
  *
- *  The setting itself lives in three places by design: a deployment switch, a
- *  team default, and a repository override. Until now each was reached from a
- *  different corner of the console, so the one question an operator actually
- *  asks — which repositories run documentation reviews, and why — had no
- *  screen. This is that screen; it changes nothing on its own and hands each
- *  repository to the editor that already owns it. */
+ *  The setting lives in three places by design: a deployment switch, a team
+ *  default, and a repository override. This screen answers which repositories
+ *  run documentation reviews, and why. It changes nothing on its own and hands
+ *  each repository to the editor that owns it. */
 export function DocumentationOverviewPage() {
   const scope = useScope();
   /* A table puts the mode in a second column, and on a phone a second column

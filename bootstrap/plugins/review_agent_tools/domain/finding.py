@@ -129,14 +129,14 @@ SUPPRESSIVE_DECISION_KINDS = frozenset(
 )
 
 
-_SCORE_GATE = {
+SCORE_GATES = {
     Severity.CRITICAL: 8,
     Severity.HIGH: 8,
     Severity.MEDIUM: 7,
     Severity.LOW: 7,
 }
 
-_TEXT_LIMITS = {
+TEXT_LIMITS = {
     "title": 160,
     "evidence": 900,
     "disproof_checks": 600,
@@ -293,7 +293,7 @@ def _single_line(value: str, *, field: str, maximum: int, required: bool = True)
 
 def _multiline(value: str, *, field: str) -> str:
     normalized = value.strip()
-    maximum = _TEXT_LIMITS[field]
+    maximum = TEXT_LIMITS[field]
     if not normalized:
         raise FindingDomainError(f"{field} is required")
     if "\x00" in normalized or len(normalized) > maximum:
@@ -442,7 +442,7 @@ def resolve_finding_content(
         or None
     )
     anchor = _single_line(item.anchor, field="anchor", maximum=240).lower()
-    title = _single_line(item.title, field="title", maximum=_TEXT_LIMITS["title"])
+    title = _single_line(item.title, field="title", maximum=TEXT_LIMITS["title"])
     try:
         severity = Severity(item.severity.strip().title())
     except ValueError as exc:
@@ -457,22 +457,22 @@ def resolve_finding_content(
         ) from exc
     if (
         isinstance(item.publication_score, bool)
-        or item.publication_score < _SCORE_GATE[severity]
+        or item.publication_score < SCORE_GATES[severity]
         or item.publication_score > 10
     ):
         raise FindingDomainError(
             f"publication_score for {severity.value} must be between "
-            f"{_SCORE_GATE[severity]} and 10"
+            f"{SCORE_GATES[severity]} and 10"
         )
     if isinstance(item.confidence, bool):
-        raise FindingDomainError("confidence must be between 0.85 and 1.00")
+        raise FindingDomainError(f"confidence must be between {MIN_CONFIDENCE:.2f} and 1.00")
     confidence = float(item.confidence)
     if (
         not math.isfinite(confidence)
         or confidence < MIN_CONFIDENCE
         or confidence > 1.0
     ):
-        raise FindingDomainError("confidence must be between 0.85 and 1.00")
+        raise FindingDomainError(f"confidence must be between {MIN_CONFIDENCE:.2f} and 1.00")
     confidence = float(
         Decimal(str(confidence)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
     )

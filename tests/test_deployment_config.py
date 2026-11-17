@@ -441,7 +441,7 @@ class DeploymentConfigTests(unittest.TestCase):
                 tab("kubernetes-upgrade", "Kubernetes (Helm)"),
                 (
                     "--set drained=true --set initialize=false",
-                    'kubectl rollout status "deployment/$deployment"',
+                    "--for=jsonpath='{.status.observedGeneration}'=\"$generation\"",
                     "kubectl delete job -l app=review-agent-init --ignore-not-found",
                     "kubectl wait --for=delete $pods",
                     "--set drained=true --set initialize=true --wait --wait-for-jobs",
@@ -680,9 +680,14 @@ class DeploymentConfigTests(unittest.TestCase):
         # Every Deployment has scaled down, Jobs of an earlier attempt are
         # deleted, and every application and initialization label is checked
         # for pods, before initialization.
+        # The check is that the controller has seen the scale-down, not that
+        # an earlier rollout was healthy: rollout status fails after a
+        # rollout that exceeded its deadline, which is when a rerun is needed.
+        self.assertFalse([call for call in calls if "rollout status" in call])
         scaled_down = [
             index for index, call in enumerate(calls)
-            if call.startswith("kubectl rollout status deployment/")
+            if call.startswith("kubectl wait deployment/")
+            and "--for=jsonpath={.status.observedGeneration}=" in call
         ]
         self.assertEqual(6, len(scaled_down))
         self.assertLess(calls.index(drain), scaled_down[0])
@@ -697,7 +702,8 @@ class DeploymentConfigTests(unittest.TestCase):
 
         for failing, reached in (
             ("initialize=false", 1),
-            ("kubectl rollout status", 1),
+            ("kubectl get deployment/", 1),
+            ("kubectl wait deployment/", 1),
             ("kubectl delete job", 1),
             ("kubectl get pods", 1),
             ("initialize=true", 2),

@@ -380,7 +380,9 @@ DEPLOYMENTS="hermes-review review-agent-admission review-agent-github-gateway
 helm upgrade --install review-agent "$CHART" -f "$VALUES" \
   --set drained=true --set initialize=false
 for deployment in $DEPLOYMENTS; do
-  kubectl rollout status "deployment/$deployment" --timeout=5m
+  generation="$(kubectl get "deployment/$deployment" -o jsonpath='{.metadata.generation}')"
+  kubectl wait "deployment/$deployment" --timeout=5m \
+    --for=jsonpath='{.status.observedGeneration}'="$generation"
 done
 kubectl delete job -l app=review-agent-init --ignore-not-found
 for app in $DEPLOYMENTS review-agent-init; do
@@ -611,7 +613,9 @@ DEPLOYMENTS="hermes-review review-agent-admission review-agent-github-gateway
 helm upgrade --install review-agent "$CHART" -f "$VALUES" \
   --set drained=true --set initialize=false
 for deployment in $DEPLOYMENTS; do
-  kubectl rollout status "deployment/$deployment" --timeout=5m
+  generation="$(kubectl get "deployment/$deployment" -o jsonpath='{.metadata.generation}')"
+  kubectl wait "deployment/$deployment" --timeout=5m \
+    --for=jsonpath='{.status.observedGeneration}'="$generation"
 done
 kubectl delete job -l app=review-agent-init --ignore-not-found
 for app in $DEPLOYMENTS review-agent-init; do

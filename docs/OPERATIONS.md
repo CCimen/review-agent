@@ -97,9 +97,13 @@ credentials. `REVIEW_AGENT_MODEL` has no default; a deployment without it does
 not start.
 
 Once the console has saved settings, their model governs new reviews instead of
-`REVIEW_AGENT_MODEL`; change it in **Settings**. An environment change applies
-after the installer and services restart. Already queued reviews keep the
-provider, model and effort they were admitted with. Verify:
+`REVIEW_AGENT_MODEL`; change it in **Settings**. A model changed there applies
+to new requests, and queued reviews keep the route they were admitted with.
+
+An environment change applies after the installer and services restart.
+Rerunning the installer with a different provider, model or effort rewrites the
+managed Hermes configuration, so reviews queued before it fail with
+`review_contract_changed` and must be requested again. Verify:
 
 ```bash
 curl -fsS http://127.0.0.1:8642/health
@@ -318,7 +322,7 @@ Run and publication states:
 | `running` with an old heartbeat, or `stalled` | Execution stopped before a terminal state. Mark stale runs failed before retrying. |
 | `publish_failed` | GitHub publication was attempted and failed; inspect `failure=`. |
 | `body_too_large` | The review could not fit within the per-comment byte budget. |
-| `review_contract_changed` | The installed reviewer (profile, skill or plugin bundle) changed after the review was queued, for example during an upgrade. The queued provider, model and effort are frozen with the request and do not cause this. Finish the upgrade so every service runs the same release, then request a fresh review. |
+| `review_contract_changed` | The installed reviewer changed after the review was queued: the profile, skill or plugin bundle (an upgrade), or the managed Hermes configuration (the installer rerun with a different provider, model or effort). A model changed in console **Settings** does not cause this; queued reviews keep their route. Make every service run the same release and installed configuration, then request a fresh review. |
 | `stale` | The pull request base or head changed before posting. |
 | `pr_not_open` | The pull request was closed or merged during the review. The run stops at its next tool call without a retry or failure comment. |
 | `finding_decisions_changed` | A human decision on one of the findings changed while the publication waited. Feedback on the same finding identity in another pull request also counts. Request a fresh `/review`. |

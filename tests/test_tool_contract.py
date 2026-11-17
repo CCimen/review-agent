@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 from http.client import BadStatusLine
+import importlib.util
 import json
 import os
+import re
 import sys
 import unittest
 from contextlib import nullcontext
@@ -1631,6 +1633,20 @@ class ToolContractTests(unittest.TestCase):
             assert isinstance(schema, dict)
             self.assertEqual(schema["name"], name)
             self.assertTrue(callable(registration["handler"]))
+
+    def test_every_module_the_plugin_loads_by_name_exists(self) -> None:
+        # Registration builds these module paths at run time, so neither the
+        # type checker nor an import rewrite sees them.
+        source = (PACKAGE_ROOT / "review_agent_tools" / "__init__.py").read_text(
+            encoding="utf-8"
+        )
+        loaded = re.findall(r'import_module\(f"\{__name__\}\.([a-z_.]+)"\)', source)
+        self.assertGreaterEqual(len(loaded), 10)
+        for module in loaded:
+            with self.subTest(module=module):
+                self.assertIsNotNone(
+                    importlib.util.find_spec(f"review_agent_tools.{module}")
+                )
 
 
 if __name__ == "__main__":

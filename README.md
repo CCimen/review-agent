@@ -116,8 +116,19 @@ Hermes' [Anthropic route](https://hermes-agent.nousresearch.com/docs/integration
 ## Development
 
 The runtime, admin API, and console live in this repository so API and schema
-changes ship together. `bootstrap/plugins/review_agent_tools/` is the Hermes
-plugin and services, `admin/` the console, `website/` the documentation site.
+changes ship together:
+
+```text
+bootstrap/plugins/review_agent_tools/   the application package; start reading here
+tools/                                  entrypoints for the services and operator commands
+bootstrap/                              installer, managed configuration, reviewer profiles
+admin/                                  admin console frontend
+tests/  scripts/                        tests, CI checks and release tooling
+docs/  website/  examples/              documentation, its site, deployment templates
+```
+
+[CONTRIBUTING.md](CONTRIBUTING.md#where-the-code-lives) maps each package
+inside the application to its responsibility.
 
 ```bash
 ./scripts/check_bundle.sh

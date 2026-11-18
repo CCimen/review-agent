@@ -47,7 +47,7 @@ from review_agent_tools.review import (  # noqa: E402
     source_tools as review_source_tools,
     tool_runtime as review_tool_runtime,
 )
-from review_agent_tools.diff_render import assemble_rendered_diff  # noqa: E402
+from review_agent_tools.diff_render import prepare_rendered_diff  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 
 
@@ -548,8 +548,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         )
         returned: list[str] = []
         for start in range(0, len(text), 500):
-            assembled = assemble_rendered_diff(
-                text,
+            assembled = prepare_rendered_diff(text).assemble(
                 only_path="src/a.py" if start else None,
                 max_chars=500,
                 start_char=start,

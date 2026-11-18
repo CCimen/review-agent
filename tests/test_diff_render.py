@@ -211,8 +211,9 @@ class AssembleFallbackDiffTests(unittest.TestCase):
     def test_fully_packed_file_is_exposed_not_truncated_when_more_remain(self):
         a = _cf(path="a.py", patch="@@ " + "x" * 600)
         b = _cf(path="b.py", patch="@@ " + "y" * 600)
-        result = diff_render.assemble_fallback_diff(
-            [a, b],  # type: ignore[list-item]
+        result = diff_render.prepare_fallback_diff(
+            [a, b]  # type: ignore[list-item]
+        ).assemble(
             only_path=None,
             max_chars=1000,
         )
@@ -224,8 +225,9 @@ class AssembleFallbackDiffTests(unittest.TestCase):
 
     def test_single_oversized_file_is_truncated_not_exposed(self):
         big = _cf(path="big.py", patch="@@ " + "z" * 2000)
-        result = diff_render.assemble_fallback_diff(
-            [big],  # type: ignore[list-item]
+        result = diff_render.prepare_fallback_diff(
+            [big]  # type: ignore[list-item]
+        ).assemble(
             only_path=None,
             max_chars=1000,
         )
@@ -234,8 +236,9 @@ class AssembleFallbackDiffTests(unittest.TestCase):
 
     def test_only_path_oversized_is_truncated_not_exposed(self):
         big = _cf(path="big.py", patch="@@ " + "z" * 2000)
-        result = diff_render.assemble_fallback_diff(
-            [big],  # type: ignore[list-item]
+        result = diff_render.prepare_fallback_diff(
+            [big]  # type: ignore[list-item]
+        ).assemble(
             only_path="big.py",
             max_chars=1000,
         )
@@ -253,8 +256,8 @@ class AssembleRenderedDiffTests(unittest.TestCase):
             "src/app.py", "+exact\n"
         )
 
-        result = diff_render.assemble_rendered_diff(
-            text, only_path="src/app.py", max_chars=10_000
+        result = diff_render.prepare_rendered_diff(text).assemble(
+            only_path="src/app.py", max_chars=10_000
         )
 
         self.assertTrue(result.path_present)
@@ -268,8 +271,8 @@ class AssembleRenderedDiffTests(unittest.TestCase):
             "similarity index 100%\n"
         )
 
-        result = diff_render.assemble_rendered_diff(
-            text, only_path="src/newé name.py", max_chars=10_000
+        result = diff_render.prepare_rendered_diff(text).assemble(
+            only_path="src/newé name.py", max_chars=10_000
         )
 
         self.assertTrue(result.path_present)
@@ -283,11 +286,11 @@ class AssembleRenderedDiffTests(unittest.TestCase):
             "rename to src/new.py\n"
         )
 
-        result = diff_render.assemble_rendered_diff(
-            text, only_path=None, max_chars=10_000
+        result = diff_render.prepare_rendered_diff(text).assemble(
+            only_path=None, max_chars=10_000
         )
-        old = diff_render.assemble_rendered_diff(
-            text, only_path="src/old.py", max_chars=10_000
+        old = diff_render.prepare_rendered_diff(text).assemble(
+            only_path="src/old.py", max_chars=10_000
         )
 
         self.assertEqual(result.exposed_paths, ["src/new.py"])
@@ -297,8 +300,8 @@ class AssembleRenderedDiffTests(unittest.TestCase):
         path = "foo b/bar.py"
         text = self._block(path)
 
-        result = diff_render.assemble_rendered_diff(
-            text, only_path=path, max_chars=10_000
+        result = diff_render.prepare_rendered_diff(text).assemble(
+            only_path=path, max_chars=10_000
         )
 
         self.assertTrue(result.path_present)
@@ -308,8 +311,8 @@ class AssembleRenderedDiffTests(unittest.TestCase):
         first = self._block("a.py", "+" + "a" * 600 + "\n")
         second = self._block("b.py", "+" + "b" * 600 + "\n")
 
-        result = diff_render.assemble_rendered_diff(
-            first + second, only_path=None, max_chars=1000
+        result = diff_render.prepare_rendered_diff(first + second).assemble(
+            only_path=None, max_chars=1000
         )
 
         self.assertEqual(result.text, first)
@@ -320,8 +323,8 @@ class AssembleRenderedDiffTests(unittest.TestCase):
     def test_rendered_single_oversized_path_is_truncated(self):
         text = self._block("big.py", "+" + "z" * 2000 + "\n")
 
-        result = diff_render.assemble_rendered_diff(
-            text, only_path="big.py", max_chars=1000
+        result = diff_render.prepare_rendered_diff(text).assemble(
+            only_path="big.py", max_chars=1000
         )
 
         self.assertEqual(len(result.text), 1000)
@@ -330,8 +333,7 @@ class AssembleRenderedDiffTests(unittest.TestCase):
         self.assertLessEqual(len(result.text), 1000)
         self.assertEqual(result.next_start_char, 1000)
 
-        continuation = diff_render.assemble_rendered_diff(
-            text,
+        continuation = diff_render.prepare_rendered_diff(text).assemble(
             only_path="big.py",
             max_chars=5000,
             start_char=result.next_start_char,

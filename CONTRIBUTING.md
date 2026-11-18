@@ -54,7 +54,7 @@ Inside the package:
 | `model_runtime/` | Hermes integration: runtime API, model accounts, quota, context window |
 | `admin/`, `admin_auth.py` | The admin console backend: HTTP API, accounts and sign-in |
 | `domain/` | Pure rules and value types with no I/O |
-| `postgres/`, `postgres_migrations/` | All SQL, one module per concern, and the schema migrations |
+| `postgres/`, `postgres_migrations/` | PostgreSQL persistence, one module per concern, and the schema migrations |
 | `operator_application.py`, `operator_setup.py` | Operator command use cases, `doctor` and App registration |
 | `settings.py`, `deployment_settings.py`, `schemas.py` and the other top-level modules | Configuration, tool schemas and helpers shared by several packages |
 

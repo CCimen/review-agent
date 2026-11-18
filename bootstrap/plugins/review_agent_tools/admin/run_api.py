@@ -10,7 +10,8 @@ from . import application as admin_application
 from ..admin_auth import AdminAuth
 from ..postgres.team_access import AccessRequest
 from ..domain.review import ReviewStatus
-from ..postgres import admin_run_actions, jobs, review_runs
+from ..postgres import jobs, review_runs
+from . import run_actions as admin_run_actions
 from ..postgres.runtime import PostgreSQLRuntime
 
 

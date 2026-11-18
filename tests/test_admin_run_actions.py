@@ -22,7 +22,8 @@ from review_agent_tools.review import (  # noqa: E402
 )
 from review_agent_tools.admin.run_api import create_router  # noqa: E402
 from review_agent_tools.domain.review import JsonObject, resolve_review_subject  # noqa: E402
-from review_agent_tools.postgres import admin_run_actions, jobs, registry  # noqa: E402
+from review_agent_tools.admin import run_actions as admin_run_actions  # noqa: E402
+from review_agent_tools.postgres import jobs, registry  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402

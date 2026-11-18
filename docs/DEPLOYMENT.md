@@ -588,6 +588,23 @@ In the console's OpenAPI document, the component schema
 changed: `FindingDecision.occurrence_id` could be `null` and is now always an
 integer.
 
+Removed since 0.4.14:
+
+- Nine `review-agent-memory` subcommands of the offline learning tools:
+  `learning-report`, `coach-export`, `coach-propose`, `coach-verify-proposal`,
+  `coach-run`, `coach-record-outcome`, `coach-history`, `validate-replay` and
+  `verification-export`. The other subcommands are unchanged.
+- From the repository export (`review-agent-memory export`, now schema version
+  18): the keys `coach_runs`, `coach_candidates`, `review_verification_runs`,
+  `candidate_verifications` and `candidate_reconciliations`. From the
+  publications listing: the four `verification_*` fields, which were always
+  null.
+- The OpenShift template. The Helm chart under `examples/helm/` remains.
+
+Migration 039 adds two constraints that existing data already satisfies. The
+tables of the removed tools stay in the schema, empty and unused, so the
+previous release still runs after a rollback; a later release drops them.
+
 ### Rollback boundary
 
 The admin API requires every migration shipped with its source revision. Older

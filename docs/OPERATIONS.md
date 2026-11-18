@@ -624,20 +624,28 @@ schedule repeated runs through existing maintenance tooling.
 ## Backup and recovery
 
 PostgreSQL may contain unpublished findings and human-entered reasons; store
-backups securely. Create a logical backup from the Compose host. Each backup
-gets its own file, so a failed dump never replaces an earlier archive:
+backups securely. Back up the database the application uses: the commands in
+this section are for the bundled `review-postgres` service and its
+`review_agent` database. When `REVIEW_AGENT_DATABASE_URL` names another host or
+database, run `pg_dump` and `pg_restore` with the same options against that
+database from a host with the PostgreSQL client tools; a dump of an unused
+local volume is not a backup.
+
+Create a logical backup from the Compose host. Each backup gets its own file,
+and the shell refuses to write over an existing one, so neither a failed dump
+nor a second backup started in the same second replaces an archive:
 
 ```bash
-umask 077
 dump="review-agent-$(date -u +%Y%m%dT%H%M%SZ).dump"
-docker compose exec -T review-postgres \
-  pg_dump --username=review_agent --dbname=review_agent --format=custom \
-  > "$dump" && echo "Backup written: $dump"
+( umask 077; set -o noclobber
+  docker compose exec -T review-postgres \
+    pg_dump --username=review_agent --dbname=review_agent --format=custom \
+    > "$dump" ) && echo "Backup written: $dump"
 ```
 
-Without the last line's message the dump failed and the new file is
-incomplete. Keep the previous verified archive until the new one has passed
-the restore test below.
+Without the last line's message the dump failed; a file it left is incomplete.
+Keep the previous verified archive until the new one has passed the restore
+test below.
 
 Test recovery in a fresh database before relying on a backup. The archive
 records the grants to the runtime role, including its default privileges, but
@@ -659,14 +667,17 @@ owner, and let `database prepare` create the runtime role and its grants.
     --no-owner --no-privileges --exit-on-error < "$dump" &&
   docker compose exec -T review-postgres \
     psql --username=review_agent --dbname="$target" --set ON_ERROR_STOP=1 \
-    --command "SELECT max(version) FROM review_agent.schema_migrations" &&
+    --command "SELECT (SELECT max(version) FROM review_agent.schema_migrations) AS schema_version, (SELECT max(id) FROM review_agent.review_runs) AS latest_run" &&
   docker compose exec -T review-postgres \
     dropdb --username=review_agent "$target" &&
   echo "Restore test passed: $dump"
   ```
 
   Without the final message a step failed. The temporary database, if it was
-  created, is left for inspection; drop it by its name afterwards. Copying
+  created, is left for inspection; drop it by its name afterwards. Compare
+  `latest_run` with a review you know was the most recent when the backup was
+  taken, for example from **Review history** or `review-agent-admin jobs list`:
+  a restore of the wrong or an empty database passes every other step. Copying
   grants would give the runtime role access to another database, which
   `database prepare` rejects.
 - **Production recovery into a separate cluster:** stop every service that
@@ -707,11 +718,20 @@ owner, and let `database prepare` create the runtime role and its grants.
   For an external database, run the same `pg_restore` options from a host with
   the PostgreSQL client tools. A successful `database prepare` proves the
   schema and the runtime login, not that the data came back: it also succeeds
-  on an empty database. Before switching traffic, redeploy, run
-  `review-agent-admin database ready` and `review-agent-admin doctor` in
-  `hermes-review`, where the database URL is the runtime login, and read a
-  record you know existed before the backup, for example a recent review with
-  `review-agent-memory runs --run-id <id>`.
+  on an empty database. Check the data before any other service starts,
+  because a restored publisher or worker continues pending work as soon as it
+  runs:
+
+  ```bash
+  docker compose exec -T review-postgres \
+    psql --username=review_agent --dbname=review_agent --set ON_ERROR_STOP=1 \
+    --command "SELECT id, status, started_at FROM review_agent.review_runs ORDER BY id DESC LIMIT 5"
+  ```
+
+  The rows must include the reviews you know existed before the backup. Only
+  then redeploy, and run `review-agent-admin database ready` and
+  `review-agent-admin doctor` in `hermes-review`, where the database URL is the
+  runtime login.
 
 Some migrations change the schema in ways older images cannot read (for
 example 016, 029 and 037); older images must not run against the migrated

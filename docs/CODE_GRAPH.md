@@ -58,9 +58,10 @@ has no graph URL because the overlay is not loaded (the tool answers
 `disabled`), when the tool rejects the pattern or target, when the review has
 ended or lost its worker lease, or when reading the pull request through the
 GitHub gateway fails. Counting the lines with a `pattern` per `run_id` in the
-`hermes-review` logs shows how many queries the service answered and with what
-status. A line without `pattern` records a failed attempt whose outcome at the
-service is unknown.
+`hermes-review` logs shows how many queries gave the reviewer a reply from the
+service, and with what status. A line without `pattern` records an attempt
+that gave it none: the service may not have been reached, or its reply was
+discarded.
 
 ## Enable the graph
 

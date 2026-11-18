@@ -540,7 +540,16 @@ and `REVIEW_AGENT_ADMIN_IMAGE` when the admin panel is installed. When the
 deployment uses overlay files, export `COMPOSE_FILE` with every installed file
 in order, for example
 `COMPOSE_FILE=compose.yaml:compose.admin.yaml:compose.providers.yaml`, so that
-every command covers the same services. Then run:
+every command covers the same services.
+
+Record the capacity the deployment runs with, because the script starts every
+service from the Compose configuration and the deployment environment alone:
+the replica count of each service (`docker compose ps`), and
+`REVIEW_AGENT_WORKER_CONCURRENCY` and `REVIEW_AGENT_ACTIVE_JOB_LIMIT`. A value
+passed only on an earlier command line, and a replica count given only with
+`--scale`, are not kept. Put the two variables in the deployment environment,
+or in saved **Settings** once a revision exists, and the replica counts in an
+overlay file named in `COMPOSE_FILE` (`deploy.replicas`). Then run:
 
 ```bash
 bash -euo pipefail <<'COMPOSE_UPGRADE'
@@ -551,7 +560,7 @@ docker compose pull
 docker compose stop $APP_SERVICES
 
 remaining="$(docker compose ps --all --format '{{.Service}} {{.State}}' |
-  grep -vE '^review-postgres | (exited|created)$' || true)"
+  awk '$1 != "review-postgres" && $2 != "exited" && $2 != "created"')"
 if [ -n "$remaining" ]; then
   echo "Not stopped; do not migrate:" >&2
   echo "$remaining" >&2
@@ -571,8 +580,8 @@ COMPOSE_UPGRADE
 The script stops and recreates every service of those files except
 `review-postgres` and the two one-shot jobs. It does not migrate unless every
 other container of the Compose project has exited; a container that is
-running, restarting or paused stops it, which also catches an overlay left out
-of `COMPOSE_FILE`. PostgreSQL remains available while the application is
+running, restarting or paused stops it, as does a failure to list the
+containers. This also catches an overlay left out of `COMPOSE_FILE`. PostgreSQL remains available while the application is
 stopped. The two one-shot commands must exit with status `0` before new
 application containers start. They and the `doctor` call read from
 `/dev/null`: the script reaches `bash` on standard input, and a container
@@ -584,11 +593,8 @@ same database first, such as a model runtime
 [provisioned separately](./ADMIN_PANEL.md#provision-another-connection), and
 upgrade it to the same release.
 
-The final `up` starts each service with the replica count in its Compose
-configuration, which is one unless a file sets `deploy.replicas`. A count
-given earlier with `--scale` is not kept: add the same `--scale` options to
-that command, or keep the counts in an overlay file named in `COMPOSE_FILE`.
-Compare `docker compose ps` with the counts recorded before the upgrade.
+Afterwards compare the replica counts, the worker concurrency and the active
+job limit with the values recorded before the upgrade.
 
 ### Dokploy
 
@@ -821,17 +827,22 @@ per-process value while CPU, memory, and provider capacity remain healthy; add
 replicas when you need more capacity or failure isolation:
 
 ```bash
+# In the deployment environment (.env or the platform's secret store):
+#   REVIEW_AGENT_ACTIVE_JOB_LIMIT=120
+#   REVIEW_AGENT_WORKER_CONCURRENCY=10
 # 100 worker slots, and up to 120 reviews queued or running.
-REVIEW_AGENT_ACTIVE_JOB_LIMIT=120 REVIEW_AGENT_WORKER_CONCURRENCY=10 \
-  docker compose up -d --scale review-worker=10
+docker compose up -d --scale review-worker=10
 ```
 
-The two variables take effect only while no settings revision has been saved
-in the admin console. After the first save, change both values in **Settings**
-and restart the services that read them
+Keep the two variables in the deployment environment, not on one command line,
+so that a later `up` or upgrade starts the services with the same values. They
+take effect only while no settings revision has been saved in the admin
+console. After the first save, change both values in **Settings** and restart
+the services that read them
 ([environment defaults and admin controls](./ADMIN_PANEL.md#environment-defaults-and-admin-controls)).
 A replica count given with `--scale` lasts until the service is next recreated
-without it; see the upgrade procedure above.
+without it; the [upgrade procedure](#upgrade-and-roll-back-production) says how
+to keep it.
 
 Worker slots are an upper bound on running jobs, not a count of running
 reviews. Each model connection and each team also runs at most four jobs at
@@ -985,7 +996,7 @@ docker compose exec review-github-gateway \
 The command re-reads the live installation, requires Contents read, Issues
 write, and Pull requests write, and records who approved it and why. It does
 not list or enable repositories. A repository is enabled when its first signed
-`/review` command is processed: the gateway requests a token restricted to that
+`/review` or feedback command is processed: the gateway requests a token restricted to that
 one repository, verifies its identity, and records it as enabled. Only then
 does the gateway check the sender
 ([who can request a review](#who-can-request-a-review)). A command from someone
@@ -2112,9 +2123,10 @@ has no graph URL because the overlay is not loaded (the tool answers
 `disabled`), when the tool rejects the pattern or target, when the review has
 ended or lost its worker lease, or when reading the pull request through the
 GitHub gateway fails. Counting the lines with a `pattern` per `run_id` in the
-`hermes-review` logs shows how many queries the service answered and with what
-status. A line without `pattern` records a failed attempt whose outcome at the
-service is unknown.
+`hermes-review` logs shows how many queries gave the reviewer a reply from the
+service, and with what status. A line without `pattern` records an attempt
+that gave it none: the service may not have been reached, or its reply was
+discarded.
 
 ## Enable the graph
 
@@ -4072,20 +4084,28 @@ schedule repeated runs through existing maintenance tooling.
 ## Backup and recovery
 
 PostgreSQL may contain unpublished findings and human-entered reasons; store
-backups securely. Create a logical backup from the Compose host. Each backup
-gets its own file, so a failed dump never replaces an earlier archive:
+backups securely. Back up the database the application uses: the commands in
+this section are for the bundled `review-postgres` service and its
+`review_agent` database. When `REVIEW_AGENT_DATABASE_URL` names another host or
+database, run `pg_dump` and `pg_restore` with the same options against that
+database from a host with the PostgreSQL client tools; a dump of an unused
+local volume is not a backup.
+
+Create a logical backup from the Compose host. Each backup gets its own file,
+and the shell refuses to write over an existing one, so neither a failed dump
+nor a second backup started in the same second replaces an archive:
 
 ```bash
-umask 077
 dump="review-agent-$(date -u +%Y%m%dT%H%M%SZ).dump"
-docker compose exec -T review-postgres \
-  pg_dump --username=review_agent --dbname=review_agent --format=custom \
-  > "$dump" && echo "Backup written: $dump"
+( umask 077; set -o noclobber
+  docker compose exec -T review-postgres \
+    pg_dump --username=review_agent --dbname=review_agent --format=custom \
+    > "$dump" ) && echo "Backup written: $dump"
 ```
 
-Without the last line's message the dump failed and the new file is
-incomplete. Keep the previous verified archive until the new one has passed
-the restore test below.
+Without the last line's message the dump failed; a file it left is incomplete.
+Keep the previous verified archive until the new one has passed the restore
+test below.
 
 Test recovery in a fresh database before relying on a backup. The archive
 records the grants to the runtime role, including its default privileges, but
@@ -4107,14 +4127,17 @@ owner, and let `database prepare` create the runtime role and its grants.
     --no-owner --no-privileges --exit-on-error < "$dump" &&
   docker compose exec -T review-postgres \
     psql --username=review_agent --dbname="$target" --set ON_ERROR_STOP=1 \
-    --command "SELECT max(version) FROM review_agent.schema_migrations" &&
+    --command "SELECT (SELECT max(version) FROM review_agent.schema_migrations) AS schema_version, (SELECT max(id) FROM review_agent.review_runs) AS latest_run" &&
   docker compose exec -T review-postgres \
     dropdb --username=review_agent "$target" &&
   echo "Restore test passed: $dump"
   ```
 
   Without the final message a step failed. The temporary database, if it was
-  created, is left for inspection; drop it by its name afterwards. Copying
+  created, is left for inspection; drop it by its name afterwards. Compare
+  `latest_run` with a review you know was the most recent when the backup was
+  taken, for example from **Review history** or `review-agent-admin jobs list`:
+  a restore of the wrong or an empty database passes every other step. Copying
   grants would give the runtime role access to another database, which
   `database prepare` rejects.
 - **Production recovery into a separate cluster:** stop every service that
@@ -4155,11 +4178,20 @@ owner, and let `database prepare` create the runtime role and its grants.
   For an external database, run the same `pg_restore` options from a host with
   the PostgreSQL client tools. A successful `database prepare` proves the
   schema and the runtime login, not that the data came back: it also succeeds
-  on an empty database. Before switching traffic, redeploy, run
-  `review-agent-admin database ready` and `review-agent-admin doctor` in
-  `hermes-review`, where the database URL is the runtime login, and read a
-  record you know existed before the backup, for example a recent review with
-  `review-agent-memory runs --run-id <id>`.
+  on an empty database. Check the data before any other service starts,
+  because a restored publisher or worker continues pending work as soon as it
+  runs:
+
+  ```bash
+  docker compose exec -T review-postgres \
+    psql --username=review_agent --dbname=review_agent --set ON_ERROR_STOP=1 \
+    --command "SELECT id, status, started_at FROM review_agent.review_runs ORDER BY id DESC LIMIT 5"
+  ```
+
+  The rows must include the reviews you know existed before the backup. Only
+  then redeploy, and run `review-agent-admin database ready` and
+  `review-agent-admin doctor` in `hermes-review`, where the database URL is the
+  runtime login.
 
 Some migrations change the schema in ways older images cannot read (for
 example 016, 029 and 037); older images must not run against the migrated

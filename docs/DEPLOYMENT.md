@@ -431,7 +431,16 @@ and `REVIEW_AGENT_ADMIN_IMAGE` when the admin panel is installed. When the
 deployment uses overlay files, export `COMPOSE_FILE` with every installed file
 in order, for example
 `COMPOSE_FILE=compose.yaml:compose.admin.yaml:compose.providers.yaml`, so that
-every command covers the same services. Then run:
+every command covers the same services.
+
+Record the capacity the deployment runs with, because the script starts every
+service from the Compose configuration and the deployment environment alone:
+the replica count of each service (`docker compose ps`), and
+`REVIEW_AGENT_WORKER_CONCURRENCY` and `REVIEW_AGENT_ACTIVE_JOB_LIMIT`. A value
+passed only on an earlier command line, and a replica count given only with
+`--scale`, are not kept. Put the two variables in the deployment environment,
+or in saved **Settings** once a revision exists, and the replica counts in an
+overlay file named in `COMPOSE_FILE` (`deploy.replicas`). Then run:
 
 ```bash
 bash -euo pipefail <<'COMPOSE_UPGRADE'
@@ -442,7 +451,7 @@ docker compose pull
 docker compose stop $APP_SERVICES
 
 remaining="$(docker compose ps --all --format '{{.Service}} {{.State}}' |
-  grep -vE '^review-postgres | (exited|created)$' || true)"
+  awk '$1 != "review-postgres" && $2 != "exited" && $2 != "created"')"
 if [ -n "$remaining" ]; then
   echo "Not stopped; do not migrate:" >&2
   echo "$remaining" >&2
@@ -462,8 +471,8 @@ COMPOSE_UPGRADE
 The script stops and recreates every service of those files except
 `review-postgres` and the two one-shot jobs. It does not migrate unless every
 other container of the Compose project has exited; a container that is
-running, restarting or paused stops it, which also catches an overlay left out
-of `COMPOSE_FILE`. PostgreSQL remains available while the application is
+running, restarting or paused stops it, as does a failure to list the
+containers. This also catches an overlay left out of `COMPOSE_FILE`. PostgreSQL remains available while the application is
 stopped. The two one-shot commands must exit with status `0` before new
 application containers start. They and the `doctor` call read from
 `/dev/null`: the script reaches `bash` on standard input, and a container
@@ -475,11 +484,8 @@ same database first, such as a model runtime
 [provisioned separately](./ADMIN_PANEL.md#provision-another-connection), and
 upgrade it to the same release.
 
-The final `up` starts each service with the replica count in its Compose
-configuration, which is one unless a file sets `deploy.replicas`. A count
-given earlier with `--scale` is not kept: add the same `--scale` options to
-that command, or keep the counts in an overlay file named in `COMPOSE_FILE`.
-Compare `docker compose ps` with the counts recorded before the upgrade.
+Afterwards compare the replica counts, the worker concurrency and the active
+job limit with the values recorded before the upgrade.
 
 </TabItem>
 <TabItem value="dokploy-upgrade" label="Dokploy">
@@ -716,17 +722,22 @@ per-process value while CPU, memory, and provider capacity remain healthy; add
 replicas when you need more capacity or failure isolation:
 
 ```bash
+# In the deployment environment (.env or the platform's secret store):
+#   REVIEW_AGENT_ACTIVE_JOB_LIMIT=120
+#   REVIEW_AGENT_WORKER_CONCURRENCY=10
 # 100 worker slots, and up to 120 reviews queued or running.
-REVIEW_AGENT_ACTIVE_JOB_LIMIT=120 REVIEW_AGENT_WORKER_CONCURRENCY=10 \
-  docker compose up -d --scale review-worker=10
+docker compose up -d --scale review-worker=10
 ```
 
-The two variables take effect only while no settings revision has been saved
-in the admin console. After the first save, change both values in **Settings**
-and restart the services that read them
+Keep the two variables in the deployment environment, not on one command line,
+so that a later `up` or upgrade starts the services with the same values. They
+take effect only while no settings revision has been saved in the admin
+console. After the first save, change both values in **Settings** and restart
+the services that read them
 ([environment defaults and admin controls](./ADMIN_PANEL.md#environment-defaults-and-admin-controls)).
 A replica count given with `--scale` lasts until the service is next recreated
-without it; see the upgrade procedure above.
+without it; the [upgrade procedure](#upgrade-and-roll-back-production) says how
+to keep it.
 
 Worker slots are an upper bound on running jobs, not a count of running
 reviews. Each model connection and each team also runs at most four jobs at

@@ -172,14 +172,11 @@ def resolve_scope(
     ).fetchone()
     if row is None:
         raise AccessDenied("Sign in to continue", status=401)
-    role = (
-        Role.OWNER
-        if row[2]
-        else Role.ADMIN
-        if row[0]
-        else Role.VIEWER
-        if row[1]
-        else Role.MEMBER
+    superuser, global_viewer, platform_owner = row
+    role = Role.from_flags(
+        platform_owner=platform_owner,
+        superuser=superuser,
+        global_viewer=global_viewer,
     )
     scope = AccessScope(request.user_id, role, request.team_id)
     if request.team_id is not None:

@@ -271,10 +271,6 @@ class PublicationReport:
     supersession_failure_code: str | None
     suggestion_status: str | None
     suggestion_review_id: int | None
-    verification_status: str | None
-    verification_mode: str | None
-    verification_provider: str | None
-    verification_failure_code: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,10 +417,6 @@ class _PublicationReportRow:
     supersession_failure_code: str | None
     suggestion_status: str | None
     suggestion_review_id: int | None
-    verification_status: str | None
-    verification_mode: str | None
-    verification_provider: str | None
-    verification_failure_code: str | None
 
 
 # Operator lists need to filter in SQL before LIMIT, so they cannot reuse the
@@ -1440,11 +1432,7 @@ def list_publications(
                    publication.supersession_rendered_at,
                    publication.supersession_failure_code,
                    suggestion.status AS suggestion_status,
-                   suggestion.external_id AS suggestion_review_id,
-                   verification.status AS verification_status,
-                   verification.mode AS verification_mode,
-                   verification.provider AS verification_provider,
-                   verification.failure_code AS verification_failure_code
+                   suggestion.external_id AS suggestion_review_id
             FROM review_agent.publications AS publication
             JOIN review_agent.pull_requests AS pull_request
               ON pull_request.id = publication.pull_request_id
@@ -1464,13 +1452,6 @@ def list_publications(
                   AND part.part_type = 'suggestion_review'
                 ORDER BY part.part_number LIMIT 1
             ) AS suggestion ON true
-            LEFT JOIN LATERAL (
-                SELECT verification.status, verification.mode,
-                       verification.provider, verification.failure_code
-                FROM review_agent.verification_runs AS verification
-                WHERE verification.review_run_id = publication.review_run_id
-                ORDER BY verification.id DESC LIMIT 1
-            ) AS verification ON true
             {where}
             ORDER BY publication.generated_at DESC, publication.id DESC
             LIMIT %s
@@ -1503,10 +1484,6 @@ def list_publications(
             supersession_failure_code=row.supersession_failure_code,
             suggestion_status=row.suggestion_status,
             suggestion_review_id=row.suggestion_review_id,
-            verification_status=row.verification_status,
-            verification_mode=row.verification_mode,
-            verification_provider=row.verification_provider,
-            verification_failure_code=row.verification_failure_code,
         )
         for row in rows
     )
@@ -1893,52 +1870,6 @@ _EXPORT_QUERIES: tuple[tuple[str, str], ...] = (
            JOIN review_agent.repositories AS repository
              ON repository.id = pull_request.repository_id
            WHERE repository.id = %s ORDER BY publication.id LIMIT %s""",
-    ),
-    (
-        "review_verification_runs",
-        """SELECT verification.id, verification.review_run_id,
-                  verification.provider, verification.model, verification.mode,
-                  verification.status, verification.bundle_hash,
-                  verification.failure_code, verification.started_at,
-                  verification.completed_at
-           FROM review_agent.verification_runs AS verification
-           JOIN review_agent.review_runs AS run
-             ON run.id = verification.review_run_id
-           JOIN review_agent.pull_requests AS pull_request
-             ON pull_request.id = run.pull_request_id
-           WHERE pull_request.repository_id = %s
-           ORDER BY verification.id LIMIT %s""",
-    ),
-    (
-        "candidate_verifications",
-        """SELECT candidate.id, candidate.verification_run_id,
-                  candidate.review_run_id,
-                  candidate.finding_occurrence_id AS observation_id,
-                  candidate.verdict, candidate.confidence,
-                  candidate.counter_evidence, candidate.notes,
-                  candidate.created_at
-           FROM review_agent.candidate_verifications AS candidate
-           JOIN review_agent.review_runs AS run
-             ON run.id = candidate.review_run_id
-           JOIN review_agent.pull_requests AS pull_request
-             ON pull_request.id = run.pull_request_id
-           WHERE pull_request.repository_id = %s
-           ORDER BY candidate.id LIMIT %s""",
-    ),
-    (
-        "candidate_reconciliations",
-        """SELECT reconciliation.id, reconciliation.review_run_id,
-                  reconciliation.finding_occurrence_id AS observation_id,
-                  reconciliation.verification_run_id,
-                  reconciliation.final_decision,
-                  reconciliation.reason, reconciliation.created_at
-           FROM review_agent.candidate_reconciliations AS reconciliation
-           JOIN review_agent.review_runs AS run
-             ON run.id = reconciliation.review_run_id
-           JOIN review_agent.pull_requests AS pull_request
-             ON pull_request.id = run.pull_request_id
-           WHERE pull_request.repository_id = %s
-           ORDER BY reconciliation.id LIMIT %s""",
     ),
     (
         "coach_runs",

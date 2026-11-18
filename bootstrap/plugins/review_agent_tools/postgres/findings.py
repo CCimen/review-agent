@@ -92,7 +92,6 @@ class _GroupMember:
     path: str
     canonical_finding_id: FindingId
     current_context_hash: str | None
-    dropped: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -659,8 +658,7 @@ def stage_finding_relationships(
             """
             SELECT reference.finding_id, reference.local_reference, identity.path,
                    COALESCE(member.canonical_finding_id, reference.finding_id) AS canonical_finding_id,
-                   occurrence.context_hash AS current_context_hash,
-                   COALESCE(reconciliation.final_decision = 'drop', false) AS dropped
+                   occurrence.context_hash AS current_context_hash
             FROM review_agent.pull_request_finding_references AS reference
             JOIN review_agent.finding_identities AS identity ON identity.id = reference.finding_id
             LEFT JOIN review_agent.pull_request_finding_groups AS member
@@ -668,9 +666,6 @@ def stage_finding_relationships(
              AND member.finding_id = reference.finding_id
             LEFT JOIN review_agent.finding_occurrences AS occurrence
               ON occurrence.review_run_id = %s AND occurrence.finding_id = reference.finding_id
-            LEFT JOIN review_agent.candidate_reconciliations AS reconciliation
-              ON reconciliation.review_run_id = occurrence.review_run_id
-             AND reconciliation.finding_occurrence_id = occurrence.id
             WHERE reference.pull_request_id = %s
               AND (reference.finding_id = ANY(%s::bigint[])
                    OR member.canonical_finding_id = ANY(%s::bigint[]))
@@ -750,7 +745,7 @@ def stage_finding_relationships(
             # suppression covers even a newly recorded alias. Grouping cannot
             # reopen that issue; splitting its scope requires a human reopen.
             canonical = group[0]
-            if canonical.current_context_hash is None or canonical.dropped:
+            if canonical.current_context_hash is None:
                 raise FindingConflict(
                     f"record the rechecked canonical finding {canonical.local_reference} "
                     "with its existing stable identity before grouping"

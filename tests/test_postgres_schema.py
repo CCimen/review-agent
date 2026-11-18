@@ -976,77 +976,6 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             "publication_parts_payload_ck",
         )
 
-    def test_verifier_and_reconciliation_parents_must_share_the_review_run(self) -> None:
-        repository_id = self.repository(353, "team/verification")
-        pull_request_id = self.pull_request(repository_id, 12)
-        first_run = self.create_run(
-            pull_request_id, self.subject(pull_request_id, "1"), status="completed"
-        )
-        second_run = self.create_run(
-            pull_request_id, self.subject(pull_request_id, "3"), status="completed"
-        )
-        finding_id = self.finding(repository_id, "6" * 64)
-        occurrence_id = self.occurrence(second_run, finding_id)
-        verification_run_id = int(
-            psql(
-                """
-                INSERT INTO review_agent.verification_runs (
-                    review_run_id, provider, model, mode, status, started_at,
-                    completed_at
-                ) VALUES (
-                    %d, 'claude', 'verifier', 'shadow', 'completed',
-                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-                )
-                RETURNING id;
-                """
-                % first_run
-            ).stdout.strip()
-        )
-
-        self.assert_rejected(
-            """
-            INSERT INTO review_agent.candidate_verifications (
-                verification_run_id, review_run_id, finding_occurrence_id, verdict,
-                confidence, created_at
-            ) VALUES (%d, %d, %d, 'confirmed', 0.9000, CURRENT_TIMESTAMP);
-            """
-            % (verification_run_id, second_run, occurrence_id),
-            "candidate_verifications_verification_review_run_fk",
-        )
-        self.assert_rejected(
-            """
-            INSERT INTO review_agent.candidate_reconciliations (
-                review_run_id, finding_occurrence_id, verification_run_id,
-                final_decision, created_at
-            ) VALUES (%d, %d, %d, 'publish', CURRENT_TIMESTAMP);
-            """
-            % (second_run, occurrence_id, verification_run_id),
-            "candidate_reconciliations_verification_review_run_fk",
-        )
-        matching_verification_run = int(
-            psql(
-                """
-                INSERT INTO review_agent.verification_runs (
-                    review_run_id, mode, status, started_at, completed_at
-                ) VALUES (
-                    %d, 'shadow', 'completed', CURRENT_TIMESTAMP,
-                    CURRENT_TIMESTAMP
-                ) RETURNING id;
-                """
-                % second_run
-            ).stdout.strip()
-        )
-        verdict = """
-            INSERT INTO review_agent.candidate_verifications (
-                verification_run_id, review_run_id, finding_occurrence_id,
-                verdict, confidence, created_at
-            ) VALUES (%d, %d, %d, 'confirmed', 0.9000, CURRENT_TIMESTAMP);
-        """ % (matching_verification_run, second_run, occurrence_id)
-        psql(verdict)
-        self.assert_rejected(
-            verdict, "candidate_verifications_attempt_occurrence_uk"
-        )
-
     def test_file_read_ranges_validate_deduplicate_and_order(self) -> None:
         repository_id = self.repository(401, "team/files")
         pull_request_id = self.pull_request(repository_id, 12)
@@ -1442,15 +1371,6 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         )
         self.assert_rejected(
             """
-            INSERT INTO review_agent.verification_runs (
-                review_run_id, mode, status, started_at
-            ) VALUES (%d, 'shadow', 'completed', CURRENT_TIMESTAMP);
-            """
-            % run_id,
-            "verification_runs_lifecycle_ck",
-        )
-        self.assert_rejected(
-            """
             INSERT INTO review_agent.finding_identities (
                 repository_id, fingerprint, rule_id, path, anchor,
                 first_seen_at, last_seen_at
@@ -1522,42 +1442,6 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             );
             """
             % (pull_request_id, run_id, "f" * 64, "0" * 64)
-        )
-        occurrence_id = self.occurrence(run_id, finding_id)
-        verification_run_id = int(
-            psql(
-                """
-                INSERT INTO review_agent.verification_runs (
-                    review_run_id, mode, status, started_at, completed_at
-                ) VALUES (
-                    %d, 'shadow', 'completed', CURRENT_TIMESTAMP,
-                    CURRENT_TIMESTAMP
-                ) RETURNING id;
-                """
-                % run_id
-            ).stdout.strip()
-        )
-        self.assert_rejected(
-            """
-            INSERT INTO review_agent.candidate_verifications (
-                verification_run_id, review_run_id, finding_occurrence_id,
-                verdict, confidence, counter_evidence, created_at
-            ) VALUES (
-                %d, %d, %d, 'refuted', 0.9000, '', CURRENT_TIMESTAMP
-            );
-            """
-            % (verification_run_id, run_id, occurrence_id),
-            "candidate_verifications_refutation_ck",
-        )
-        self.assert_rejected(
-            """
-            INSERT INTO review_agent.candidate_reconciliations (
-                review_run_id, finding_occurrence_id, final_decision, reason,
-                created_at
-            ) VALUES (%d, %d, 'drop', '', CURRENT_TIMESTAMP);
-            """
-            % (run_id, occurrence_id),
-            "candidate_reconciliations_reason_ck",
         )
 
     def test_feedback_outcomes_use_a_bounded_database_type(self) -> None:

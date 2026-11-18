@@ -309,10 +309,8 @@ def build_publication(
     max_comment_bytes: int,
 ) -> PlannedPublication:
     """Resolve prior state, render bytes, and build the provider payloads."""
-    dropped_reasons = dict(context.dropped_reasons)
     reconciliations = {int(item.finding_id): item for item in context.reconciliations}
-    current_ids = {item.finding_id for item in context.current
-                   if item.occurrence_id not in context.dropped_occurrence_ids}
+    current_ids = {item.finding_id for item in context.current}
     for item in context.current:
         reconciliation = reconciliations.get(item.finding_id)
         if reconciliation is not None and reconciliation.canonical_finding_id not in current_ids:
@@ -323,8 +321,7 @@ def build_publication(
     admitted = tuple(
         item
         for item in context.current
-        if not item.suppressed and item.occurrence_id not in context.dropped_occurrence_ids
-        and item.finding_id not in reconciliations
+        if not item.suppressed and item.finding_id not in reconciliations
     )
     claims: dict[tuple[str, str, str, str], str] = {}
     for item in admitted:
@@ -340,11 +337,8 @@ def build_publication(
     current_by_fingerprint = {item.fingerprint: item for item in admitted}
     previous_by_fingerprint = {item.fingerprint: item for item in context.previous}
     ignored_refs = frozenset(
-        previous_by_fingerprint[item.fingerprint].local_reference
-        for item in context.current
-        if item.occurrence_id in context.dropped_occurrence_ids
-        and item.fingerprint in previous_by_fingerprint
-    ) | frozenset(item.local_reference for item in context.previous if item.finding_id in reconciliations)
+        item.local_reference for item in context.previous if item.finding_id in reconciliations
+    )
     verdicts, ignored = _previous_verdicts(
         previous_verdicts,
         current_references=frozenset(
@@ -414,16 +408,6 @@ def build_publication(
             evidence = "A current human suppression matches this file version."
             closed.append(_closed(previous, verdict="suppressed", evidence=evidence))
             outcome = PublicationFindingOutcome.SUPPRESSED
-        elif (
-            matching_current is not None
-            and matching_current.occurrence_id in context.dropped_occurrence_ids
-        ):
-            evidence = compact_text(
-                dropped_reasons.get(matching_current.occurrence_id) or "Verifier dropped the candidate.",
-                maximum=PRIOR_VERDICT_EVIDENCE_MAX,
-            )
-            closed.append(_closed(previous, verdict="invalidated", evidence=evidence))
-            outcome = PublicationFindingOutcome.INVALIDATED
         elif previous.suppressed:
             evidence = "A current human suppression matches this file version."
             closed.append(_closed(previous, verdict="suppressed", evidence=evidence))
@@ -575,7 +559,7 @@ def build_documentation_publication(
         raise PublicationPlanningError("documentation result must be finalized before publication")
     if (int(result.run_id), result.base_sha, result.head_sha) != (context.run_id, context.base_sha, context.head_sha):
         raise PublicationPlanningError("documentation result does not match its publication subject")
-    current = tuple(item for item in context.current if not item.suppressed and item.occurrence_id not in context.dropped_occurrence_ids)
+    current = tuple(item for item in context.current if not item.suppressed)
     if current and result.outcome is not DocumentationOutcome.FINDINGS:
         raise PublicationPlanningError("retained documentation findings require the findings outcome")
     labels = {

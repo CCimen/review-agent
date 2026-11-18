@@ -27,7 +27,6 @@ from review_agent.tools import (  # noqa: E402
     parts as part_tools,
     source as source_tools,
 )
-from review_agent.hermes import window as hermes_window  # noqa: E402
 from review_agent.domain.model_execution import ModelWindow  # noqa: E402
 from review_agent.domain.review import resolve_review_subject  # noqa: E402
 from review_agent.github.source import ReviewSourceBytes  # noqa: E402
@@ -164,10 +163,16 @@ class ReviewPartToolTests(unittest.TestCase):
 
         before = capacity.current()
         # Without an execution admitted by this runtime the tool does not run.
-        self.assertIn("not admitted by this runtime", json.loads(call(2))["error"])
+        self.assertEqual(
+            json.loads(call(2)),
+            {
+                "error": "this review execution was not admitted by this runtime; "
+                "stop this review turn"
+            },
+        )
 
-        hermes_window.register_execution(7, 3, small)
-        self.addCleanup(hermes_window.release_execution, 7, 3)
+        review_tool_runtime.register_execution_window(7, 3, small)
+        self.addCleanup(review_tool_runtime.release_execution_window, 7, 3)
         self.assertEqual(
             json.loads(call(2)),
             # One result within Hermes' 76,800; five batch shares within its 153,600.

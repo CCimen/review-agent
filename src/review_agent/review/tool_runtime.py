@@ -16,7 +16,6 @@ from .. import capacity, settings
 from ..domain import failure_codes, review_validation
 from ..domain.model_execution import ModelWindow
 from . import contract as review_contract, runs as review_runs
-from ..hermes import window as hermes_window
 from ..domain.review import ReviewRunId
 from ..github.gateway import (
     GitHubGatewayError,
@@ -54,6 +53,34 @@ class RetryableSourceError(ToolInputError):
         self.retry_at = retry_at
 
 
+# One window per admitted execution, so every tool call of a session uses the
+# value resolved once at admission. Admission registers it after its commit; the
+# engine handler's confirmed return removes it, whether or not the completion
+# is then recorded. The registry lives in the process that runs the tools.
+_execution_windows: dict[tuple[int, int], ModelWindow] = {}
+_execution_windows_lock = threading.Lock()
+
+
+def register_execution_window(
+    job_id: int, lease_generation: int, window: ModelWindow
+) -> None:
+    with _execution_windows_lock:
+        _execution_windows[(job_id, lease_generation)] = window
+
+
+def release_execution_window(job_id: int, lease_generation: int) -> None:
+    with _execution_windows_lock:
+        _execution_windows.pop((job_id, lease_generation), None)
+
+
+def execution_window(job_id: int, lease_generation: int) -> ModelWindow:
+    with _execution_windows_lock:
+        window = _execution_windows.get((job_id, lease_generation))
+    if window is None:
+        raise ToolInputError("this review execution was not admitted by this runtime")
+    return window
+
+
 def worker_lease_fence(
     *, run_id_field: str = "run_id"
 ) -> Callable[[Callable[..., str]], Callable[..., str]]:
@@ -78,13 +105,10 @@ def worker_lease_fence(
                         review_run_id=ReviewRunId(run_id),
                         lease_generation=lease.lease_generation,
                     )
-                window = hermes_window.execution_window(
-                    lease.job_id, lease.lease_generation
-                )
+                window = execution_window(lease.job_id, lease.lease_generation)
             except (
                 ToolInputError,
                 postgres_jobs.ReviewJobError,
-                hermes_window.ModelWindowError,
                 PostgreSQLRuntimeError,
             ) as exc:
                 return error_output(f"{exc}; stop this review turn")

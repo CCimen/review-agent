@@ -184,7 +184,9 @@ def wire_api(native: object, _adapter: object) -> None:
             review_contract.require_matching_execution_contract(
                 configuration, installed
             )
-        hermes_window.register_execution(session.job_id, session.lease_generation, window)
+        review_tool_runtime.register_execution_window(
+            session.job_id, session.lease_generation, window
+        )
         logger.info(
             "Review execution %s-%s admitted: provider=%s model=%s "
             "context_tokens=%s compaction_tokens=%s result_chars=%s turn_chars=%s",
@@ -200,7 +202,9 @@ def wire_api(native: object, _adapter: object) -> None:
         return True
 
     def finished(session: jobs.WorkerLeaseSession) -> None:
-        hermes_window.release_execution(session.job_id, session.lease_generation)
+        review_tool_runtime.release_execution_window(
+            session.job_id, session.lease_generation
+        )
         try:
             with review_tool_runtime.postgres_runtime().transaction() as connection:
                 jobs.finish_model_execution(

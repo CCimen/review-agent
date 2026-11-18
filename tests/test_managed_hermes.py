@@ -10,6 +10,7 @@ from unittest.mock import patch
 from aiohttp import ServerDisconnectedError, web
 from aiohttp.test_utils import TestClient, TestServer
 import jwt
+import psycopg
 
 from tests import test_postgres_jobs
 from review_agent.hermes import (
@@ -17,6 +18,7 @@ from review_agent.hermes import (
     runtime_api as hermes_runtime_api,
     window as hermes_window,
 )
+from review_agent.review import tool_runtime as review_tool_runtime
 from review_agent.domain.model_execution import ModelWindow
 from review_agent.review import contract as review_contract
 from review_agent.hermes.control import MANAGED_REVIEW_PATH
@@ -153,6 +155,7 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
             )
         assert claimed is not None
         self.session = jobs.WorkerLeaseSession(claimed.id, claimed.lease_generation)
+        run_id = int(claimed.review_run_id)
         self.headers = {
             "Authorization": "Bearer local-native-test-token",
             "X-Hermes-Session-Id": self.session.encode(),
@@ -170,27 +173,58 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         self.calls = 0
         self.cancel_handler = False
         self.reject_handler = False
-        self.windows_seen: list[ModelWindow] = []
+        self.fail_handler = False
+        self.error_response = False
+        self.windows_seen: list[object] = []
+        # Open executions another connection saw when the window was registered.
+        self.reserved_at_registration: list[int] = []
+        register = review_tool_runtime.register_execution_window
+
+        def register_after_commit(
+            job_id: int, lease_generation: int, window: ModelWindow
+        ) -> None:
+            with self.fixture.runtime.transaction() as connection:
+                self.reserved_at_registration.append(
+                    jobs.active_model_executions(connection, connection_id=1)
+                )
+            register(job_id, lease_generation, window)
+
+        self.enterContext(
+            patch.object(
+                review_tool_runtime,
+                "register_execution_window",
+                side_effect=register_after_commit,
+            )
+        )
         self.addCleanup(
-            hermes_window.release_execution,
+            review_tool_runtime.release_execution_window,
             self.session.job_id,
             self.session.lease_generation,
         )
 
+        @review_tool_runtime.worker_lease_fence()
+        def tool(args: dict[str, object], **context: object) -> str:
+            self.windows_seen.append(review_tool_runtime.session_window(context))
+            return "{}"
+
         async def chat(request: web.Request) -> web.Response:
             self.calls += 1
-            # Tool calls during inference find the window admitted for them.
-            session = jobs.WorkerLeaseSession.parse(
-                request.headers["X-Hermes-Session-Id"]
+            # A tool call during inference passes the lease fence and gets the
+            # window admission registered for its session.
+            result = await asyncio.to_thread(
+                tool,
+                {"run_id": run_id},
+                session_id=request.headers["X-Hermes-Session-Id"],
             )
-            assert session is not None
-            self.windows_seen.append(
-                hermes_window.execution_window(session.job_id, session.lease_generation)
-            )
+            assert result == "{}", result
             if self.reject_handler:
                 raise web.HTTPBadRequest(text="Synthetic request rejection")
             if self.cancel_handler:
                 raise asyncio.CancelledError()
+            if self.fail_handler:
+                raise RuntimeError("synthetic handler failure")
+            if self.error_response:
+                return web.json_response({"error": {"message": "synthetic"}}, status=500)
             return web.json_response({"choices": []})
 
         app = web.Application()
@@ -222,9 +256,11 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
             self.contract.model_provider, self.contract.model
         )
         self.assertEqual(self.windows_seen, [self.window])
-        # Recorded completion releases the window.
-        with self.assertRaises(hermes_window.ModelWindowError):
-            hermes_window.execution_window(
+        # The reservation was committed before the window became readable.
+        self.assertEqual(self.reserved_at_registration, [1])
+        # The handler's confirmed return releases the window.
+        with self.assertRaises(review_tool_runtime.ToolInputError):
+            review_tool_runtime.execution_window(
                 self.session.job_id, self.session.lease_generation
             )
         with self.fixture.runtime.transaction() as connection:
@@ -294,11 +330,90 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
             )
         # Cancellation does not prove inference stopped, so its tools keep the window.
         self.assertEqual(
-            hermes_window.execution_window(
+            review_tool_runtime.execution_window(
                 self.session.job_id, self.session.lease_generation
             ),
             self.window,
         )
+
+    async def test_unexpected_native_handler_failure_retains_execution_reservation(
+        self,
+    ) -> None:
+        self.fail_handler = True
+        with self.assertLogs("aiohttp.server", level="ERROR"):
+            response = await self.client.post(
+                MANAGED_REVIEW_PATH, json=self.body, headers=self.headers
+            )
+        self.assertEqual(response.status, 500)
+        self.assertEqual(self.calls, 1)
+        # The tool call succeeded, so the 500 is the handler's own failure.
+        self.assertEqual(self.windows_seen, [self.window])
+        with self.fixture.runtime.transaction() as connection:
+            self.assertEqual(
+                jobs.active_model_executions(connection, connection_id=1), 1
+            )
+        # An unexpected failure does not prove inference stopped either.
+        self.assertEqual(
+            review_tool_runtime.execution_window(
+                self.session.job_id, self.session.lease_generation
+            ),
+            self.window,
+        )
+
+    async def test_returned_error_response_releases_execution_reservation(self) -> None:
+        self.error_response = True
+        response = await self.client.post(
+            MANAGED_REVIEW_PATH, json=self.body, headers=self.headers
+        )
+        # The same status as an unexpected failure, but the handler returned.
+        self.assertEqual(response.status, 500)
+        self.assertEqual(self.windows_seen, [self.window])
+        with self.assertRaises(review_tool_runtime.ToolInputError):
+            review_tool_runtime.execution_window(
+                self.session.job_id, self.session.lease_generation
+            )
+        with self.fixture.runtime.transaction() as connection:
+            self.assertEqual(
+                jobs.active_model_executions(connection, connection_id=1), 0
+            )
+
+    async def test_unrecorded_completion_keeps_the_reservation_and_drops_the_window(
+        self,
+    ) -> None:
+        window_at_write: list[bool] = []
+
+        def fail_write(*_args: object, **_kwargs: object) -> None:
+            try:
+                review_tool_runtime.execution_window(
+                    self.session.job_id, self.session.lease_generation
+                )
+                window_at_write.append(True)
+            except review_tool_runtime.ToolInputError:
+                window_at_write.append(False)
+            raise psycopg.OperationalError("synthetic write failure")
+
+        with (
+            patch.object(
+                hermes_runtime_api.jobs, "finish_model_execution", side_effect=fail_write
+            ),
+            self.assertLogs(hermes_runtime_api.logger, level="WARNING"),
+        ):
+            response = await self.client.post(
+                MANAGED_REVIEW_PATH, json=self.body, headers=self.headers
+            )
+        self.assertEqual(response.status, 200, await response.text())
+        # The window was already gone when the completion write started.
+        self.assertEqual(window_at_write, [False])
+        # The handler returned, so no tool call of this execution can follow; the
+        # reservation stays because its completion was never recorded.
+        with self.assertRaises(review_tool_runtime.ToolInputError):
+            review_tool_runtime.execution_window(
+                self.session.job_id, self.session.lease_generation
+            )
+        with self.fixture.runtime.transaction() as connection:
+            self.assertEqual(
+                jobs.active_model_executions(connection, connection_id=1), 1
+            )
 
     async def test_unresolved_model_window_admits_nothing(self) -> None:
         self.resolve_window.side_effect = hermes_window.ModelWindowError(
@@ -313,8 +428,8 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 jobs.active_model_executions(connection, connection_id=1), 0
             )
-        with self.assertRaises(hermes_window.ModelWindowError):
-            hermes_window.execution_window(
+        with self.assertRaises(review_tool_runtime.ToolInputError):
+            review_tool_runtime.execution_window(
                 self.session.job_id, self.session.lease_generation
             )
 

@@ -81,7 +81,7 @@ other project policy. See [Repository context](./REPOSITORY_CONTEXT.md).
 | --- | --- |
 | Validate non-secret decisions | GitHub App creation and installation |
 | Generate a prefilled App registration URL | GitHub installation scope and one Review Agent installation approval |
-| Prepare Compose, Dokploy, or OpenShift changes | Secret placement and model login |
+| Prepare Compose or Dokploy changes | Secret placement and model login |
 | Run local preflight and live doctor checks | DNS or production deployment approval |
 | Approve one installation or onboard an explicit repository | The first real `/review` and feedback test |
 | Validate a proposed `.review-agent/` package offline | Approve and merge repository-owned guidance or decisions |

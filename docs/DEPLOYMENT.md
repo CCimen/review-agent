@@ -2,7 +2,7 @@
 sidebar_label: Deploy
 slug: /deployment
 title: Deploy Review Agent
-description: Choose an image, set secrets, and deploy with Compose, Dokploy, Coolify, Portainer, OpenShift, or Kubernetes; upgrade and roll back.
+description: Choose an image, set secrets, and deploy with Compose, Dokploy, Coolify, Portainer, or Kubernetes; upgrade and roll back.
 status: current
 last_verified: 2026-11-17
 ---
@@ -98,10 +98,8 @@ printf 'Review Agent: %s\nPostgreSQL: %s\n' \
   "$REVIEW_AGENT_IMAGE" "$POSTGRES_IMAGE"
 ```
 
-Record all selected image references with the deployment. The OpenShift template
-uses an external database, so its operator pins and records that database image
-separately. Do not combine a PostgreSQL major-version change with a Review Agent
-upgrade.
+Record all selected image references with the deployment. Do not combine a
+PostgreSQL major-version change with a Review Agent upgrade.
 
 ## Deploy
 
@@ -266,73 +264,12 @@ work stays at the proxy boundary; do not publish Hermes or PostgreSQL ports to
 the host.
 
 </TabItem>
-<TabItem value="openshift" label="OpenShift">
-
-The template expects an existing PostgreSQL database and three secrets. Set the
-webhook variable to the exact value registered in the GitHub App, then create
-the secrets in the target project:
-
-```bash
-export REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET='paste-the-registered-value'
-oc create secret generic review-agent-database \
-  --from-literal=REVIEW_AGENT_DATABASE_URL='postgresql://migration-owner:...@host:5432/review_agent' \
-  --from-literal=REVIEW_AGENT_RUNTIME_DATABASE_URL='postgresql://review_agent_runtime:...@host:5432/review_agent'
-oc create secret generic review-agent-hermes \
-  --from-literal=API_SERVER_KEY="$(openssl rand -hex 32)"
-oc create secret generic review-agent-github-app \
-  --from-literal=REVIEW_AGENT_GITHUB_APP_ID='123456' \
-  --from-literal=REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET="$REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET" \
-  --from-file=github-app-private-key.pem=./github-app-private-key.pem
-```
-
-Render the template with one immutable image, wait for its initialization jobs,
-then start the six long-running components:
-
-```bash
-oc delete job review-agent-profile-install review-agent-db-migrate \
-  --ignore-not-found
-oc process -f examples/openshift/review-agent-template.yaml \
-  -p IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>' \
-  -p MODEL='<review-model>' \
-  -p WORKER_CONCURRENCY=4 | oc apply -f -
-oc wait --for=condition=complete job/review-agent-profile-install \
-  job/review-agent-db-migrate --timeout=10m
-oc scale deployment/hermes-review deployment/review-agent-admission \
-  deployment/review-agent-github-gateway \
-  deployment/review-agent-github-app-worker deployment/review-agent-worker \
-  deployment/review-agent-publisher --replicas=1
-oc get route review-agent
-```
-
-Delete only these completed initialization Jobs. Their pod templates are
-immutable, and recreating them makes the profile and migration checks run
-against the exact image being deployed. Follow
-[Upgrade and roll back production](#upgrade-and-roll-back-production) after the
-initial installation.
-
-Use `https://<route-host>/webhooks/github-app` as the App webhook URL. Connect
-the configured model provider inside Hermes once, then restart that deployment:
-
-```bash
-oc rsh deployment/hermes-review hermes model
-oc rsh deployment/hermes-review /opt/review-agent-bootstrap/install.sh
-oc rollout restart deployment/hermes-review
-```
-
-Only admission has a Route. The template mounts the App key into the private
-gateway pod and allows gateway ingress only from Hermes, the review worker, the
-App delivery worker, and the publisher. It omits `runAsUser`, drops Linux
-capabilities, and uses PVC or `emptyDir` mounts for writable paths so OpenShift
-can assign an arbitrary UID under `restricted-v2`.
-
-</TabItem>
 <TabItem value="kubernetes" label="Kubernetes (Helm)">
 
-The chart in `examples/helm/review-agent` deploys the same workloads as the
-OpenShift template on any Kubernetes cluster. It expects an existing PostgreSQL
-database, three secrets, an ingress controller, and a TLS certificate for the
-webhook host. It uses fixed resource names, so install one release per
-namespace.
+The chart in `examples/helm/review-agent` deploys Review Agent on any
+Kubernetes cluster. It expects an existing PostgreSQL database, three secrets,
+an ingress controller, and a TLS certificate for the webhook host. It uses
+fixed resource names, so install one release per namespace.
 
 Create the secrets in the target namespace. Set the webhook variable to the
 exact value registered in the GitHub App:
@@ -463,10 +400,8 @@ cover the main services.
 The review worker requires the private GitHub gateway at startup, even when
 documentation review is disabled. In Compose, its `REVIEW_AGENT_GITHUB_GATEWAY_URL`
 is `http://review-github-gateway:8646` and it is attached to
-`review-github-control`. In OpenShift, it uses
-`http://review-agent-github-gateway:8646` and the gateway ingress policy permits
-the `review-agent-worker` pod. Both use the existing `API_SERVER_KEY`. Keep this
-wiring if you maintain a modified Compose file or template.
+`review-github-control`. It uses the existing `API_SERVER_KEY`. Keep this
+wiring if you maintain a modified Compose file.
 
 Drain every long-running Review Agent component before running a migration.
 This prevents an old process from writing against a schema that changed after
@@ -530,69 +465,6 @@ start.
 Dokploy's stop step may also stop the bundled PostgreSQL container. Its named
 volume remains intact, and Compose starts it before the migration job. Do not
 delete the Compose service or either named volume during an upgrade.
-
-</TabItem>
-<TabItem value="openshift-upgrade" label="OpenShift">
-
-Set `IMAGE` to the release manifest digest and `MODEL` to the review model.
-Confirm that the separately managed PostgreSQL workload also uses a recorded
-digest. The script renders the template first, so a missing parameter stops it
-before any pod is drained, then drains the old application pods and applies
-the rendered template:
-
-```bash
-bash -euo pipefail <<'OPENSHIFT_UPGRADE'
-export IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>'
-export MODEL='<review-model>'
-RENDERED="$(mktemp)"
-oc process -f examples/openshift/review-agent-template.yaml \
-  -p IMAGE="$IMAGE" -p MODEL="$MODEL" -p WORKER_CONCURRENCY=4 > "$RENDERED"
-
-DEPLOYMENTS=(
-  hermes-review
-  review-agent-admission
-  review-agent-github-gateway
-  review-agent-github-app-worker
-  review-agent-worker
-  review-agent-publisher
-)
-
-oc scale deployment "${DEPLOYMENTS[@]}" --replicas=0
-for deployment in "${DEPLOYMENTS[@]}"; do
-  pods="$(oc get pods -l "app=$deployment" -o name)"
-  if [ -n "$pods" ]; then
-    oc wait --for=delete $pods --timeout=5m
-  fi
-done
-
-oc delete job review-agent-profile-install review-agent-db-migrate \
-  --ignore-not-found
-oc apply -f "$RENDERED"
-oc wait --for=condition=complete job/review-agent-profile-install \
-  job/review-agent-db-migrate --timeout=10m
-
-oc scale deployment/hermes-review \
-  deployment/review-agent-github-gateway --replicas=1
-for deployment in hermes-review review-agent-github-gateway; do
-  oc rollout status "deployment/$deployment" --timeout=5m
-done
-
-oc scale deployment/review-agent-admission \
-  deployment/review-agent-github-app-worker deployment/review-agent-worker \
-  deployment/review-agent-publisher --replicas=1
-for deployment in review-agent-admission review-agent-github-app-worker \
-  review-agent-worker review-agent-publisher; do
-  oc rollout status "deployment/$deployment" --timeout=5m
-done
-
-oc get deployment "${DEPLOYMENTS[@]}" \
-  -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image
-oc rsh deployment/hermes-review review-agent-admin doctor
-OPENSHIFT_UPGRADE
-```
-
-The first wait loop is the migration fence. Do not delete the old Jobs or apply
-the new template until every old application pod is gone.
 
 </TabItem>
 <TabItem value="kubernetes-upgrade" label="Kubernetes (Helm)">
@@ -689,9 +561,6 @@ failure isolation:
 # 100 cross-repository slots, plus room for 20 queued reviews.
 REVIEW_AGENT_ACTIVE_JOB_LIMIT=120 REVIEW_AGENT_WORKER_CONCURRENCY=10 \
   docker compose up -d --scale review-worker=10
-
-oc set env deployment/review-agent-github-app-worker REVIEW_AGENT_ACTIVE_JOB_LIMIT=120
-oc set env deployment/review-agent-worker REVIEW_AGENT_WORKER_CONCURRENCY=10
 ```
 
 Set `REVIEW_AGENT_ACTIVE_JOB_LIMIT` at or above the number of active and queued
@@ -700,12 +569,6 @@ connections; use the pool formula in Operations to size an external database.
 Confirm that the model provider accepts the chosen concurrency. Compose limits
 each worker container to 64 PIDs. Keep per-replica concurrency at or below 25
 for thread headroom, or raise the PID limit after a capacity test.
-
-The OpenShift worker reads the managed profile from a `ReadWriteOnce` PVC.
-Keep one worker replica unless the storage class provides `ReadWriteMany` or
-the scheduler constrains all consumers to the volume's node. Increase
-per-process concurrency first; add replicas only after satisfying that storage
-contract.
 
 Scale `review-publisher` the same way when publication wait time grows. The
 database prevents two publishers from owning the same delivery generation.

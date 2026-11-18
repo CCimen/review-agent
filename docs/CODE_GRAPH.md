@@ -39,8 +39,8 @@ symbols that the reviewer can query to narrow the target.
 
 ## Enable the graph
 
-The supplied overlay supports Compose. It has not been qualified for OpenShift
-or multi-instance graph service operation. Keep one graph service per cache
+The supplied overlay supports Compose. It has not been qualified for
+multi-instance graph service operation. Keep one graph service per cache
 volume. Normal review services do not depend on its health or startup.
 
 1. Enable the deployment capability in Dokploy's Environment settings (or the

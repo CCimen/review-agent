@@ -14,10 +14,10 @@ in the [configuration reference](#configuration-reference).
 
 ## Prerequisites
 
-The [deployment guide](./DEPLOYMENT.md#deploy) covers Compose, Dokploy, Coolify,
-Portainer and OpenShift. The public review route targets
-`review-admission:8644`. Workers reach the private Hermes API on `8642`.
-PostgreSQL and Hermes stay off the public network.
+The [deployment guide](./DEPLOYMENT.md#deploy) covers Compose, Dokploy, Coolify
+and Portainer. The public review route targets `review-admission:8644`.
+Workers reach the private Hermes API on `8642`. PostgreSQL and Hermes stay off
+the public network.
 
 The deployment uses two named volumes:
 
@@ -33,8 +33,7 @@ installs the selected managed profile under `/opt/data`. `review-db-migrate`
 waits for PostgreSQL, applies checksum-verified schema migrations, and creates
 or rotates the restricted runtime login. It is the only container that receives
 both database URLs. Both finish as `Exited (0)`; inspect their logs when startup
-stops. On OpenShift, delete and recreate the two initialization Jobs instead of
-running preparation inside a live pod. Manual recovery:
+stops. Manual recovery:
 
 ```bash
 docker compose run --rm --no-deps review-profile-install
@@ -788,7 +787,7 @@ Services read these values at startup.
 | `REVIEW_AGENT_JOB_RECOVERY_SECONDS` | `30` | `review-worker`, `review-admin` | Interval between expired-lease recoveries. |
 | `REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE` | `100` | `review-worker`, `review-admin` | Expired leases recovered per pass. |
 | `REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS` | `900` | `review-worker`, `review-admin` | Wait time that offsets one priority point. |
-| `REVIEW_AGENT_WORKER_TERMINATION_GRACE_SECONDS` | `150` | `review-worker` (stop grace period) | Maximum drain before the platform force-terminates a worker. OpenShift uses the `WORKER_TERMINATION_GRACE_SECONDS` template parameter. |
+| `REVIEW_AGENT_WORKER_TERMINATION_GRACE_SECONDS` | `150` | `review-worker` (stop grace period) | Maximum drain before the platform force-terminates a worker. |
 | **Publication** | | | |
 | `REVIEW_AGENT_PUBLISH_MAX_BYTES` | empty (65,000 in code) | `hermes-review`, `review-publisher`, `review-admin` | UTF-8 bytes per comment part, including framing and metadata; 1,000 to 65,000. |
 | `REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS` | `3` | `hermes-review`, `review-admin` | Attempt budget frozen with each publication. |

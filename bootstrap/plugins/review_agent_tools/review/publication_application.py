@@ -229,11 +229,11 @@ def _postgres_target_failure(
     *, base_sha: str, head_sha: str, pull: PullRequestState
 ) -> str | None:
     if pull.state != "open":
-        return "pr_not_open"
+        return failure_codes.PR_NOT_OPEN
     if pull.base_sha != base_sha:
-        return "base_sha_changed"
+        return failure_codes.BASE_SHA_CHANGED
     if pull.head_sha != head_sha:
-        return "head_sha_changed"
+        return failure_codes.HEAD_SHA_CHANGED
     return None
 
 
@@ -701,7 +701,7 @@ def publish_postgres_publication(
     def stale_failure() -> str | None:
         with runtime.transaction() as connection:
             if not postgres_findings.finding_relationships_are_current(connection, run_id=publication.review_run_id):
-                return "finding_decisions_changed"
+                return failure_codes.FINDING_DECISIONS_CHANGED
         pull = github.get_pull_request(publication.repository, publication.pr_number)
         return _postgres_target_failure(
             base_sha=publication.base_sha,
@@ -903,7 +903,7 @@ def publish_postgres_publication(
             if stale_code is not None:
                 return terminalize_stale(stale_code)
     except postgres_publications.PublicationFindingDecisionsChanged:
-        return terminalize_stale("finding_decisions_changed")
+        return terminalize_stale(failure_codes.FINDING_DECISIONS_CHANGED)
     except GitHubPublicationAuthorityLost as exc:
         raise postgres_publications.PublicationLeaseLost(
             "publication gateway authority was lost"
@@ -962,9 +962,9 @@ def publish_postgres_publication(
                 findings_count=findings_count,
             )
     except postgres_publications.PublicationFindingDecisionsChanged:
-        return terminalize_stale("finding_decisions_changed")
+        return terminalize_stale(failure_codes.FINDING_DECISIONS_CHANGED)
     except postgres_findings.FindingGroupsChanged:
-        return terminalize_stale("finding_groups_changed")
+        return terminalize_stale(failure_codes.FINDING_GROUPS_CHANGED)
     supersession = _render_postgres_supersession(
         runtime,
         github=finalizer,

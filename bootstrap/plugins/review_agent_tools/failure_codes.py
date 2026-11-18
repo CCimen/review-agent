@@ -38,6 +38,13 @@ REVIEW_CONTRACT_CHANGED: Final = "review_contract_changed"
 PR_NOT_OPEN: Final = "pr_not_open"
 DOCUMENTATION_DISABLED: Final = "documentation_disabled"
 DOCUMENTATION_INELIGIBLE: Final = "documentation_ineligible"
+# The publisher found the pull request's base or head moved before it posted.
+BASE_SHA_CHANGED: Final = "base_sha_changed"
+HEAD_SHA_CHANGED: Final = "head_sha_changed"
+# A human decision on a finding changed while the publication waited.
+FINDING_DECISIONS_CHANGED: Final = "finding_decisions_changed"
+# A newer review published its finding groups while this write was in flight.
+FINDING_GROUPS_CHANGED: Final = "finding_groups_changed"
 
 # Job-row causes are deliberately separate from final review-run outcomes.
 JOB_LEASE_EXPIRED: Final = "job_lease_expired"
@@ -63,6 +70,10 @@ ALL: Final = frozenset(
         PR_NOT_OPEN,
         DOCUMENTATION_DISABLED,
         DOCUMENTATION_INELIGIBLE,
+        BASE_SHA_CHANGED,
+        HEAD_SHA_CHANGED,
+        FINDING_DECISIONS_CHANGED,
+        FINDING_GROUPS_CHANGED,
     }
 )
 

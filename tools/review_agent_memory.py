@@ -7,18 +7,13 @@ import argparse
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
-import hashlib
 import json
 import os
 from pathlib import Path
 import sys
-from typing import cast
 
 import psycopg
 
-from review_agent_coach_run import build_coach_run_artifacts
-from review_agent_coach_proposals import CandidateProposal, ProposalBundle
-from review_agent_export import repository_key
 from review_agent_private_io import write_private_file
 
 
@@ -39,19 +34,12 @@ _plugin_parent()
 
 from review_agent_tools import operator_application, operator_input  # noqa: E402
 from review_agent_tools.review import decision_application  # noqa: E402
-from review_agent_tools.domain.coaching import (  # noqa: E402
-    COACH_INTERVENTION_OUTCOMES,
-    CoachingDomainError,
-    CoachCandidateInput,
-    CoachInterventionOutcome,
-)
 from review_agent_tools.domain.feedback import (  # noqa: E402
     FeedbackDomainError,
     FeedbackTriageStatus,
 )
 from review_agent_tools.domain.finding import FindingDomainError  # noqa: E402
 from review_agent_tools.postgres import (  # noqa: E402
-    coaching as postgres_coaching,
     findings as postgres_findings,
     quality_reporting,
     quality_triage,
@@ -71,7 +59,7 @@ from review_agent_tools.settings import (  # noqa: E402
 
 
 class _MemoryCommandError(ValueError):
-    """One local command or artifact failed a stable operator contract."""
+    """One local command failed a stable operator contract."""
 
     def __init__(self, code: str, *, exit_code: int = os.EX_DATAERR) -> None:
         self.code = code
@@ -81,20 +69,14 @@ class _MemoryCommandError(ValueError):
 
 _EXPECTED_COMMAND_ERRORS = (
     operator_input.OperatorInputError,
-    CoachingDomainError,
     FeedbackDomainError,
     FindingDomainError,
-    postgres_coaching.CoachRepositoryMismatch,
-    postgres_coaching.CoachCandidateNotFound,
-    postgres_coaching.CoachCandidateProvenanceMismatch,
-    postgres_coaching.CoachInterventionConflict,
     postgres_findings.FingerprintNotFound,
     postgres_findings.AmbiguousFingerprint,
     quality_triage.QualityFeedbackNotFound,
     quality_triage.QualityFeedbackNotTriageable,
     postgres_reporting.RepositoryNotFound,
     postgres_reporting.FindingNotFound,
-    postgres_reporting.VerificationExportUnavailable,
     postgres_review_runs.ReviewRunNotFound,
 )
 
@@ -142,34 +124,6 @@ def _write_or_print(content: str, output: str | None) -> None:
         print(destination)
     else:
         print(content, end="" if content.endswith("\n") else "\n")
-
-
-def _complete_export(
-    path: str,
-    *,
-    repository: str | None = None,
-) -> dict[str, object]:
-    value = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise _MemoryCommandError("export_invalid")
-    state = cast(dict[str, object], value)
-    if state.get("complete") is not True:
-        raise _MemoryCommandError("export_incomplete")
-    if repository is not None:
-        try:
-            requested = repository_key(repository)
-        except ValueError as exc:
-            raise _MemoryCommandError("repository_scope_invalid") from exc
-        exported_repository = state.get("repository")
-        if not isinstance(exported_repository, str):
-            raise _MemoryCommandError("export_repository_missing")
-        try:
-            exported = repository_key(exported_repository)
-        except ValueError as exc:
-            raise _MemoryCommandError("export_repository_invalid") from exc
-        if exported != requested:
-            raise _MemoryCommandError("export_repository_mismatch")
-    return state
 
 
 def _positive_argument(value: str) -> int:
@@ -262,68 +216,6 @@ def _parser() -> argparse.ArgumentParser:
         const="markdown",
     )
     quality.set_defaults(quality_format="markdown")
-    verification = commands.add_parser(
-        "verification-export", help="Write a private verification bundle."
-    )
-    verification.add_argument("--run-id", type=int, required=True)
-    verification.add_argument("--output", required=True)
-    learning = commands.add_parser(
-        "learning-report", help="Build a report from a complete export."
-    )
-    learning.add_argument("--export", required=True)
-    learning.add_argument("--repo")
-    learning.add_argument("--output")
-    replay = commands.add_parser("validate-replay", help="Validate replay fixtures.")
-    replay.add_argument("path", type=Path)
-    coach_export = commands.add_parser("coach-export", help="Build coach events.")
-    coach_export.add_argument("--export", required=True)
-    coach_export.add_argument("--repo")
-    coach_export.add_argument("--after-decision-id", type=int, default=0)
-    coach_export.add_argument("--after-feedback-id", type=int, default=0)
-    coach_export.add_argument("--after-triage-id", type=int, default=0)
-    coach_export.add_argument("--include-incomplete", action="store_true")
-    coach_export.add_argument("--output", required=True)
-    propose = commands.add_parser("coach-propose", help="Build coach proposals.")
-    propose.add_argument("--events", required=True)
-    propose.add_argument("--output-dir", required=True)
-    propose.add_argument("--max-candidates", type=int, default=3)
-    propose.add_argument("--min-independent-episodes", type=int, default=2)
-    verify = commands.add_parser(
-        "coach-verify-proposal", help="Verify a coach proposal."
-    )
-    verify.add_argument("--proposal", required=True)
-    coach_run = commands.add_parser("coach-run", help="Run and record the coach.")
-    coach_run.add_argument("--export")
-    coach_run.add_argument("--repo", required=True)
-    coach_run.add_argument("--row-limit", type=_positive_argument, default=10_000)
-    coach_run.add_argument("--output-dir", required=True)
-    coach_run.add_argument("--after-decision-id", type=int, default=0)
-    coach_run.add_argument("--after-feedback-id", type=int, default=0)
-    coach_run.add_argument("--after-triage-id", type=int, default=0)
-    coach_run.add_argument("--include-incomplete", action="store_true")
-    coach_run.add_argument("--max-candidates", type=int, default=3)
-    coach_run.add_argument("--min-independent-episodes", type=int, default=2)
-    coach_record = commands.add_parser(
-        "coach-record-outcome",
-        help="Record one final evaluated coach intervention.",
-    )
-    coach_record.add_argument("--proposal", required=True)
-    coach_record.add_argument("--candidate-key", required=True)
-    coach_record.add_argument("--base-contract-sha256", required=True)
-    coach_record.add_argument("--diff", default="")
-    coach_record.add_argument("--validation-receipt", default="")
-    coach_record.add_argument(
-        "--outcome", required=True, choices=tuple(sorted(COACH_INTERVENTION_OUTCOMES))
-    )
-    coach_record.add_argument("--actor", required=True)
-    coach_record.add_argument("--reason", required=True)
-    coach_history = commands.add_parser(
-        "coach-history",
-        help="List bounded intervention outcomes for one coach candidate.",
-    )
-    coach_history.add_argument("--repo", required=True)
-    coach_history.add_argument("--candidate-key", required=True)
-    coach_history.add_argument("--limit", type=_positive_argument, required=True)
     return parser
 
 
@@ -342,75 +234,11 @@ def _validate_high_cost_limits(args: argparse.Namespace) -> None:
                 exit_code=os.EX_USAGE,
             )
         return
-    if args.command == "coach-history":
-        maximum = min(
-            settings.operator_page_max_items,
-            operator_application.MAX_COACH_INTERVENTION_HISTORY_ITEMS,
-        )
-        if args.limit > maximum:
-            raise _MemoryCommandError(
-                "invalid_command_input",
-                exit_code=os.EX_USAGE,
-            )
-        return
-    requires_export = args.command == "export" or (
-        args.command == "coach-run" and not args.export
-    )
-    if requires_export and args.row_limit > settings.operator_export_max_rows:
+    if args.command == "export" and args.row_limit > settings.operator_export_max_rows:
         raise _MemoryCommandError(
             "invalid_command_input",
             exit_code=os.EX_USAGE,
         )
-
-
-def _offline_command(args: argparse.Namespace) -> int | None:
-    if args.command == "learning-report":
-        import review_agent_learning as learning
-        report = learning.build_learning_report(
-            _complete_export(args.export, repository=args.repo),
-            repository=args.repo,
-        )
-        _write_or_print(learning.render_markdown(report), args.output)
-        return 0
-    if args.command == "validate-replay":
-        import review_agent_replay as replay
-        results = replay.validate_replay_path(args.path)
-        for result in results:
-            print(f"Replay OK: {result.fixture_id} ({result.path})")
-        print(f"Validated {len(results)} replay fixture(s).")
-        return 0
-    if args.command == "coach-export":
-        import review_agent_coach as coach
-        payload = coach.build_coach_export(
-            _complete_export(args.export, repository=args.repo),
-            repository=args.repo,
-            after_decision_id=args.after_decision_id,
-            after_feedback_id=args.after_feedback_id,
-            after_triage_id=args.after_triage_id,
-            include_incomplete=args.include_incomplete,
-        )
-        _write_or_print(coach.dumps_coach_export(payload), args.output)
-        return 0
-    if args.command == "coach-propose":
-        import review_agent_coach_proposals as proposals
-        bundle = proposals.build_proposal(
-            proposals.load_coach_export(Path(args.events)),
-            max_candidates=args.max_candidates,
-            min_independent_episodes=args.min_independent_episodes,
-        )
-        output_dir = Path(args.output_dir)
-        write_private_file(
-            output_dir / "proposal.json", proposals.dumps_proposal_bundle(bundle)
-        )
-        write_private_file(output_dir / "SUMMARY.md", proposals.render_markdown(bundle))
-        print(output_dir)
-        return 0
-    if args.command == "coach-verify-proposal":
-        import review_agent_coach_proposals as proposals
-        bundle = proposals.load_proposal_bundle(Path(args.proposal))
-        print(_json(proposals.verify_proposal_bundle(bundle).to_json_obj(), pretty=True))
-        return 0
-    return None
 
 
 def _json_error(
@@ -449,9 +277,6 @@ def _failure_exit(exc: Exception) -> int:
     if isinstance(exc, (PostgreSQLUnavailable, psycopg.OperationalError)):
         _json_error(code="database_unavailable", retryable=True)
         return os.EX_TEMPFAIL
-    if isinstance(exc, json.JSONDecodeError):
-        _json_error(code="artifact_invalid", retryable=False)
-        return os.EX_DATAERR
     if isinstance(exc, OSError):
         _json_error(code="artifact_io_failed", retryable=False)
         return os.EX_IOERR
@@ -467,49 +292,6 @@ def _failure_exit(exc: Exception) -> int:
         exception_type=type(exc).__name__,
     )
     return os.EX_SOFTWARE
-
-
-def _sha256_file(raw_path: str) -> str:
-    if not raw_path:
-        return ""
-    path = Path(raw_path)
-    if path.is_symlink() or not path.is_file():
-        raise _MemoryCommandError("intervention_artifact_invalid")
-    with path.open("rb") as handle:
-        digest = hashlib.file_digest(handle, "sha256").hexdigest()
-    return f"sha256:{digest}"
-
-
-def _proposal_intervention(
-    proposal_path: str,
-    candidate_key: str,
-) -> tuple[ProposalBundle, CandidateProposal, str]:
-    import review_agent_coach_proposals as proposals
-
-    bundle = proposals.load_proposal_bundle(Path(proposal_path))
-    candidates = tuple(
-        candidate
-        for candidate in bundle.candidates
-        if candidate.candidate_key == candidate_key
-    )
-    if len(candidates) != 1:
-        raise _MemoryCommandError("coach_candidate_not_found")
-    candidate = candidates[0]
-    canonical = json.dumps(
-        {
-            "schema_version": bundle.schema_version,
-            "proposal_set_id": bundle.proposal_set_id,
-            "candidate_key": candidate.candidate_key,
-            "target_owner": candidate.target_owner,
-            "proposed_change": candidate.proposed_change,
-            "required_validation": list(candidate.required_validation),
-            "risk": candidate.risk,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return bundle, candidate, "sha256:" + hashlib.sha256(canonical).hexdigest()
 
 
 def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
@@ -593,78 +375,6 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
         else:
             print(_json(report, pretty=True))
         return 0
-    elif args.command == "verification-export":
-        import review_agent_verification as verification
-        source = operator_application.verification_export_source(
-            runtime, run_id=args.run_id
-        )
-        payload = verification.build_verification_export(source, coverage=None)
-        _write_or_print(verification.dumps_verification_export(payload), args.output)
-        return 0
-    elif args.command == "coach-run":
-        if args.export:
-            state = _complete_export(args.export, repository=args.repo)
-        else:
-            export = operator_application.export_repository(
-                runtime, repository=args.repo, row_limit=args.row_limit
-            )
-            state = cast(dict[str, object], export.to_json_obj())
-            if state.get("complete") is not True:
-                raise _MemoryCommandError("coach_export_incomplete")
-        artifacts = build_coach_run_artifacts(
-            state=state, output_dir=Path(args.output_dir), repository=args.repo,
-            after_decision_id=args.after_decision_id,
-            after_feedback_id=args.after_feedback_id,
-            after_triage_id=args.after_triage_id,
-            include_incomplete=args.include_incomplete,
-            max_candidates=args.max_candidates,
-            min_independent_episodes=args.min_independent_episodes,
-        )
-        candidates = tuple(
-            CoachCandidateInput(
-                candidate_key=item.candidate_key, target_owner=item.target_owner,
-                suggested_route=item.suggested_route, event_type=item.event_type,
-                independent_episode_count=item.independent_episode_count,
-                evidence_event_ids=item.evidence_event_ids,
-                evidence_events_total=item.evidence_events_total,
-            ) for item in artifacts.bundle.candidates
-        )
-        run = operator_application.record_coach_run(
-            runtime, repository=artifacts.bundle.repository_untrusted,
-            source_event_set_id=artifacts.bundle.source_event_set_id,
-            source_snapshot_id=artifacts.bundle.source_snapshot_id,
-            proposal_set_id=artifacts.bundle.proposal_set_id,
-            events_considered=artifacts.bundle.events_considered,
-            artifact_dir=str(artifacts.paths.output_dir), candidates=candidates,
-        )
-        result = {"run": run, "artifacts": artifacts.paths.to_json_obj()}
-    elif args.command == "coach-record-outcome":
-        bundle, candidate, proposal_content_hash = _proposal_intervention(
-            args.proposal, args.candidate_key
-        )
-        result = operator_application.record_coach_intervention(
-            runtime,
-            operator_application.CoachInterventionOutcomeRequest(
-                repository=bundle.repository_untrusted,
-                proposal_set_id=bundle.proposal_set_id,
-                candidate_key=candidate.candidate_key,
-                target_owner=candidate.target_owner,
-                proposal_content_hash=proposal_content_hash,
-                base_contract_hash=args.base_contract_sha256,
-                diff_hash=_sha256_file(args.diff),
-                validation_receipt_hash=_sha256_file(args.validation_receipt),
-                outcome=cast(CoachInterventionOutcome, args.outcome),
-                reason=args.reason,
-                actor=args.actor,
-            ),
-        )
-    elif args.command == "coach-history":
-        result = operator_application.coach_intervention_history(
-            runtime,
-            repository=args.repo,
-            candidate_key=args.candidate_key,
-            limit=args.limit,
-        )
     else:
         raise RuntimeError("parser accepted an unsupported command")
     print(_json(result, pretty=True))
@@ -675,12 +385,6 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         _validate_high_cost_limits(args)
-        offline = _offline_command(args)
-    except Exception as exc:
-        return _failure_exit(exc)
-    if offline is not None:
-        return offline
-    try:
         runtime = _runtime()
     except Exception as exc:
         return _failure_exit(exc)

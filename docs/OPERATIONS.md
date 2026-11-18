@@ -356,7 +356,7 @@ output and exit `2`):
 | Error code | Retry? | Exit | Operator action |
 | --- | --- | ---: | --- |
 | `invalid_command_input` | no | 64 | Correct the requested limit or argument. |
-| `command_rejected`, `database_operation_failed`, or a specific `export_*` / artifact code | no | 65 | Correct the requested scope or artifact; check application health for a database failure. |
+| `command_rejected` or `database_operation_failed` | no | 65 | Correct the requested scope; check application health for a database failure. |
 | `internal_error` | no | 70 | Report the included exception type. |
 | `artifact_io_failed` | no | 74 | Repair the private file path or permissions. |
 | `database_unavailable` or `database_busy` | yes | 75 | Retry after PostgreSQL connectivity or contention recovers. |
@@ -566,7 +566,7 @@ Durable history is kept unless this table says otherwise:
 | `admin_run_actions` | Deployment owner | Preserve who retried, cancelled or marked a run stalled, and why. |
 | `admin_audit_events` | Deployment owner | Preserve access changes and human audit evidence. Successful application read receipts can be pruned only with the bounded integration command below. |
 | `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage and idempotency receipts. |
-| `coach_runs`, `coach_candidates`, `coach_intervention_outcomes` | Quality owner | Preserve private coaching evidence; unavailable to the live reviewer. |
+| `coach_runs`, `coach_candidates`, `coach_intervention_outcomes` | None | No longer read or written. Kept for one release so the previous release still runs after a rollback; a later migration drops them. |
 | `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | None | Empty and no longer read or written. Kept for one release so the previous release still runs after a rollback; a later migration drops them. |
 
 Raw webhook bodies are not stored. Terminal documentation deliveries keep their
@@ -713,68 +713,20 @@ are in [Security model](SECURITY.md#human-governed-suppressions).
 
 ## Offline operator tools
 
-These commands run outside the live review path. They read PostgreSQL and write
-private files for an operator; the webhook reviewer never reads them, and they
-publish nothing. Exports can contain maintainer-entered reasons or repository
-text; scrub them before committing or sharing, and never paste a raw database
-export into a model.
-
-| Command | Produces |
-| --- | --- |
-| `export` | A JSON registry export for one repository, at most `--row-limit` rows per table (capped by `REVIEW_AGENT_OPERATOR_EXPORT_MAX_ROWS`). |
-| `learning-report` | A Markdown list of learning candidates from an export. |
-| `coach-export` | A bounded coach bundle of reviewer-improvement signals from an export. |
-| `coach-run` | The coach result, read directly from the database so no raw export is left on disk. |
-| `verification-export` | A bounded JSON bundle of one completed run's published findings (stable IDs, base and head SHAs, coverage summary, `*_untrusted` evidence) for out-of-band checking. |
-| `validate-replay` | Validation of replay fixtures. |
+`export` runs outside the live review path. It reads PostgreSQL and writes one
+repository's review history as a private JSON file for an operator, at most
+`--row-limit` rows per table (capped by
+`REVIEW_AGENT_OPERATOR_EXPORT_MAX_ROWS`). The webhook reviewer never reads the
+file, and it publishes nothing. An export can contain maintainer-entered
+reasons or repository text; scrub it before committing or sharing, and never
+paste a raw database export into a model.
 
 ```bash
 review-agent-memory export \
   --repo <org>/<repo> \
   --row-limit <per-table-row-limit> \
   --output /opt/data/private-review/export.json
-
-review-agent-memory learning-report \
-  --export /opt/data/private-review/export.json \
-  --repo <org>/<repo> \
-  --output /opt/data/private-review/learning-candidates.md
-
-review-agent-memory coach-export \
-  --export /opt/data/private-review/export.json \
-  --repo <org>/<repo> \
-  --after-decision-id 0 \
-  --after-feedback-id 0 \
-  --output /opt/data/private-review/coach-export.json
-
-review-agent-memory coach-run \
-  --repo <org>/<repo> \
-  --output-dir /opt/data/private-review/coach-run
-
-review-agent-memory verification-export \
-  --run-id <id> \
-  --output /opt/data/private-review/verification/run-<id>.json
-
-review-agent-memory validate-replay review-learning/replay
 ```
-
-`coach-run` returns `no_change` (stop) or `propose`, which requires repeated
-independent episodes for the same stable finding and shows the reviewer's
-original claim and checks beside the human counter-evidence. For `propose`,
-scrub `SUMMARY.md`, copy it to a separate operator workstation or Hermes profile,
-and run:
-
-```text
-/learn ~/coach-review/SUMMARY.md; draft the smallest reviewer lesson and preserve the human-governed replay gate
-/skills pending
-/skills diff <id>
-```
-
-Never run `/learn` in the live reviewer profile; the separate profile must not
-share its `HERMES_HOME`, skills directory or gateway. Keep
-`skills.write_approval` on and treat the staged diff as a draft: add a focused
-replay, port the lesson into the repository, deploy normally, then run
-`/skills reject <id>`. Never feed `/learn` raw comments, database exports or
-unsanitized session transcripts.
 
 ## Configuration reference
 

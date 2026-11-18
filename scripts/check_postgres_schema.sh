@@ -73,7 +73,6 @@ if [ "$SELECTED" -eq 0 ]; then
         tests.test_postgres_documentation_reviews \
         tests.test_documentation_operating_policy \
         tests.test_documentation_configuration \
-        tests.test_postgres_coaching \
         tests.test_postgres_reporting_cli \
         tests.test_postgres_retention \
         tests.test_postgres_roles \

@@ -1816,28 +1816,13 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             row_limit=1,
             now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
         ).to_json_obj()
-        self.assertEqual(exported["schema_version"], 17)
+        self.assertEqual(exported["schema_version"], 18)
         self.assertEqual(exported["complete"], False)
         truncated = exported["truncated_tables"]
         self.assertIsInstance(truncated, list)
         assert isinstance(truncated, list)
         self.assertIn("findings", truncated)
         self.assertIn("finding_observations", truncated)
-
-    def test_coach_result_uses_existing_postgres_owner(self) -> None:
-        self.start(pr_number=51, request_suffix="4301")
-        stored = operator_application.record_coach_run(
-            self.runtime,
-            repository=self.repository,
-            source_event_set_id="sha256:" + ("1" * 64),
-            source_snapshot_id="sha256:" + ("2" * 64),
-            proposal_set_id="sha256:" + ("3" * 64),
-            events_considered=0,
-            artifact_dir="/private/coach/2026-08-24",
-            candidates=(),
-        )
-        self.assertEqual(stored.decision, "no_change")
-        self.assertEqual(stored.repository, self.repository)
 
     def test_quality_report_has_explicit_zero_denominators(self) -> None:
         self.register_repository()
@@ -2157,9 +2142,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertIn("profile@2", markdown)
         self.assertIn("Current governed state", markdown)
 
-    def test_publication_listing_and_verification_export_reuse_durable_plan(
-        self,
-    ) -> None:
+    def test_publication_listing_reuses_durable_plan(self) -> None:
         run = self.start(pr_number=61, request_suffix="4401")
         self.publish_run(run, self.record_finding(run), key_character="d")
 
@@ -2172,19 +2155,6 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(len(listed), 1)
         self.assertEqual(listed[0].comment_ids, (900 + int(run.run.id),))
         self.assertEqual(listed[0].status, "posted")
-
-        source = operator_application.verification_export_source(
-            self.runtime, run_id=int(run.run.id)
-        )
-        self.assertEqual(source["source_schema_version"], 1)
-        run_source = source["run"]
-        findings_source = source["current_findings"]
-        self.assertIsInstance(run_source, dict)
-        self.assertIsInstance(findings_source, list)
-        assert isinstance(run_source, dict)
-        assert isinstance(findings_source, list)
-        self.assertEqual(run_source["status"], "generated")
-        self.assertEqual(len(findings_source), 1)
 
 
 if __name__ == "__main__":

@@ -86,8 +86,8 @@ other project policy. See [Repository context](./REPOSITORY_CONTEXT.md).
 | Approve one installation or onboard an explicit repository | The first real `/review` and feedback test |
 | Validate a proposed `.review-agent/` package offline | Approve and merge repository-owned guidance or decisions |
 
-The agent must not classify feedback, promote a coach proposal, or change the
-reviewer profile without your decision.
+The agent must not classify feedback or change the reviewer profile without
+your decision.
 
 > [!IMPORTANT]
 > Do not paste a private key, webhook secret, database credential, internal API

@@ -39,8 +39,7 @@ The live reviewer does not receive:
 - a general GitHub mutation tool;
 - a browser;
 - delegation;
-- arbitrary code execution;
-- access to private coach artifacts under `review-learning/`.
+- arbitrary code execution.
 
 The exact tool list is in
 [How reviews work](./HOW_REVIEWS_WORK.md#3-what-the-reviewer-can-do).
@@ -66,10 +65,10 @@ feedback application writes PostgreSQL, the gateway checks the exact open pull
 request and the sender's current write or admin permission. The gateway can then
 post only a code-owned reaction or explanation.
 
-Human feedback and coach exports can inform later reviewer changes, but they
-never rewrite prompts, skills, suppressions or policy by themselves. Run Hermes
-`/learn` only in a separate operator profile or workstation that does not share
-the live reviewer's `HERMES_HOME`, skills directory or gateway.
+Human feedback can inform later reviewer changes, but it never rewrites
+prompts, skills, suppressions or policy by itself. Run Hermes `/learn` only in
+a separate operator profile or workstation that does not share the live
+reviewer's `HERMES_HOME`, skills directory or gateway.
 
 ## GitHub credential boundaries
 
@@ -127,12 +126,10 @@ human decisions, and review-quality feedback. It can contain unpublished
 findings and maintainer-entered reasons. Back it up securely and scrub exports
 before sharing.
 
-Coach and verification exports are private files that operators create with
-[offline tools](./OPERATIONS.md#offline-operator-tools) outside the review path.
-They contain bounded untrusted text, stable IDs, provenance, hashes and event
-metadata; the live reviewer does not read them. An operator who passes one to an
-external model sends that bounded evidence to it; never send raw database exports
-or webhook payloads instead.
+A repository export is a private file that an operator creates with the
+[offline tool](./OPERATIONS.md#offline-operator-tools) outside the review path.
+The live reviewer does not read it. Never send a raw database export or a
+webhook payload to an external model.
 
 ## Dependency vulnerability scanning
 
@@ -158,7 +155,7 @@ The GitHub Pages site is static public documentation. It receives no reviewer
 credentials, webhook payloads, database data, unpublished findings, private
 source excerpts, feedback reasons, model sessions, or production access details.
 Its Docusaurus configuration publishes an explicit Markdown allowlist; runtime
-profile files and private learning artifacts are excluded.
+profile files are excluded.
 
 ## Non-goals
 

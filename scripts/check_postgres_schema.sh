@@ -50,10 +50,11 @@ if [ -z "$HOST_PORT" ]; then
     exit 1
 fi
 
-PYTHONDONTWRITEBYTECODE=1 \
-REVIEW_AGENT_POSTGRES_CONTAINER="$CONTAINER" \
-REVIEW_AGENT_POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:$HOST_PORT/review_agent_migration_test" \
-    python3 -m unittest \
+# Name test modules to run only those, without the recovery contract:
+#   ./scripts/check_postgres_schema.sh tests.test_admin_api
+SELECTED=$#
+if [ "$SELECTED" -eq 0 ]; then
+    set -- \
         tests.test_postgres_schema \
         tests.test_postgres_migrations \
         tests.test_postgres_github_app \
@@ -87,6 +88,15 @@ REVIEW_AGENT_POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:$HOST_PORT/r
         tests.test_model_connections \
         tests.test_managed_hermes \
         tests.test_github_app_processor
+fi
+
+PYTHONDONTWRITEBYTECODE=1 \
+REVIEW_AGENT_POSTGRES_CONTAINER="$CONTAINER" \
+REVIEW_AGENT_POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:$HOST_PORT/review_agent_migration_test" \
+    python3 -m unittest "$@"
+if [ "$SELECTED" -gt 0 ]; then
+    exit 0
+fi
 
 # Seed one stable application row so backup/restore proves domain state, not
 # merely that the migration ledger can be copied.

@@ -17,6 +17,14 @@ is available, and always when database or durable workflow behavior changes:
 ./scripts/check_postgres_schema.sh
 ```
 
+While working on one database-backed area, name its test modules to run only
+those against a disposable database. It takes seconds instead of minutes and
+skips the backup and restore check:
+
+```bash
+./scripts/check_postgres_schema.sh tests.test_admin_api tests.test_postgres_jobs
+```
+
 Admin frontend work also requires Node.js 24 and `sh ./scripts/check_admin.sh`.
 The script checks the committed OpenAPI schema and generated TypeScript types,
 then builds the frontend. After an intentional API change, regenerate them with
@@ -26,6 +34,38 @@ PostgreSQL environment in `check_postgres_schema.sh`.
 
 Repository rulesets should require the stable `CI / required` check. That check
 passes only after the Python, PostgreSQL, and container-image jobs succeed.
+
+## Run the console locally
+
+The console needs PostgreSQL, the admin API and the Vite dev server. Nothing
+else has to run; pages that read review data are empty until a review has run.
+
+```bash
+docker run --detach --name review-agent-dev-db --publish 127.0.0.1:55432:5432 \
+  --env POSTGRES_PASSWORD=postgres postgres:17
+
+export PYTHONPATH=bootstrap/plugins
+export REVIEW_AGENT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres
+export REVIEW_AGENT_ADMIN_PUBLIC_URL=http://127.0.0.1:5173
+
+REVIEW_AGENT_RUNTIME_DATABASE_URL=postgresql://review_agent_runtime:local-runtime-password@127.0.0.1:55432/postgres \
+  python3 tools/review_agent_admin.py database prepare
+python3 -m review_agent_tools.admin_auth --email admin@example.com
+uvicorn review_agent_tools.admin.api:app_from_environment --factory --port 8090
+```
+
+In a second terminal:
+
+```bash
+npm --prefix admin ci
+npm --prefix admin run dev
+```
+
+Open `http://127.0.0.1:5173` and sign in with the account you created. Vite
+proxies `/api` to port 8090. `REVIEW_AGENT_ADMIN_PUBLIC_URL` must be the address
+in the browser, because the API rejects writes from any other origin. The
+runtime role's password must be at least 16 characters. Remove the database
+with `docker rm --force review-agent-dev-db`.
 
 ## Where the code lives
 

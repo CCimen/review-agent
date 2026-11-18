@@ -711,7 +711,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 self.assertEqual(
                     runner.apply_migrations(connection),
-                    tuple(range(15, 39)),
+                    tuple(range(15, runner.discover_migrations()[-1].version + 1)),
                 )
                 self.assertTrue(
                     runner.inspect_migrations(

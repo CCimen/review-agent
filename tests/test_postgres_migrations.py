@@ -25,6 +25,8 @@ DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 MIGRATIONS = (
     ROOT / "bootstrap" / "plugins" / "review_agent_tools" / "postgres_migrations"
 )
+SHIPPED = runner.discover_migrations()
+LATEST = SHIPPED[-1].version
 
 
 @unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")
@@ -37,46 +39,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
         with psycopg.connect(DSN) as connection:
             self.assertEqual(
                 runner.apply_migrations(connection),
-                (
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                    6,
-                    7,
-                    8,
-                    9,
-                    10,
-                    11,
-                    12,
-                    13,
-                    14,
-                    15,
-                    16,
-                    17,
-                    18,
-                    19,
-                    20,
-                    21,
-                    22,
-                    23,
-                    24,
-                    25,
-                    26,
-                    27,
-                    28,
-                    29,
-                    30,
-                    31,
-                    32,
-                    33,
-                    34,
-                    35,
-                    36,
-                    37,
-                    38,
-                ),
+                tuple(migration.version for migration in SHIPPED),
             )
             self.assertEqual(runner.apply_migrations(connection), ())
             rows = connection.execute(
@@ -105,51 +68,12 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             rows,
             [
                 (
-                    version,
-                    name,
-                    hashlib.sha256((MIGRATIONS / name).read_bytes()).hexdigest(),
+                    migration.version,
+                    migration.name,
+                    hashlib.sha256(migration.sql).hexdigest(),
                     True,
                 )
-                for version, name in (
-                    (1, "001_initial.sql"),
-                    (2, "002_review_jobs.sql"),
-                    (3, "003_review_job_lifecycle.sql"),
-                    (4, "004_publication_delivery_queue.sql"),
-                    (5, "005_failure_status_delivery.sql"),
-                    (6, "006_github_app_installations.sql"),
-                    (7, "007_github_webhook_deliveries.sql"),
-                    (8, "008_feedback_authorization_audit.sql"),
-                    (9, "009_repository_decision_context.sql"),
-                    (10, "010_intentional_design_evidence.sql"),
-                    (11, "011_review_quality_feedback_triage.sql"),
-                    (12, "012_coach_intervention_outcomes.sql"),
-                    (13, "013_repository_guidance_context.sql"),
-                    (14, "014_github_app_repository_activation.sql"),
-                    (15, "015_diff_page_coverage.sql"),
-                    (16, "016_finding_root_cause_groups.sql"),
-                    (17, "017_admin_accounts.sql"),
-                    (18, "018_admin_operations.sql"),
-                    (19, "019_admin_run_actions.sql"),
-                    (20, "020_deployment_settings.sql"),
-                    (21, "021_settings_service_owners.sql"),
-                    (22, "022_team_access.sql"),
-                    (23, "023_audit_search.sql"),
-                    (24, "024_model_connections.sql"),
-                    (25, "025_model_capacity.sql"),
-                    (26, "026_integrations.sql"),
-                    (27, "027_console_identity.sql"),
-                    (28, "028_console_registration.sql"),
-                    (29, "029_review_purpose.sql"),
-                    (30, "030_documentation_reviews.sql"),
-                    (31, "031_documentation_check_publication.sql"),
-                    (32, "032_documentation_operating_policy.sql"),
-                    (33, "033_documentation_capability.sql"),
-                    (34, "034_documentation_configuration.sql"),
-                    (35, "035_documentation_admission.sql"),
-                    (36, "036_repository_review_requesters.sql"),
-                    (37, "037_review_parts.sql"),
-                    (38, "038_failure_diagnostics.sql"),
-                )
+                for migration in SHIPPED
             ],
         )
         self.assertEqual(
@@ -278,7 +202,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 self.assertEqual(
                     runner.apply_migrations(connection),
-                    tuple(range(14, 39)),
+                    tuple(range(14, LATEST + 1)),
                 )
                 classified = connection.execute(
                     """
@@ -391,7 +315,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     ).fetchall() for table in tables
                 }
             with psycopg.connect(DSN) as connection:
-                self.assertEqual(runner.apply_migrations(connection), tuple(range(29, 39)))
+                self.assertEqual(runner.apply_migrations(connection), tuple(range(29, LATEST + 1)))
                 for table in tables:
                     rows = connection.execute(
                         psycopg.sql.SQL("SELECT to_jsonb(record) - 'purpose' - 'failure_detail', to_jsonb(record)->>'purpose' FROM review_agent.{} record ORDER BY id").format(
@@ -433,7 +357,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             count = connection.execute(
                 "SELECT count(*) FROM review_agent.schema_migrations"
             ).fetchone()
-        self.assertEqual(count, (38,))
+        self.assertEqual(count, (LATEST,))
 
     def test_previous_image_accepts_a_database_with_newer_migrations(self) -> None:
         with (

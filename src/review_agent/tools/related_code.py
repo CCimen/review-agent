@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from .. import capacity
 from ..code_graph.client import request_graph
@@ -80,6 +80,14 @@ def related_code(args: dict[str, Any], **context: Any) -> str:
         })
         if len(rendered) > capacity.current().result_max_chars:
             raise GraphError("graph response exceeds the tool result budget")
+        results = result.get("results")
+        # One line per query, so operators can count how often reviews use the
+        # graph and how often it answers. The target is model-written and stays out.
+        logger.info(
+            "Code graph query run_id=%d pattern=%s status=%s results=%d",
+            source.run_id, pattern, result.get("status"),
+            len(cast(list[object], results)) if isinstance(results, list) else 0,
+        )
         return rendered
     except ReviewRunTerminal as terminal:
         return output_json(run_terminal_payload(run_id, terminal.failure_code))
@@ -88,4 +96,5 @@ def related_code(args: dict[str, Any], **context: Any) -> str:
     except ToolInputError as exc:
         return error_output(exc)
     except (GraphError, SettingsError):
+        logger.info("Code graph query run_id=%d status=unavailable results=0", run_id)
         return output_json({"status": "unavailable", "next_action": "Continue with the normal source tools."})

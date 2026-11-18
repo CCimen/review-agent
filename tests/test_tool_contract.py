@@ -1260,7 +1260,13 @@ class ToolContractTests(unittest.TestCase):
             patch.object(related_code_tool, "review_run_snapshot", return_value=pull) as snapshot,
             patch.object(related_code_tool, "request_graph", return_value=response) as graph,
         ):
-            result = json.loads(related_code_tool.related_code.__wrapped__(args))
+            with self.assertLogs("review_agent.tools.related_code", level="INFO") as logs:
+                result = json.loads(related_code_tool.related_code.__wrapped__(args))
+            self.assertEqual(
+                logs.output,
+                ["INFO:review_agent.tools.related_code:Code graph query run_id=41 "
+                 "pattern=callers_of status=ready results=1"],
+            )
             self.assertEqual(result["results"], response["results"])
             self.assertEqual(result["context_trust"], "untrusted")
             self.assertEqual(snapshot.call_count, 2)
@@ -1270,7 +1276,9 @@ class ToolContractTests(unittest.TestCase):
                 self.assertEqual(result["status"], "unavailable")
                 self.assertNotIn("results", result)
             graph.side_effect = GraphError("service unavailable")
-            result = json.loads(related_code_tool.related_code.__wrapped__(args))
+            with self.assertLogs("review_agent.tools.related_code", level="INFO") as logs:
+                result = json.loads(related_code_tool.related_code.__wrapped__(args))
+            self.assertIn("run_id=41 status=unavailable results=0", logs.output[0])
             self.assertEqual(result["status"], "unavailable")
             self.assertNotIn("error", result)
 

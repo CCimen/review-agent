@@ -1973,6 +1973,23 @@ head before using it as evidence. Unresolved name matches do not prove calls,
 and test links do not prove coverage. An ambiguous name returns candidate
 symbols that the reviewer can query to narrow the target.
 
+## See whether reviews use it
+
+Every query writes one INFO line from the reviewer process, logger
+`hermes_plugins.review_agent_tools.tools.related_code`:
+
+```text
+Code graph query run_id=412 pattern=callers_of status=ready results=3
+```
+
+`status` is what the reviewer was told (`ready`, `building`, `queued`, `busy`,
+`disabled`, `embeddings_unavailable` or `unavailable`) and `results` the number of
+locations returned. The query target is written by the model and is not
+logged. Counting these lines per `run_id` in the `hermes-review` logs shows how
+often reviews ask the graph and how often it answers; a deployment where the
+line rarely appears, or mostly reports zero results, gains little from the
+service.
+
 ## Enable the graph
 
 The supplied overlay supports Compose. It has not been qualified for

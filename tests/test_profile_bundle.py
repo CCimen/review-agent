@@ -563,21 +563,35 @@ class ProfileBundleTests(unittest.TestCase):
 
     def test_installer_reports_missing_inputs_as_a_usage_error(self) -> None:
         contract = self.install.review_contract
-        missing = contract.ReviewContractError("managed reviewer config.yaml is not in /x")
         for arguments, code in ((["--help"], 0), ([], 2)):
-            stderr = io.StringIO()
-            with (
-                mock.patch.object(
-                    contract, "locate_behavior_inputs", side_effect=missing
-                ),
-                mock.patch.object(sys, "argv", ["install.py", *arguments]),
-                contextlib.redirect_stdout(io.StringIO()),
-                contextlib.redirect_stderr(stderr),
-                self.assertRaises(SystemExit) as stopped,
-            ):
-                self.install.main()
-            self.assertEqual(code, stopped.exception.code)
-        self.assertIn("managed reviewer config.yaml is not in /x", stderr.getvalue())
+            with tempfile.TemporaryDirectory() as temp:
+                checkout = Path(temp) / "checkout"
+                checkout.mkdir()
+                home = Path(temp) / "hermes-home"
+                stderr = io.StringIO()
+                # The checkout has no hermes/config.yaml from the start, and the
+                # home is disposable: a failure here must not write anywhere.
+                with (
+                    mock.patch.dict(
+                        os.environ,
+                        {"HERMES_HOME": str(home), "REVIEW_AGENT_MODEL": TEST_MODEL},
+                        clear=True,
+                    ),
+                    mock.patch.object(
+                        contract, "source_checkout", return_value=checkout
+                    ),
+                    mock.patch.object(sys, "argv", ["install.py", *arguments]),
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(stderr),
+                    self.assertRaises(SystemExit) as stopped,
+                ):
+                    load_installer().main()
+                self.assertEqual(code, stopped.exception.code)
+                self.assertFalse(home.exists())
+        self.assertIn(
+            f"managed reviewer config.yaml is not in {checkout / 'hermes'}",
+            stderr.getvalue(),
+        )
 
     def test_installer_rejects_missing_review_skill_before_writing_home(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

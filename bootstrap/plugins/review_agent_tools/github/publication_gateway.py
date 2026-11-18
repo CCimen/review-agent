@@ -440,7 +440,7 @@ class ReviewPublicationGateway:
         except (publications.PublicationStoreError, review_runs.ReviewRunError) as exc:
             raise GitHubGatewayRejected("publication_authority_invalid") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason) from exc
 
     def _provider(
         self,
@@ -460,7 +460,7 @@ class ReviewPublicationGateway:
             except GitHubAppTokenPermanent as exc:
                 raise GitHubGatewayRejected("provider_authorization_denied") from exc
             except github_app.GitHubAppRepositoryUnauthorized as exc:
-                raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+                raise GitHubGatewayRejected(exc.reason) from exc
             except GitHubPublicationError as exc:
                 if exc.status == 401 and attempt == 0:
                     self._tokens.invalidate(

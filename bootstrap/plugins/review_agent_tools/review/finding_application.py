@@ -23,7 +23,6 @@ from ..domain.finding import (
     resolve_finding,
     resolve_finding_path,
     require_unique_finding_identities,
-    suppression_is_active,
 )
 from ..domain.review import ReviewRunId
 from ..postgres import (
@@ -238,16 +237,7 @@ def _record_postgres_optional_suggestions(
                         recorded.finding_id
                     ),
                     suppressed=decision is not None
-                    and suppression_is_active(
-                        decision=decision.latest.decision,
-                        decision_context_hash=decision.latest.context_hash,
-                        current_context_hash=context_hash,
-                        expires_at=decision.latest.expires_at,
-                        intentional_evidence_current=(
-                            decision.intentional_evidence_current
-                        ),
-                        now=moment,
-                    ),
+                    and decision.is_active(current_context_hash=context_hash, now=moment),
                     rule_id=finding.rule_id,
                     category=finding.category,
                     symbol=finding.symbol,
@@ -414,14 +404,7 @@ def record_live_findings(
             changed_by_path[resolve_finding_path(finding.path)], head_sha
         )
         decision = decisions.get(recorded.finding_id)
-        suppressed = decision is not None and suppression_is_active(
-            decision=decision.latest.decision,
-            decision_context_hash=decision.latest.context_hash,
-            current_context_hash=context_hash,
-            expires_at=decision.latest.expires_at,
-            intentional_evidence_current=decision.intentional_evidence_current,
-            now=moment,
-        )
+        suppressed = decision is not None and decision.is_active(current_context_hash=context_hash, now=moment)
         items.append(
             LiveRecordedFinding(
                 finding_id=int(recorded.finding_id),

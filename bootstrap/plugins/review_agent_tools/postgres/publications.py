@@ -29,7 +29,7 @@ from ..domain.publication import (
     decode_publication_delivery,
     resolve_rendered_blocks,
 )
-from ..domain.finding import FindingId, suppression_is_active
+from ..domain.finding import FindingId
 from ..domain.review import (
     ReviewPurpose,
     DiffCoverageExample,
@@ -639,14 +639,7 @@ def preparation_context(
 
     def suppressed(*, finding_id: int, context_hash: str) -> bool:
         candidate = decisions.get(FindingId(finding_id))
-        return candidate is not None and suppression_is_active(
-            decision=candidate.latest.decision,
-            decision_context_hash=candidate.latest.context_hash,
-            current_context_hash=context_hash,
-            expires_at=candidate.latest.expires_at,
-            intentional_evidence_current=candidate.intentional_evidence_current,
-            now=moment,
-        )
+        return candidate is not None and candidate.is_active(current_context_hash=context_hash, now=moment)
 
     return PublicationPreparationContext(
         run_id=int(run_id),

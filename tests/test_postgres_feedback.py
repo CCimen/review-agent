@@ -29,7 +29,6 @@ from review_agent_tools.review import (  # noqa: E402
 from review_agent_tools.domain.finding import (  # noqa: E402
     FindingId,
     FindingInput,
-    suppression_is_active,
 )
 from review_agent_tools.domain import repository_decisions as decision_domain  # noqa: E402
 from review_agent_tools.domain.feedback import (  # noqa: E402
@@ -454,14 +453,7 @@ on_change = ["Run the cross-scope authorization test."]
 
         self.assertTrue(same.intentional_evidence_current)
         self.assertTrue(
-            suppression_is_active(
-                decision=same.latest.decision,
-                decision_context_hash=same.latest.context_hash,
-                current_context_hash=str(same_row[1]),
-                expires_at=same.latest.expires_at,
-                intentional_evidence_current=same.intentional_evidence_current,
-                now=now,
-            )
+            same.is_active(current_context_hash=str(same_row[1]), now=now)
         )
         self.assertTrue(same_report.suppressed)
 
@@ -495,16 +487,7 @@ on_change = ["Run the cross-scope authorization test."]
 
         self.assertFalse(superseded.intentional_evidence_current)
         self.assertFalse(
-            suppression_is_active(
-                decision=superseded.latest.decision,
-                decision_context_hash=superseded.latest.context_hash,
-                current_context_hash=str(superseded_row[1]),
-                expires_at=superseded.latest.expires_at,
-                intentional_evidence_current=(
-                    superseded.intentional_evidence_current
-                ),
-                now=now,
-            )
+            superseded.is_active(current_context_hash=str(superseded_row[1]), now=now)
         )
         self.assertFalse(superseded_report.suppressed)
 

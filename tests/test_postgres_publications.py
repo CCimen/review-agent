@@ -1023,7 +1023,6 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             FindingDecision,
             FindingId,
             resolve_decision,
-            suppression_is_active,
         )
         from review_agent_tools.postgres import decisions
         from review_agent_tools.review.publication_planner import (
@@ -1038,14 +1037,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 stored = decisions.latest_suppression_decisions(
                     connection, finding_ids=(finding_id,), current_run_id=run_id
                 ).get(finding_id)
-            if stored is None or not suppression_is_active(
-                decision=stored.latest.decision,
-                decision_context_hash=stored.latest.context_hash,
-                current_context_hash=context_hash,
-                expires_at=stored.latest.expires_at,
-                intentional_evidence_current=stored.intentional_evidence_current,
-                now=datetime.now(timezone.utc),
-            ):
+            if stored is None or not stored.is_active(current_context_hash=context_hash, now=datetime.now(timezone.utc)):
                 return None
             return stored.latest
 

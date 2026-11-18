@@ -480,14 +480,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
                     finding_ids=(target.finding_id,),
                     current_run_id=batch.run_id,
                 ).get(target.finding_id)
-            if stored is None or not suppression_is_active(
-                decision=stored.latest.decision,
-                decision_context_hash=stored.latest.context_hash,
-                current_context_hash=context_hash,
-                expires_at=stored.latest.expires_at,
-                intentional_evidence_current=stored.intentional_evidence_current,
-                now=now or datetime.now(timezone.utc),
-            ):
+            if stored is None or not stored.is_active(current_context_hash=context_hash, now=now or datetime.now(timezone.utc)):
                 return None
             return stored.latest
 

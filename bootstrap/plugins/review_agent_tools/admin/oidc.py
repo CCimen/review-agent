@@ -26,13 +26,8 @@ from sqlalchemy import DateTime, ForeignKey, delete, select
 from sqlalchemy.orm import Mapped, mapped_column
 from starlette.responses import RedirectResponse
 
-from ..admin_auth import (
-    AdminAuth,
-    Base,
-    User,
-    registration_settings,
-    sign_in_oidc_account,
-)
+from ..admin_auth import AdminAuth
+from .accounts import Base, User, registration_settings, sign_in_oidc_account
 from .identity_config import IdentitySettings, OIDCSettings, identity_https_url
 
 

@@ -20,10 +20,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import review_agent_admission as admission_entrypoint  # noqa: E402
 
-from review_agent_tools import (  # noqa: E402
-    admission,
-    review_contract,
-)
+from review_agent_tools import admission  # noqa: E402
+from review_agent_tools.review import contract as review_contract  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLUnavailable  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl, SettingsError  # noqa: E402
 

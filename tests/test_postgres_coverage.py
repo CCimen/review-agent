@@ -40,12 +40,12 @@ from review_agent_tools.postgres import coverage as postgres_coverage  # noqa: E
 from review_agent_tools.postgres import review_runs as postgres_review_runs  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools import (  # noqa: E402
-    review_delivery_tool,
-    review_memory_tools,
-    review_run_application,
-    review_source_tools,
-    review_tool_runtime,
+from review_agent_tools.review import (  # noqa: E402
+    delivery_tool as review_delivery_tool,
+    memory_tools as review_memory_tools,
+    run_application as review_run_application,
+    source_tools as review_source_tools,
+    tool_runtime as review_tool_runtime,
 )
 from review_agent_tools.diff_render import assemble_rendered_diff  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402

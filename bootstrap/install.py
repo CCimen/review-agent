@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import NamedTuple, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "plugins"))
-from review_agent_tools import review_contract  # noqa: E402
+from review_agent_tools.review import contract as review_contract  # noqa: E402
 
 try:
     import yaml

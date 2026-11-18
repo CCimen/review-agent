@@ -8,7 +8,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 
 from .domain.review import MAX_REVIEW_PARTS
-from .model_window import ModelWindow
+from .model_runtime.window import ModelWindow
 
 
 DEFAULT_RESULT_MAX_CHARS = 160_000

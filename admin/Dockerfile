@@ -41,4 +41,4 @@ LABEL org.opencontainers.image.version=$REVIEW_AGENT_VERSION \
       org.opencontainers.image.revision=$REVIEW_AGENT_REVISION
 USER 10000:10000
 EXPOSE 8090
-CMD ["uvicorn", "review_agent_tools.admin_api:app_from_environment", "--factory", "--host", "0.0.0.0", "--port", "8090", "--no-access-log", "--no-proxy-headers"]
+CMD ["uvicorn", "review_agent_tools.admin.api:app_from_environment", "--factory", "--host", "0.0.0.0", "--port", "8090", "--no-access-log", "--no-proxy-headers"]

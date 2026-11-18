@@ -276,7 +276,7 @@ class DocumentationPolicyAPITests(unittest.TestCase):
         from concurrent.futures import ThreadPoolExecutor, TimeoutError
         from threading import Event
         from uuid import UUID
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
         from review_agent_tools.postgres import repository_requests, team_access
         from review_agent_tools.postgres.runtime import PostgreSQLRuntime
         from review_agent_tools.settings import PostgresDatabaseUrl

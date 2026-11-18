@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 from http.client import BadStatusLine
+import importlib.util
 import json
 import os
+import re
 import sys
 import unittest
 from contextlib import nullcontext
@@ -17,21 +19,22 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 import review_agent_tools  # noqa: E402
-from review_agent_tools import (  # noqa: E402
-    capacity,
-    documentation_tools,
-    model_window,
-    review_contract,
-    review_code_graph_tool,
-    review_delivery_tool,
-    review_memory_tools,
-    repository_decision_context,
-    repository_guidance_context,
-    review_run_application,
-    review_source_tools,
-    review_source_initialization,
-    review_tool_runtime,
-    schemas,
+from review_agent_tools import capacity, schemas  # noqa: E402
+from review_agent_tools.review import (  # noqa: E402
+    contract as review_contract,
+    code_graph_tool as review_code_graph_tool,
+    delivery_tool as review_delivery_tool,
+    memory_tools as review_memory_tools,
+    run_application as review_run_application,
+    source_tools as review_source_tools,
+    source_initialization as review_source_initialization,
+    tool_runtime as review_tool_runtime,
+)
+from review_agent_tools.model_runtime import window as model_window  # noqa: E402
+from review_agent_tools.documentation import tools as documentation_tools  # noqa: E402
+from review_agent_tools.repository_context import (  # noqa: E402
+    decision_context as repository_decision_context,
+    guidance_context as repository_guidance_context,
 )
 from review_agent_tools.domain.repository_decisions import RepositoryDecision  # noqa: E402
 from review_agent_tools.domain.documentation_review import PreviousDocumentationFinding  # noqa: E402
@@ -52,7 +55,7 @@ from review_agent_tools.postgres.coverage import (  # noqa: E402
     RunFilePage,
 )
 from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
-from review_agent_tools.code_graph_contract import GraphError  # noqa: E402
+from review_agent_tools.code_graph.contract import GraphError  # noqa: E402
 
 TEST_REVIEW_CONTRACT = review_contract.ReviewContract(
     profile="default-standard",
@@ -215,7 +218,7 @@ class ToolContractTests(unittest.TestCase):
             with self.subTest(changed=changed):
                 files = {java: self._guidance_file(java, changed=changed == java),
                          changed: self._guidance_file(changed, changed=True)}
-                with self.assertLogs("review_agent_tools.review_source_tools", level="INFO") as logs:
+                with self.assertLogs("review_agent_tools.review.source_tools", level="INFO") as logs:
                     result, read = self._java_guidance_result(changed_path=changed, java_path=java, files=files)
                 self.assertEqual(result["instructions"], "Java guidance body.")
                 self.assertEqual(result["changed_path"], changed)
@@ -266,7 +269,7 @@ class ToolContractTests(unittest.TestCase):
 
     def test_java_guidance_returns_bounded_failure_without_truncating_instructions(self) -> None:
         java = "src/main/java/example/Service.java"
-        with self.assertNoLogs("review_agent_tools.review_source_tools", level="INFO"):
+        with self.assertNoLogs("review_agent_tools.review.source_tools", level="INFO"):
             result, _ = self._java_guidance_result(
                 changed_path=java, java_path=java,
                 files={java: self._guidance_file(java, changed=True)},
@@ -510,7 +513,7 @@ class ToolContractTests(unittest.TestCase):
             )
             with (
                 patch.dict(os.environ, {"REVIEW_AGENT_CODE_GRAPH_URL": "http://graph:8647"}),
-                patch("review_agent_tools.code_graph_client.urllib.request.build_opener") as opener,
+                patch("review_agent_tools.code_graph.client.urllib.request.build_opener") as opener,
             ):
                 opener.return_value.open.side_effect = BadStatusLine("invalid graph response")
                 result = json.loads(review_source_tools.review_begin(
@@ -1516,7 +1519,7 @@ class ToolContractTests(unittest.TestCase):
         with (
             patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime),
             patch.object(review_source_tools, "gateway_source_session") as source,
-            self.assertLogs("review_agent_tools.review_tool_runtime", level="ERROR"),
+            self.assertLogs("review_agent_tools.review.tool_runtime", level="ERROR"),
         ):
             result = json.loads(
                 review_source_tools.review_begin(
@@ -1580,7 +1583,7 @@ class ToolContractTests(unittest.TestCase):
                 side_effect=RuntimeError(secret_detail),
             ),
             self.assertLogs(
-                "review_agent_tools.review_tool_runtime",
+                "review_agent_tools.review.tool_runtime",
                 level="ERROR",
             ) as logged,
         ):
@@ -1630,6 +1633,20 @@ class ToolContractTests(unittest.TestCase):
             assert isinstance(schema, dict)
             self.assertEqual(schema["name"], name)
             self.assertTrue(callable(registration["handler"]))
+
+    def test_every_module_the_plugin_loads_by_name_exists(self) -> None:
+        # Registration builds these module paths at run time, so neither the
+        # type checker nor an import rewrite sees them.
+        source = (PACKAGE_ROOT / "review_agent_tools" / "__init__.py").read_text(
+            encoding="utf-8"
+        )
+        loaded = re.findall(r'import_module\(f"\{__name__\}\.([a-z_.]+)"\)', source)
+        self.assertGreaterEqual(len(loaded), 10)
+        for module in loaded:
+            with self.subTest(module=module):
+                self.assertIsNotNone(
+                    importlib.util.find_spec(f"review_agent_tools.{module}")
+                )
 
 
 if __name__ == "__main__":

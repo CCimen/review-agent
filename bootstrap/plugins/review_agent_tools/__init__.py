@@ -32,7 +32,7 @@ class _ReviewContractModule(Protocol):
 def _installed_result_max_chars() -> int:
     """Read the result budget from the verified installed behavior receipt."""
     review_contract = cast(
-        _ReviewContractModule, import_module(f"{__name__}.review_contract")
+        _ReviewContractModule, import_module(f"{__name__}.review.contract")
     )
     contract = review_contract.load_installed_contract()
     return contract.plugin_result_max_chars
@@ -42,7 +42,7 @@ def register(ctx: ToolRegistry) -> None:
     # Import concrete owners after package initialization so submodules can import
     # package-owned contracts without creating a static package import cycle.
     capacity = import_module(f"{__name__}.capacity")
-    result_chars, turn_chars = import_module(f"{__name__}.model_window").default_budget()
+    result_chars, turn_chars = import_module(f"{__name__}.model_runtime.window").default_budget()
     limits = capacity.configure(
         result_max_chars=_installed_result_max_chars(),
         result_chars=result_chars,
@@ -50,14 +50,14 @@ def register(ctx: ToolRegistry) -> None:
     )
     schemas = import_module(f"{__name__}.schemas")
     schemas.apply_capacity(limits)
-    source_tools = import_module(f"{__name__}.review_source_tools")
-    memory_tools = import_module(f"{__name__}.review_memory_tools")
-    delivery_tool = import_module(f"{__name__}.review_delivery_tool")
-    part_tools = import_module(f"{__name__}.review_part_tools")
-    graph_tool = import_module(f"{__name__}.review_code_graph_tool")
-    runtime_api = import_module(f"{__name__}.hermes_runtime_api")
-    docs_tools = import_module(f"{__name__}.documentation_tools")
-    docs_findings = import_module(f"{__name__}.documentation_findings")
+    source_tools = import_module(f"{__name__}.review.source_tools")
+    memory_tools = import_module(f"{__name__}.review.memory_tools")
+    delivery_tool = import_module(f"{__name__}.review.delivery_tool")
+    part_tools = import_module(f"{__name__}.review.part_tools")
+    graph_tool = import_module(f"{__name__}.review.code_graph_tool")
+    runtime_api = import_module(f"{__name__}.model_runtime.hermes_runtime_api")
+    docs_tools = import_module(f"{__name__}.documentation.tools")
+    docs_findings = import_module(f"{__name__}.documentation.findings")
     ctx.register_platform_handler("api_server", getattr(runtime_api, "wire_api"))
 
     ctx.register_tool(name="review_agent_docs_begin", toolset="review_agent",

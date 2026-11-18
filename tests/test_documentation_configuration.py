@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import Mock, patch
 
-from review_agent_tools.documentation_configuration import read_configuration
+from review_agent_tools.documentation.configuration import read_configuration
 from review_agent_tools.github.source import ReviewPolicySource
 
 
@@ -15,7 +15,7 @@ class ConfigurationReadTests(unittest.TestCase):
             {"name": "release/docs", "commit": {"sha": "a" * 40}},
         ]
         content = 'version = 1\n[[area]]\nid = "api"\nsources = ["src/**"]\ndocuments = ["docs/api.md"]\nintent = "API behavior"\n'
-        with patch("review_agent_tools.documentation_configuration.read_documentation_policy_at_revision") as read:
+        with patch("review_agent_tools.documentation.configuration.read_documentation_policy_at_revision") as read:
             read.return_value = ReviewPolicySource("ok", "a" * 40, content, "b" * 40, "c" * 64)
             result = read_configuration(github, repository="example/project", provider_repository_id=42)
         self.assertEqual(result.state, "valid")
@@ -39,7 +39,7 @@ class ConfigurationReadTests(unittest.TestCase):
             {"id": 42, "full_name": "example/project", "default_branch": "main"},
             {"name": "main", "commit": {"sha": "a" * 40}},
         ]
-        with patch("review_agent_tools.documentation_configuration.read_documentation_policy_at_revision") as read:
+        with patch("review_agent_tools.documentation.configuration.read_documentation_policy_at_revision") as read:
             read.return_value = ReviewPolicySource("ok", "a" * 40, "version = 7", "b" * 40, "c" * 64)
             result = read_configuration(github, repository="example/project", provider_repository_id=42)
         self.assertEqual(result.state, "invalid")
@@ -54,7 +54,7 @@ from datetime import datetime, timedelta, timezone
 import psycopg
 
 from tests import test_admin_api, test_postgres_github_app
-from review_agent_tools.documentation_configuration import DocumentationConfiguration
+from review_agent_tools.documentation.configuration import DocumentationConfiguration
 from review_agent_tools.postgres import github_app, documentation_configuration
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -86,7 +86,7 @@ class ConfigurationAPITests(unittest.TestCase):
             "not_configured", datetime.now(timezone.utc), default_branch="main", revision="a" * 40,
         )
         with patch("review_agent_tools.operator_setup.github_app_authenticator") as authenticator, patch(
-            "review_agent_tools.documentation_configuration.read_configuration", return_value=snapshot,
+            "review_agent_tools.documentation.configuration.read_configuration", return_value=snapshot,
         ):
             response = self.client.post(self.url + "/refresh")
         self.assertEqual(response.status_code, 200, response.text)
@@ -116,7 +116,7 @@ class ConfigurationAPITests(unittest.TestCase):
                 )
             return DocumentationConfiguration("not_configured", datetime.now(timezone.utc))
         with patch("review_agent_tools.operator_setup.github_app_authenticator"), patch(
-            "review_agent_tools.documentation_configuration.read_configuration", side_effect=changed,
+            "review_agent_tools.documentation.configuration.read_configuration", side_effect=changed,
         ):
             response = self.client.post(self.url + "/refresh")
         self.assertEqual(response.status_code, 409, response.text)

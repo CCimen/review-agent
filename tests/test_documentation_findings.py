@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"))
 
-from review_agent_tools.documentation_findings import validate_assessment  # noqa: E402
+from review_agent_tools.documentation.findings import validate_assessment  # noqa: E402
 from review_agent_tools.domain.documentation_review import (  # noqa: E402
     DocumentationResult,
     PreviousDocumentationFinding,
@@ -25,7 +25,9 @@ from review_agent_tools.feedback_commands import (
 )  # noqa: E402
 from review_agent_tools.memory_validation import ReviewMemoryError  # noqa: E402
 from review_agent_tools.postgres.documentation_reviews import coverage_reasons  # noqa: E402
-from review_agent_tools.repository_decision_context import not_configured  # noqa: E402
+from review_agent_tools.repository_context.decision_context import (  # noqa: E402
+    not_configured,
+)
 from tests.test_postgres_documentation_reviews import evidence, scope  # noqa: E402
 
 
@@ -307,7 +309,10 @@ class DocumentationFindingTests(unittest.TestCase):
             DecisionIndexMatch,
             parse_adr,
         )
-        from review_agent_tools.repository_decision_context import loaded, pending
+        from review_agent_tools.repository_context.decision_context import (
+            loaded,
+            pending,
+        )
 
         result = result_fixture()
         payload = input_fixture(result)

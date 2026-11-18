@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
 
 from review_agent_tools import operator_application  # noqa: E402
 from review_agent_tools.postgres.team_access import AccessRequest
-from review_agent_tools.admin_quality_api import create_router  # noqa: E402
+from review_agent_tools.admin.quality_api import create_router  # noqa: E402
 from review_agent_tools.domain.finding import (  # noqa: E402
     DecisionKind,
     FindingDecisionId,
@@ -76,7 +76,7 @@ class AdminQualityAPITests(unittest.TestCase):
             expires_at=now,
         )
         with patch(
-            "review_agent_tools.admin_quality_api.admin_application.decide_finding",
+            "review_agent_tools.admin.quality_api.admin_application.decide_finding",
             return_value=result,
         ) as decide:
             response = self.client.post(

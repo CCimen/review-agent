@@ -7,7 +7,7 @@ from psycopg.rows import TupleRow
 from psycopg.types.json import Jsonb
 from pydantic import TypeAdapter
 
-from ..documentation_configuration import DocumentationConfiguration
+from ..documentation.configuration import DocumentationConfiguration
 
 
 _ADAPTER = TypeAdapter(DocumentationConfiguration)

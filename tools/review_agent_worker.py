@@ -30,7 +30,7 @@ _load_package()
 
 from review_agent_tools.worker_telemetry import WorkerTelemetry  # noqa: E402
 
-from review_agent_tools import review_contract  # noqa: E402
+from review_agent_tools.review import contract as review_contract  # noqa: E402
 from review_agent_tools.github.gateway_client import ReviewGitHubGatewayClient  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,

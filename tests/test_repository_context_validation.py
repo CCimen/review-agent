@@ -9,9 +9,9 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import (  # noqa: E402
-    repository_context_validation,
-    repository_guidance_context,
+from review_agent_tools.repository_context import (  # noqa: E402
+    validation as repository_context_validation,
+    guidance_context as repository_guidance_context,
 )
 from review_agent_tools.domain import repository_decisions  # noqa: E402
 

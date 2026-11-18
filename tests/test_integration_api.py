@@ -143,7 +143,7 @@ class IntegrationAPITests(unittest.TestCase):
             self.assertNotIn(issued["token"], str(event))
 
     def test_revocation_is_rechecked_by_the_reporting_application(self) -> None:
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
         from review_agent_tools.postgres.team_access import (
             AccessDenied,
             IntegrationAccessRequest,

@@ -9,8 +9,8 @@ from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 from psycopg.types.json import Jsonb
 
-from .. import repository_decision_context
-from ..repository_decision_context import RepositoryDecisionContext
+from ..repository_context import decision_context as repository_decision_context
+from ..repository_context.decision_context import RepositoryDecisionContext
 from .review_runs import ReviewRunId
 
 

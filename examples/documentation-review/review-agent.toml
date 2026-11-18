@@ -9,7 +9,7 @@ intent = "Keep review triggers, feedback commands, authorization and automatic s
 
 [[area]]
 id = "repository-context"
-sources = ["bootstrap/plugins/review_agent_tools/domain/documentation_policy.py", "bootstrap/plugins/review_agent_tools/documentation_scope.py", "bootstrap/plugins/review_agent_tools/repository_guidance_context.py", "bootstrap/plugins/review_agent_tools/repository_decision_context.py"]
+sources = ["bootstrap/plugins/review_agent_tools/domain/documentation_policy.py", "bootstrap/plugins/review_agent_tools/documentation/scope.py", "bootstrap/plugins/review_agent_tools/repository_context/guidance_context.py", "bootstrap/plugins/review_agent_tools/repository_context/decision_context.py"]
 documents = ["docs/REPOSITORY_CONTEXT.md", "docs/BEHAVIOR_OWNERSHIP.md"]
 intent = "Keep accepted-base policy, configuration bounds, guidance and ADR ownership accurate."
 

@@ -12,7 +12,8 @@ from urllib.parse import quote, urlencode, urlsplit
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
 
-from . import operator_application, review_contract
+from . import operator_application
+from .review import contract as review_contract
 from .github import app_auth
 from .github.gateway import (
     GitHubGatewayProtocolError,

@@ -8,9 +8,13 @@ import unittest
 from uuid import uuid4
 
 from tests import test_postgres_jobs
-from review_agent_tools import failure_codes, review_contract, review_run_application
+from review_agent_tools import failure_codes
+from review_agent_tools.review import (
+    contract as review_contract,
+    run_application as review_run_application,
+)
 from review_agent_tools.domain.review import resolve_review_subject
-from review_agent_tools.model_quota import QuotaCheck
+from review_agent_tools.model_runtime.quota import QuotaCheck
 from review_agent_tools.postgres import jobs, registry
 
 

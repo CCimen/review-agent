@@ -13,7 +13,12 @@ import urllib.request
 
 from .. import capacity, changed_files
 from ..domain.review import ReviewPurpose
-from ..code_graph_contract import ARCHIVE_MAX_BYTES, GraphError, GraphIdentity, GraphSubject
+from ..code_graph.contract import (
+    ARCHIVE_MAX_BYTES,
+    GraphError,
+    GraphIdentity,
+    GraphSubject,
+)
 from ..source_control import SameOriginHttpsRedirectHandler
 from .gateway import (
     ACKNOWLEDGE_FEEDBACK_PATH,

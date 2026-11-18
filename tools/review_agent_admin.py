@@ -32,11 +32,10 @@ def _load_package() -> None:
 
 _load_package()
 
-from review_agent_tools import (  # noqa: E402
-    documentation_scope,
-    operator_application,
-    operator_setup,
-    repository_context_validation,
+from review_agent_tools.documentation import scope as documentation_scope  # noqa: E402
+from review_agent_tools import operator_application, operator_setup  # noqa: E402
+from review_agent_tools.repository_context import (  # noqa: E402
+    validation as repository_context_validation,
 )
 from review_agent_tools.github import app_auth, app_inventory  # noqa: E402
 from review_agent_tools.github.gateway import (  # noqa: E402

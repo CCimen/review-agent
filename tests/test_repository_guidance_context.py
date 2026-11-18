@@ -11,7 +11,9 @@ from unittest.mock import Mock
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import repository_guidance_context  # noqa: E402
+from review_agent_tools.repository_context import (  # noqa: E402
+    guidance_context as repository_guidance_context,
+)
 from review_agent_tools.github.source import ReviewFilePage  # noqa: E402
 
 

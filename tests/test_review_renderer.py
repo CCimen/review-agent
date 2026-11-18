@@ -6,7 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"))
 
-from review_agent_tools import memory_validation, review_renderer  # noqa: E402
+from review_agent_tools import memory_validation  # noqa: E402
+from review_agent_tools.review import renderer as review_renderer  # noqa: E402
 from review_agent_tools.domain import review as review_domain  # noqa: E402
 
 

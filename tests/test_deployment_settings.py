@@ -15,8 +15,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap/plugins"))
-from review_agent_tools import review_contract  # noqa: E402
-from review_agent_tools.admin_settings_api import create_router  # noqa: E402
+from review_agent_tools.review import contract as review_contract  # noqa: E402
+from review_agent_tools.admin.settings_api import create_router  # noqa: E402
 from review_agent_tools.deployment_settings import DeploymentSettings  # noqa: E402
 from review_agent_tools.postgres import deployment_settings as store  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
@@ -135,7 +135,7 @@ class DeploymentSettingsTests(unittest.TestCase):
 
     def test_admin_transport_rejects_viewers_and_returns_conflicts(self) -> None:
         from review_agent_tools.postgres.team_access import AccessRequest
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
 
         class Auth:
             def current_scope(self) -> AccessRequest:

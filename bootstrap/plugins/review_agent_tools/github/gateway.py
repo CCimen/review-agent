@@ -13,8 +13,14 @@ import psycopg
 from psycopg.rows import TupleRow
 
 from .. import capacity, changed_files, memory_validation, schemas
-from ..code_graph_contract import ARCHIVE_MAX_BYTES, GraphError, GraphIdentity, GraphPolicy, GraphSubject
-from ..code_graph_embeddings import embedding_inputs, openai_embeddings
+from ..code_graph.contract import (
+    ARCHIVE_MAX_BYTES,
+    GraphError,
+    GraphIdentity,
+    GraphPolicy,
+    GraphSubject,
+)
+from ..code_graph.embeddings import embedding_inputs, openai_embeddings
 from ..domain.review import ReviewPurpose, ReviewRunId
 from ..domain.documentation_review import DocumentationReviewError, EvidenceRead, EvidenceRole
 from ..postgres import documentation_reviews, github_app, jobs, review_runs, review_requesters, webhook_deliveries
@@ -26,7 +32,7 @@ from ..source_control import (
     read_pull_snapshot,
 )
 from ..feedback_contract import usage_lines
-from ..review_identity import (
+from ..review.identity import (
     FEEDBACK_COMMAND_NOT_RECOGNIZED,
     FEEDBACK_NO_CURRENT_REVIEW,
     FEEDBACK_NOT_CURRENT_REVIEW,

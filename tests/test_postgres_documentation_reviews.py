@@ -11,13 +11,15 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 
-from review_agent_tools import review_run_application  # noqa: E402
-from review_agent_tools.documentation_scope import (
+from review_agent_tools.review import (  # noqa: E402
+    run_application as review_run_application,
+)
+from review_agent_tools.documentation.scope import (  # noqa: E402
     ChangedPath,
     DocumentationScope,
     ScopeExclusion,
     SelectedArea,
-)  # noqa: E402
+)
 from review_agent_tools.domain.documentation_review import (  # noqa: E402
     DocumentationOutcome,
     DocumentationReviewError,
@@ -125,9 +127,11 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
         return started.run.id
 
     def test_preflight_persists_an_explicit_exclusion_without_semantic_context(self) -> None:
-        from review_agent_tools import documentation_preflight
+        from review_agent_tools.documentation import (
+            preflight as documentation_preflight,
+        )
         from review_agent_tools.postgres import jobs
-        from review_agent_tools.review_tool_runtime import GatewaySourceSession
+        from review_agent_tools.review.tool_runtime import GatewaySourceSession
         from tests.test_documentation_preflight import POLICY, policy
 
         run_id = self.start()
@@ -158,10 +162,12 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
             self.assertEqual(documentation_reviews.get_result(connection, run_id=run_id), result)
 
     def test_preflight_only_freezes_verified_comparison_absence(self) -> None:
-        from review_agent_tools import documentation_preflight
+        from review_agent_tools.documentation import (
+            preflight as documentation_preflight,
+        )
         from review_agent_tools.github.gateway import GitHubGatewayRejected
         from review_agent_tools.postgres import jobs
-        from review_agent_tools.review_tool_runtime import GatewaySourceSession
+        from review_agent_tools.review.tool_runtime import GatewaySourceSession
         from tests.test_documentation_preflight import POLICY, policy
         run_id = self.start()
         review_run_application.register_postgres_changed_files(self.runtime, run_id=run_id,
@@ -186,7 +192,9 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
         self.assertIsNone(result.comparison_sha)
 
     def test_preparation_rejects_cancelled_worker_before_advancing_phase(self) -> None:
-        from review_agent_tools import review_publication_application
+        from review_agent_tools.review import (
+            publication_application as review_publication_application,
+        )
         from review_agent_tools.postgres import jobs
         run_id = self.start()
         with self.runtime.transaction() as connection:
@@ -218,12 +226,14 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
     def test_semantic_finalization_fences_lease_and_authority_before_atomic_receipt(
         self,
     ) -> None:
-        from review_agent_tools.documentation_findings import (
+        from review_agent_tools.documentation.findings import (
             finalize_documentation_assessment,
         )
         from review_agent_tools.domain.review import ReviewPhase
         from review_agent_tools.postgres import findings, jobs, repository_decisions
-        from review_agent_tools.repository_decision_context import not_configured
+        from review_agent_tools.repository_context.decision_context import (
+            not_configured,
+        )
         from tests.test_documentation_findings import input_fixture, result_fixture
 
         run_id = self.start()
@@ -278,7 +288,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
             assessment=input_fixture(observed),
         )
         with patch(
-            "review_agent_tools.documentation_findings.github_app.authorize_documentation_review"
+            "review_agent_tools.documentation.findings.github_app.authorize_documentation_review"
         ) as authority:
             with self.assertRaises(jobs.ReviewJobLeaseLost):
                 finalize_documentation_assessment(

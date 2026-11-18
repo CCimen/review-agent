@@ -107,7 +107,8 @@ class CoachInterventionOutcomeTests(unittest.TestCase):
             / "bootstrap"
             / "plugins"
             / "review_agent_tools"
-            / "review_tool_runtime.py",
+            / "review"
+            / "tool_runtime.py",
             ROOT / "tools" / "review_agent_worker.py",
             ROOT / "tools" / "review_agent_admission.py",
         )

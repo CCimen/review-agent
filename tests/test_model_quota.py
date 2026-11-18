@@ -9,8 +9,8 @@ from unittest.mock import Mock, patch
 
 import jwt
 
-from review_agent_tools import model_quota
-from review_agent_tools.model_accounts import (
+from review_agent_tools.model_runtime import quota as model_quota
+from review_agent_tools.model_runtime.accounts import (
     AccountAvailability,
     ModelProvider,
     RuntimeAccount,

@@ -16,8 +16,11 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
 
-from review_agent_tools import review_contract, review_run_application  # noqa: E402
-from review_agent_tools.admin_run_api import create_router  # noqa: E402
+from review_agent_tools.review import (  # noqa: E402
+    contract as review_contract,
+    run_application as review_run_application,
+)
+from review_agent_tools.admin.run_api import create_router  # noqa: E402
 from review_agent_tools.domain.review import JsonObject, resolve_review_subject  # noqa: E402
 from review_agent_tools.postgres import admin_run_actions, jobs, registry  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402

@@ -9,25 +9,25 @@ from unittest.mock import Mock, patch
 import psycopg
 
 from tests import test_admin_api
-from review_agent_tools import review_contract
-from review_agent_tools.hermes_control import (
+from review_agent_tools.review import contract as review_contract
+from review_agent_tools.model_runtime.hermes_control import (
     Cancellation,
     HermesControlError,
     LoginSession,
     ProviderModel,
 )
-from review_agent_tools.model_accounts import (
+from review_agent_tools.model_runtime.accounts import (
     AccountAvailability,
     ManagedRuntimeStatus,
     ModelProvider,
     RuntimeAccount,
 )
-from review_agent_tools.model_connection_config import (
+from review_agent_tools.model_runtime.connection_config import (
     ConnectionConfigurationError,
     ManagedControl,
     load_controls,
 )
-from review_agent_tools.model_quota import (
+from review_agent_tools.model_runtime.quota import (
     AccountQuota,
     ManagedQuota,
     ObservedQuota,
@@ -98,7 +98,7 @@ class ModelConnectionTests(unittest.TestCase):
         )
         self.enterContext(
             patch(
-                "review_agent_tools.model_connection_config.load_controls",
+                "review_agent_tools.model_runtime.connection_config.load_controls",
                 return_value={
                     "shared": ManagedControl("shared", None),
                     "payments": ManagedControl("payments", self.control),

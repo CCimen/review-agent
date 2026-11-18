@@ -12,11 +12,12 @@ import uuid
 from typing import Protocol
 
 
-from . import failure_codes, review_run_application
+from . import failure_codes
+from .review import run_application as review_run_application
 from .github.publication import GitHubPublicationError, GitHubPublicationGateway
 from .postgres import publications, review_runs
 from .postgres.runtime import TRANSIENT_DATABASE_ERRORS, PostgreSQLRuntime
-from .review_publication_application import (
+from .review.publication_application import (
     publish_postgres_publication,
     publish_postgres_run_failure_status,
 )

@@ -16,10 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import (  # noqa: E402
-    operator_application,
-    review_finding_application,
-    review_run_application,
+from review_agent_tools import operator_application  # noqa: E402
+from review_agent_tools.review import (  # noqa: E402
+    finding_application as review_finding_application,
+    run_application as review_run_application,
 )
 from review_agent_tools.domain.coaching import (  # noqa: E402
     CoachCandidateInput,

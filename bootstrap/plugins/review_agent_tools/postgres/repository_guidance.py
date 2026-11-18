@@ -9,9 +9,9 @@ from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 from psycopg.types.json import Jsonb
 
-from .. import repository_guidance_context
+from ..repository_context import guidance_context as repository_guidance_context
 from ..domain import repository_guidance as guidance_domain
-from ..repository_guidance_context import RepositoryGuidanceContext
+from ..repository_context.guidance_context import RepositoryGuidanceContext
 from .review_runs import ReviewRunId
 
 

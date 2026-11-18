@@ -3741,7 +3741,7 @@ export interface components {
         RepositoryAccessPage: {
             capability: components["schemas"]["AccessCapability"];
             /** Items */
-            items: components["schemas"]["review_agent_tools__admin_access_api__RepositoryAccess"][];
+            items: components["schemas"]["review_agent_tools__admin__access_api__RepositoryAccess"][];
             /** Next After Id */
             next_after_id: number | null;
         };
@@ -4743,7 +4743,7 @@ export interface components {
             active_leases: number | null;
         };
         /** RepositoryAccess */
-        review_agent_tools__admin_access_api__RepositoryAccess: {
+        review_agent_tools__admin__access_api__RepositoryAccess: {
             /** Repository Id */
             repository_id: number;
             /** Repository */
@@ -7222,7 +7222,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["review_agent_tools__admin_access_api__RepositoryAccess"];
+                    "application/json": components["schemas"]["review_agent_tools__admin__access_api__RepositoryAccess"];
                 };
             };
             /** @description Validation Error */
@@ -7391,7 +7391,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["review_agent_tools__admin_access_api__RepositoryAccess"];
+                    "application/json": components["schemas"]["review_agent_tools__admin__access_api__RepositoryAccess"];
                 };
             };
             /** @description Validation Error */
@@ -7426,7 +7426,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["review_agent_tools__admin_access_api__RepositoryAccess"];
+                    "application/json": components["schemas"]["review_agent_tools__admin__access_api__RepositoryAccess"];
                 };
             };
             /** @description Validation Error */

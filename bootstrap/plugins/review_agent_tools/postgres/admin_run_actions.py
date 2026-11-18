@@ -10,7 +10,8 @@ import psycopg
 from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 
-from .. import failure_codes, review_run_application
+from .. import failure_codes
+from ..review import run_application as review_run_application
 from ..domain.review import ReviewPhase, ReviewRunId, ReviewStatus
 from . import jobs, review_runs
 

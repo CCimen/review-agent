@@ -12,13 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import repository_decision_context  # noqa: E402
+from review_agent_tools.repository_context import (  # noqa: E402
+    decision_context as repository_decision_context,
+)
 from review_agent_tools.domain import repository_decisions as decision_domain  # noqa: E402
 from review_agent_tools.postgres import repository_decisions  # noqa: E402
 from review_agent_tools.postgres.review_runs import ReviewRunId  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools import review_run_application  # noqa: E402
+from review_agent_tools.review import (  # noqa: E402
+    run_application as review_run_application,
+)
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")

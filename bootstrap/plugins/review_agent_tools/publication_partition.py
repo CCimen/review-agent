@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import TypedDict
 
 from .domain.publication import PublicationDomainError, publication_marker
-from .review_identity import CONTINUATION_LEAD, REVIEW_COMMENT_TITLE
-from .review_renderer import (
+from .review.identity import CONTINUATION_LEAD, REVIEW_COMMENT_TITLE
+from .review.renderer import (
     ReviewBlock,
     review_blocks_from_json,
     review_markdown_from_blocks,

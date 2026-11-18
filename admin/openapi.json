@@ -4763,7 +4763,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/review_agent_tools__admin_access_api__RepositoryAccess"
+                  "$ref": "#/components/schemas/review_agent_tools__admin__access_api__RepositoryAccess"
                 }
               }
             }
@@ -5069,7 +5069,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/review_agent_tools__admin_access_api__RepositoryAccess"
+                  "$ref": "#/components/schemas/review_agent_tools__admin__access_api__RepositoryAccess"
                 }
               }
             }
@@ -5128,7 +5128,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/review_agent_tools__admin_access_api__RepositoryAccess"
+                  "$ref": "#/components/schemas/review_agent_tools__admin__access_api__RepositoryAccess"
                 }
               }
             }
@@ -14088,7 +14088,7 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/review_agent_tools__admin_access_api__RepositoryAccess"
+              "$ref": "#/components/schemas/review_agent_tools__admin__access_api__RepositoryAccess"
             },
             "type": "array",
             "title": "Items"
@@ -17001,7 +17001,7 @@
         ],
         "title": "WorkerInstance"
       },
-      "review_agent_tools__admin_access_api__RepositoryAccess": {
+      "review_agent_tools__admin__access_api__RepositoryAccess": {
         "properties": {
           "repository_id": {
             "type": "integer",

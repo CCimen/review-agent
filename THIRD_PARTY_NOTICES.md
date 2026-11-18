@@ -28,7 +28,7 @@ the source, licence, and integration boundaries.
 
 The optional graph runtime packages Code Review Graph by Tirth Kanani, copyright
 2026, under the MIT License. Its source and dependency hashes are pinned in
-`requirements-code-graph.txt`. See the
+`requirements/requirements-code-graph.txt`. See the
 [license at the pinned revision](https://github.com/tirth8205/code-review-graph/blob/b58668751ab0c7670c078cf7cbd4d1f5b8e54f81/LICENSE).
 
 Other packaged dependencies retain their original licences. Package metadata

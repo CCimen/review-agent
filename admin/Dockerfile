@@ -14,7 +14,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/bootstrap/plugins \
     PATH=/opt/admin-venv/bin:$PATH
 WORKDIR /app
-COPY requirements-admin.txt /app/requirements-admin.txt
+COPY requirements/requirements-admin.txt /app/requirements-admin.txt
 # Apply security fixes published after the pinned base image was built.
 # Debian package maintenance needs Perl, so remove it only after installation.
 # The API needs neither Perl nor pip and its vendored packages at runtime.

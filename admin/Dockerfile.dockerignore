@@ -1,5 +1,6 @@
 *
-!requirements-admin.txt
+!requirements/
+!requirements/requirements-admin.txt
 !scripts/
 !scripts/write_build_info.py
 !scripts/validate_release_tag.py

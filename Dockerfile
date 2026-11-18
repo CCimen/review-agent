@@ -29,7 +29,7 @@ RUN uv pip install --no-config --no-cache --python /opt/hermes/.venv/bin/python 
 
 # Graph parsing runs in a separate service and environment. Its dependencies do
 # not change the Hermes or gateway interpreter, and no CPU model is downloaded.
-COPY --chown=root:root requirements-code-graph.txt /opt/review-agent-code-graph-requirements.txt
+COPY --chown=root:root requirements/requirements-code-graph.txt /opt/review-agent-code-graph-requirements.txt
 RUN uv venv --python /opt/hermes/.venv/bin/python /opt/review-agent-code-graph \
     && uv pip install --no-config --no-cache --python /opt/review-agent-code-graph/bin/python \
         --require-hashes --requirement /opt/review-agent-code-graph-requirements.txt \

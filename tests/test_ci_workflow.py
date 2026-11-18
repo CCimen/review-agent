@@ -22,12 +22,12 @@ RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release-image.yml"
 DOCS_WORKFLOW = ROOT / ".github" / "workflows" / "docs-pages.yml"
 RELEASE_SBOM = ROOT / "scripts" / "generate_release_sbom.sh"
 PYTHON_RUNTIME_SBOM = ROOT / "scripts" / "generate_python_runtime_sbom.sh"
-RELEASE_SBOM_REQUIREMENTS = ROOT / "requirements-release-sbom.txt"
+RELEASE_SBOM_REQUIREMENTS = ROOT / "requirements/requirements-release-sbom.txt"
 RELEASE_TAG_CHECK = ROOT / "scripts" / "validate_release_tag.py"
 POSTGRES_CHECK = ROOT / "scripts" / "check_postgres_schema.sh"
 PYTHON_CHECK = ROOT / "scripts" / "check_bundle.sh"
-RUFF_CONFIG = ROOT / "ruff.toml"
-TRIVY_CONFIG = ROOT / "trivy.yaml"
+PYPROJECT = ROOT / "pyproject.toml"
+TRIVY_CONFIG = ROOT / ".github" / "trivy.yaml"
 
 
 def mapping(value: object) -> dict[str, object]:
@@ -183,7 +183,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         )
         self.assertIn(
             "python3 -m pip install --disable-pip-version-check "
-            "--requirement requirements.txt --requirement requirements-dev.txt",
+            "--requirement requirements.txt --requirement requirements/requirements-dev.txt",
             source,
         )
         self.assertIn("./scripts/check_bundle.sh", source)
@@ -206,7 +206,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         scan_inputs = mapping(scan_step["with"])
         self.assertEqual("fs", scan_inputs["scan-type"])
         self.assertEqual(".", scan_inputs["scan-ref"])
-        self.assertEqual("trivy.yaml", scan_inputs["trivy-config"])
+        self.assertEqual(".github/trivy.yaml", scan_inputs["trivy-config"])
         self.assertEqual("dependency-vulnerabilities.json", scan_inputs["output"])
         self.assertEqual("v0.74.0", scan_inputs["version"])
         self.assertEqual("true", scan_step["continue-on-error"])
@@ -225,7 +225,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertNotIn("--critical-exceptions", enforce_command)
         for manifest in (
             "requirements.txt",
-            "requirements-admin.txt",
+            "requirements/requirements-admin.txt",
             "admin/package-lock.json",
             "install/package-lock.json",
             "website/package-lock.json",
@@ -248,7 +248,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             for pattern in cast(list[str], mapping(policy["scan"])["file-patterns"])
             if pattern.startswith("pip:")
         ]
-        for manifest in ("requirements-admin.txt", "requirements-code-graph.txt"):
+        for manifest in ("requirements/requirements-admin.txt", "requirements/requirements-code-graph.txt"):
             self.assertTrue(
                 any(re.search(pattern, manifest) for pattern in pip_patterns),
                 f"Trivy must discover {manifest}",
@@ -257,7 +257,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertEqual(False, mapping(policy["vulnerability"])["ignore-unfixed"])
 
     def test_ruff_keeps_correctness_rules_enabled(self):
-        ruff = mapping(tomllib.loads(RUFF_CONFIG.read_text(encoding="utf-8")))
+        project = mapping(tomllib.loads(PYPROJECT.read_text(encoding="utf-8")))
+        ruff = mapping(mapping(project["tool"])["ruff"])
         self.assertEqual("py311", ruff["target-version"])
         lint = mapping(ruff["lint"])
         selected = {str(item) for item in sequence(lint["select"])}
@@ -914,7 +915,10 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 evidence.mkdir()
                 reports = temporary / "vulnerability-reports"
                 reports.mkdir()
-                (temporary / "release-image-critical-exceptions.json").write_text(
+                (temporary / ".github").mkdir()
+                (
+                    temporary / ".github" / "release-image-critical-exceptions.json"
+                ).write_text(
                     json.dumps(
                         {
                             "schema_version": 1,
@@ -1068,7 +1072,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             inputs = mapping(scan["with"])
             self.assertEqual("image", inputs["scan-type"])
             self.assertEqual(image_ref, inputs["image-ref"])
-            self.assertEqual("trivy.yaml", inputs["trivy-config"])
+            self.assertEqual(".github/trivy.yaml", inputs["trivy-config"])
             self.assertEqual(report, inputs["output"])
             self.assertEqual("v0.74.0", inputs["version"])
 
@@ -1087,7 +1091,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         enforce_command = str(enforce["run"])
         self.assertIn("scripts/check_trivy_report.py", enforce_command)
         self.assertIn(
-            "--critical-exceptions release-image-critical-exceptions.json",
+            "--critical-exceptions .github/release-image-critical-exceptions.json",
             enforce_command,
         )
         self.assertIn(

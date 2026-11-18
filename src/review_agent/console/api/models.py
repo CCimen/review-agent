@@ -16,7 +16,7 @@ from ..model_connections import (
 )
 from .teams import ChangeReason
 from ...hermes.control import ProviderModel
-from ...hermes.accounts import ModelProvider
+from ...domain.model_connections import ModelProvider
 from ...hermes.quota import AccountQuota
 from ...postgres import model_connections as models
 from ...postgres.runtime import PostgreSQLRuntime

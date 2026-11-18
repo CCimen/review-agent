@@ -12,7 +12,7 @@ from ..hermes.control import (
     ProviderModel,
 )
 from ..hermes.control_endpoints import ManagedControl
-from ..hermes.accounts import AccountAvailability, ModelProvider
+from ..domain.model_connections import AccountAvailability, ModelProvider
 from ..hermes.quota import AccountQuota
 from ..postgres import model_connections as models, model_logins, team_access
 from ..postgres.runtime import PostgreSQLRuntime

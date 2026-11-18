@@ -1,8 +1,11 @@
 """Durable account operations; remote Hermes calls occur outside transactions."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import psycopg
@@ -10,13 +13,12 @@ from psycopg.rows import TupleRow, class_row
 from psycopg.types.json import Jsonb
 
 from ..domain.access import Role
-from ..hermes.accounts import (
-    AccountAvailability,
-    ManagedRuntimeStatus,
-    ModelProvider,
-)
+from ..domain.model_connections import AccountAvailability, ModelProvider
 from . import audit, model_connections as models, team_access
 from .team_access import AccessScope
+
+if TYPE_CHECKING:
+    from ..hermes.control import ManagedRuntimeStatus
 
 
 class LoginState(StrEnum):

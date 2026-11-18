@@ -20,12 +20,12 @@ from review_agent.hermes import (
 from review_agent.domain.model_execution import ModelWindow
 from review_agent.review import contract as review_contract
 from review_agent.hermes.control import MANAGED_REVIEW_PATH
-from review_agent.hermes.accounts import (
+from review_agent.domain.model_connections import (
     AccountAvailability,
     ModelProvider,
     RuntimeAccount,
-    account_identity,
 )
+from review_agent.hermes.accounts import account_identity
 from review_agent.postgres import history as postgres_history, jobs
 
 

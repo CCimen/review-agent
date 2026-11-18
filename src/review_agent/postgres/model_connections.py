@@ -1,10 +1,12 @@
 """Managed model connections, account revisions, and admission-time routing."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 import os
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 import psycopg
@@ -14,13 +16,12 @@ from psycopg.types.json import Jsonb
 from ..review import contract as review_contract
 from ..review.contract import SHARED_CONNECTION_ID
 from ..deployment_settings import DeploymentSettings
-from ..hermes.accounts import (
-    AccountAvailability,
-    ManagedRuntimeStatus,
-    ModelProvider,
-)
+from ..domain.model_connections import AccountAvailability, ModelProvider
 from . import audit, deployment_settings, team_access
 from .team_access import AccessScope
+
+if TYPE_CHECKING:
+    from ..hermes.control import ManagedRuntimeStatus
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,17 +9,17 @@ import psycopg
 
 from tests import test_admin_api
 from review_agent.review import contract as review_contract
+from review_agent.domain.model_connections import (
+    AccountAvailability,
+    ModelProvider,
+    RuntimeAccount,
+)
 from review_agent.hermes.control import (
     Cancellation,
     HermesControlError,
     LoginSession,
-    ProviderModel,
-)
-from review_agent.hermes.accounts import (
-    AccountAvailability,
     ManagedRuntimeStatus,
-    ModelProvider,
-    RuntimeAccount,
+    ProviderModel,
 )
 from review_agent.hermes.control_endpoints import (
     ConnectionConfigurationError,

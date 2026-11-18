@@ -161,17 +161,32 @@ export function since(value: string | null | undefined, now = Date.now()) {
 }
 
 /** Recorded causes are stored as tokens. Operators still need the token to
- *  grep logs, but "review_failed" is not an answer to "why did this fail?". */
+ *  grep logs, but "review_failed" is not an answer to "why did this fail?".
+ *  One sentence per code the backend writes to a run; a test keeps this list
+ *  complete against the backend's failure codes. */
 const failureSentences: Record<string, string> = {
   review_failed: "The review did not finish",
-  publication_failed: "The result never reached GitHub",
-  snapshot_changed: "The pull request changed while under review",
-  snapshot_superseded: "A newer request replaced this one",
+  stale_timeout: "The review stopped responding and was marked stale",
+  snapshot_superseded: "The pull request changed during the review",
+  superseded_duplicate_migration: "A duplicate request was retired during an upgrade",
+  review_deliver_error: "The review failed while it was being delivered",
+  unexpected_review_deliver_failure:
+    "The review failed unexpectedly while it was being delivered",
+  github_diff_406: "GitHub could not render this pull request's diff",
+  job_retry_exhausted: "The review worker used all its retry attempts",
+  job_execution_failed: "The review worker hit an error it could not retry",
+  publication_attempts_exhausted: "The publisher used all its delivery attempts",
+  operator_cancelled: "An operator cancelled the review",
+  review_contract_changed: "The reviewer was upgraded after this review was queued",
   pr_not_open: "The pull request was closed or merged",
-  authorization_failed: "The requester was not authorized",
-  timeout: "The review ran out of time",
-  provider_error: "The model provider returned an error",
-  cancelled: "The request was cancelled",
+  documentation_disabled: "Documentation review was switched off",
+  documentation_ineligible:
+    "The pull request no longer qualifies for documentation review",
+  base_sha_changed: "The base branch moved before the result was posted",
+  head_sha_changed: "New commits arrived before the result was posted",
+  finding_decisions_changed:
+    "A decision on a finding changed before the result was posted",
+  finding_groups_changed: "A newer review regrouped the findings first",
 };
 export const failureSentence = (code: string) =>
   code

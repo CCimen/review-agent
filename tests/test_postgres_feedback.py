@@ -18,6 +18,7 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 from review_agent_tools import operator_application  # noqa: E402
 from review_agent_tools.domain import repository_decision_context  # noqa: E402
 from review_agent_tools.review import (  # noqa: E402
+    decision_application,
     feedback_application as review_feedback_application,
 )
 from review_agent_tools.review import (  # noqa: E402
@@ -572,7 +573,7 @@ on_change = ["Run the cross-scope authorization test."]
         )
         assert feedback.feedback_id is not None
 
-        pending = operator_application.triage_review_feedback(
+        pending = decision_application.triage_review_feedback(
             self.runtime,
             feedback_id=feedback.feedback_id,
             status="insufficient",
@@ -584,7 +585,7 @@ on_change = ["Run the cross-scope authorization test."]
             actor="github:operator",
             reason="No reproducible failure or incident reference was supplied.",
         )
-        actionable = operator_application.triage_review_feedback(
+        actionable = decision_application.triage_review_feedback(
             self.runtime,
             feedback_id=feedback.feedback_id,
             status="actionable",
@@ -646,7 +647,7 @@ on_change = ["Run the cross-scope authorization test."]
         assert missed.feedback_id is not None
 
         with self.assertRaises(postgres_quality_triage.QualityFeedbackNotFound):
-            operator_application.triage_review_feedback(
+            decision_application.triage_review_feedback(
                 self.runtime,
                 feedback_id=2_147_483_647,
                 status="insufficient",
@@ -662,7 +663,7 @@ on_change = ["Run the cross-scope authorization test."]
         with self.assertRaises(
             postgres_quality_triage.QualityFeedbackNotTriageable
         ):
-            operator_application.triage_review_feedback(
+            decision_application.triage_review_feedback(
                 self.runtime,
                 feedback_id=scope.feedback_id,
                 status="insufficient",

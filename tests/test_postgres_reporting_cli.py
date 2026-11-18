@@ -18,8 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import operator_application  # noqa: E402
+from review_agent_tools import operator_application, operator_input  # noqa: E402
 from review_agent_tools.review import (  # noqa: E402
+    decision_application,
     finding_application as review_finding_application,
     run_application as review_run_application,
 )
@@ -1427,9 +1428,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 ),
             ),
         )
-        operator_application.decide_finding(
+        decision_application.decide_finding(
             self.runtime,
-            operator_application.OperatorDecisionRequest(
+            decision_application.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=prior_batch.items[0].fingerprint,
                 decision="false_positive",
@@ -1525,9 +1526,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             findings=suppressed_findings,
         )
         for item in suppressed.items:
-            operator_application.decide_finding(
+            decision_application.decide_finding(
                 self.runtime,
-                operator_application.OperatorDecisionRequest(
+                decision_application.OperatorDecisionRequest(
                     repository=self.repository,
                     fingerprint=item.fingerprint,
                     decision="false_positive",
@@ -1557,9 +1558,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         batch = self.record_finding(run)
         fingerprint = batch.items[0].fingerprint
 
-        decision = operator_application.decide_finding(
+        decision = decision_application.decide_finding(
             self.runtime,
-            operator_application.OperatorDecisionRequest(
+            decision_application.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=fingerprint[:12],
                 decision="false_positive",
@@ -1583,7 +1584,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertTrue(listed[0].suppressed)
         self.assertEqual(listed[0].latest_decision, decision.decision)
 
-        shown = operator_application.show_finding(
+        shown = decision_application.show_finding(
             self.runtime,
             repository=self.repository,
             fingerprint=fingerprint[:12],
@@ -1629,7 +1630,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
                 )
 
-        with self.assertRaises(operator_application.OperatorInputError):
+        with self.assertRaises(operator_input.OperatorInputError):
             operator_application.export_repository(
                 self.runtime,
                 repository=self.repository,
@@ -1751,9 +1752,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         second_batch = self.record_finding(second)
         fingerprint = first_batch.items[0].fingerprint
 
-        latest = operator_application.decide_finding(
+        latest = decision_application.decide_finding(
             self.runtime,
-            operator_application.OperatorDecisionRequest(
+            decision_application.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=fingerprint,
                 decision="resolved",
@@ -1765,9 +1766,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         self.assertEqual(latest.occurrence_id, second_batch.items[0].occurrence_id)
 
-        local = operator_application.decide_finding(
+        local = decision_application.decide_finding(
             self.runtime,
-            operator_application.OperatorDecisionRequest(
+            decision_application.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=fingerprint,
                 decision="reopen",
@@ -1781,10 +1782,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(local.occurrence_id, first_batch.items[0].occurrence_id)
         self.assertNotEqual(local.occurrence_id, latest.occurrence_id)
 
-        with self.assertRaises(operator_application.OperatorInputError):
-            operator_application.decide_finding(
+        with self.assertRaises(operator_input.OperatorInputError):
+            decision_application.decide_finding(
                 self.runtime,
-                operator_application.OperatorDecisionRequest(
+                decision_application.OperatorDecisionRequest(
                     repository=self.repository,
                     fingerprint=fingerprint,
                     decision="resolved",
@@ -1978,9 +1979,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             unavailable_reason="patch_unavailable",
         )
         first_publication = self.publish_run(first, first_batch, key_character="5")
-        operator_application.decide_finding(
+        decision_application.decide_finding(
             self.runtime,
-            operator_application.OperatorDecisionRequest(
+            decision_application.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=first_batch.items[0].fingerprint,
                 decision="false_positive",
@@ -2028,9 +2029,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             state=DiffState.COMPLETE,
         )
         second_publication = self.publish_run(second, second_batch, key_character="6")
-        operator_application.decide_finding(
+        decision_application.decide_finding(
             self.runtime,
-            operator_application.OperatorDecisionRequest(
+            decision_application.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=second_batch.items[1].fingerprint,
                 decision="false_positive",
@@ -2087,7 +2088,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ).fetchall()
         self.assertGreater(scope_feedback_id, 0)
         actionable_feedback_id = int(missed_rows[1][0])
-        operator_application.triage_review_feedback(
+        decision_application.triage_review_feedback(
             self.runtime,
             feedback_id=actionable_feedback_id,
             status="actionable",

@@ -19,7 +19,7 @@ sys.path.insert(0, str(TOOLS))
 sys.path.insert(0, str(PLUGIN_PARENT))
 
 import review_agent_memory as memory  # noqa: E402
-from review_agent_tools import operator_application  # noqa: E402
+from review_agent_tools import operator_input  # noqa: E402
 from review_agent_tools.postgres import quality_reporting, quality_triage  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLNotReady,
@@ -159,7 +159,7 @@ class ReviewAgentMemoryCliTests(unittest.TestCase):
             patch.object(
                 memory,
                 "_run_live",
-                side_effect=operator_application.OperatorInputError(secret),
+                side_effect=operator_input.OperatorInputError(secret),
             ),
             redirect_stderr(stderr),
         ):

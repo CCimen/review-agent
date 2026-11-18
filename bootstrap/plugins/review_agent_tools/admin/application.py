@@ -13,7 +13,7 @@ from typing import Literal
 import psycopg
 from psycopg.rows import TupleRow
 
-from .. import operator_application
+from ..review import decision_application
 from ..deployment_settings import DeploymentSettings
 from ..domain.documentation_operating_policy import DocumentationMode
 from ..postgres import documentation_operating_policy as docs_policy
@@ -655,7 +655,7 @@ def show_finding(
 ) -> admin_quality.AdminFindingDetail:
     with _transaction(runtime, access) as (connection, scope):
         team_access.require_repository(connection, scope, repository)
-        detail = operator_application.show_finding_in_transaction(
+        detail = decision_application.show_finding_in_transaction(
             connection,
             repository=repository,
             fingerprint=fingerprint,
@@ -686,15 +686,15 @@ def review_findings(
 
 def decide_finding(
     runtime: PostgreSQLRuntime,
-    request: operator_application.OperatorDecisionRequest,
+    request: decision_application.OperatorDecisionRequest,
     *,
     access: AccessRequest,
-) -> operator_application.OperatorDecisionResult:
+) -> decision_application.OperatorDecisionResult:
     with _transaction(runtime, access, write=True) as (connection, scope):
         repository_id = team_access.require_repository(
             connection, scope, request.repository, maintain=True
         )
-        result = operator_application.decide_finding_in_transaction(
+        result = decision_application.decide_finding_in_transaction(
             connection, replace(request, actor=scope.actor)
         )
         audit.record(
@@ -729,7 +729,7 @@ def triage_review_feedback(
         repository_id = team_access.require_feedback(
             connection, scope, feedback_id, maintain=True
         )
-        result = operator_application.triage_review_feedback_in_transaction(
+        result = decision_application.triage_review_feedback_in_transaction(
             connection,
             feedback_id=feedback_id,
             status=status,

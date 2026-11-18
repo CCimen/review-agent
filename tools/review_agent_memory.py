@@ -37,7 +37,8 @@ def _plugin_parent() -> Path:
 
 _plugin_parent()
 
-from review_agent_tools import operator_application  # noqa: E402
+from review_agent_tools import operator_application, operator_input  # noqa: E402
+from review_agent_tools.review import decision_application  # noqa: E402
 from review_agent_tools.domain.coaching import (  # noqa: E402
     COACH_INTERVENTION_OUTCOMES,
     CoachingDomainError,
@@ -79,7 +80,7 @@ class _MemoryCommandError(ValueError):
 
 
 _EXPECTED_COMMAND_ERRORS = (
-    operator_application.OperatorInputError,
+    operator_input.OperatorInputError,
     CoachingDomainError,
     FeedbackDomainError,
     FindingDomainError,
@@ -519,13 +520,13 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
             include_suppressed=not args.open_only,
         )
     elif args.command == "show":
-        result = operator_application.show_finding(
+        result = decision_application.show_finding(
             runtime, repository=args.repo, fingerprint=args.fingerprint
         )
     elif args.command == "decide":
-        result = operator_application.decide_finding(
+        result = decision_application.decide_finding(
             runtime,
-            operator_application.OperatorDecisionRequest(
+            decision_application.OperatorDecisionRequest(
                 repository=args.repo, fingerprint=args.fingerprint,
                 decision=args.decision, reason=args.reason, actor=args.actor,
                 occurrence_id=args.occurrence_id, pr_number=args.pr,
@@ -534,7 +535,7 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
             ),
         )
     elif args.command == "triage-feedback":
-        result = operator_application.triage_review_feedback(
+        result = decision_application.triage_review_feedback(
             runtime,
             feedback_id=args.feedback_id,
             status=args.status,

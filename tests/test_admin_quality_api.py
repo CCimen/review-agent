@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
 
-from review_agent_tools import operator_application  # noqa: E402
+from review_agent_tools.review import decision_application  # noqa: E402
 from review_agent_tools.postgres.team_access import AccessRequest
 from review_agent_tools.admin.quality_api import create_router  # noqa: E402
 from review_agent_tools.domain.finding import (  # noqa: E402
@@ -63,7 +63,7 @@ class AdminQualityAPITests(unittest.TestCase):
         self,
     ) -> None:
         now = datetime(2026, 9, 8, tzinfo=timezone.utc)
-        result = operator_application.OperatorDecisionResult(
+        result = decision_application.OperatorDecisionResult(
             id=FindingDecisionId(1),
             fingerprint="a" * 64,
             occurrence_id=FindingOccurrenceId(42),
@@ -199,7 +199,7 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
             page.items[0].occurrence_id, int(later.items[0].occurrence_id)
         )
         self.assertNotEqual(page.items[0].fingerprint, other.items[0].fingerprint)
-        exact = operator_application.show_finding(
+        exact = decision_application.show_finding(
             self.runtime,
             repository=self.helper.repository,
             fingerprint=first.items[0].fingerprint,
@@ -207,9 +207,9 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
         )
         self.assertEqual(exact.finding.occurrence_id, first.items[0].occurrence_id)
         self.assertEqual(exact.finding.title, "Safe mode defaults to disabled")
-        decision = operator_application.decide_finding(
+        decision = decision_application.decide_finding(
             self.runtime,
-            operator_application.OperatorDecisionRequest(
+            decision_application.OperatorDecisionRequest(
                 repository=self.helper.repository,
                 fingerprint=first.items[0].fingerprint,
                 occurrence_id=int(first.items[0].occurrence_id),
@@ -247,7 +247,7 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
                     ),
                 ).fetchall()
             )
-        operator_application.triage_review_feedback(
+        decision_application.triage_review_feedback(
             self.runtime,
             feedback_id=feedback_ids[1],
             status="actionable",
@@ -284,9 +284,9 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
         fingerprint = finding.items[0].fingerprint
         stored_ids: list[int] = []
         for index in range(5):
-            stored = operator_application.decide_finding(
+            stored = decision_application.decide_finding(
                 self.runtime,
-                operator_application.OperatorDecisionRequest(
+                decision_application.OperatorDecisionRequest(
                     repository=self.helper.repository,
                     fingerprint=fingerprint,
                     occurrence_id=occurrence_id,
@@ -297,13 +297,13 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
             )
             stored_ids.append(int(stored.id))
 
-        latest = operator_application.show_finding(
+        latest = decision_application.show_finding(
             self.runtime,
             repository=self.helper.repository,
             fingerprint=fingerprint,
             decision_limit=3,
         )
-        older = operator_application.show_finding(
+        older = decision_application.show_finding(
             self.runtime,
             repository=self.helper.repository,
             fingerprint=fingerprint,

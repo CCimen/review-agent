@@ -37,7 +37,7 @@ you publish the GitHub release.
   not tested, state that rollback is limited to a forward fix or backup restore.
 - Keep known validation gaps in the release notes. A prerelease must not claim
   production scale that the test deployment did not exercise.
-- Review `release-image-critical-exceptions.json` against the
+- Review `.github/release-image-critical-exceptions.json` against the
   [vulnerability policy](#vulnerability-policy).
 
 Run the local candidate checks once. These supplement, but do not replace, the
@@ -167,7 +167,7 @@ CI runs the same policy against the exact published `linux/amd64` and
 - A high vulnerability blocks when the scanner reports an available fix; an
   unfixed high vulnerability stays visible in the report.
 - The release-image gate may accept only the exact critical package identities
-  in `release-image-critical-exceptions.json`. That reviewed file has one
+  in `.github/release-image-critical-exceptions.json`. That reviewed file has one
   release-only scope and an expiry date that bounds its entries. A new ID,
   package version, unused entry, available fix, or expired entry fails closed.
 - Scanner suppressions are disabled. The exception file hides nothing: the

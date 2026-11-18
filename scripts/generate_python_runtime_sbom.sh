@@ -32,7 +32,7 @@ trap 'rm -r -- "$bootstrap_dir"' EXIT
 python3 -m pip install --quiet --no-cache-dir --disable-pip-version-check \
     --no-compile --no-deps --only-binary=:all: --require-hashes \
     --target "$bootstrap_dir/pip" \
-    --requirement "$root/requirements-release-sbom-bootstrap.txt"
+    --requirement "$root/requirements/requirements-release-sbom-bootstrap.txt"
 
 docker run --rm -i \
     --user "$(id -u):$(id -g)" \
@@ -40,7 +40,7 @@ docker run --rm -i \
     -e CYCLONEDX_SPEC_VERSION \
     -v "$output_dir:/out" \
     -v "$bootstrap_dir/pip:/cdx/pip:ro" \
-    -v "$root/requirements-release-sbom.txt:/cdx/requirements-release-sbom.txt:ro" \
+    -v "$root/requirements/requirements-release-sbom.txt:/cdx/requirements-release-sbom.txt:ro" \
     --entrypoint /bin/sh \
     "$image" -s -- "/out/$(basename -- "$output_file")" "$runtime_python" <<'CONTAINER'
 set -eu

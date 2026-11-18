@@ -1,4 +1,4 @@
--r requirements.txt
+-r ../requirements.txt
 fastapi
 uvicorn
 fastapi-users[sqlalchemy]==15.0.5

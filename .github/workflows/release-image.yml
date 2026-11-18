@@ -233,7 +233,7 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ env.AMD64_IMAGE }}
-          trivy-config: trivy.yaml
+          trivy-config: .github/trivy.yaml
           output: vulnerability-reports/vulnerability-linux-amd64.json
           version: v0.74.0
 
@@ -244,7 +244,7 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ env.ARM64_IMAGE }}
-          trivy-config: trivy.yaml
+          trivy-config: .github/trivy.yaml
           output: vulnerability-reports/vulnerability-linux-arm64.json
           version: v0.74.0
           skip-setup-trivy: true
@@ -256,7 +256,7 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ env.ADMIN_AMD64_IMAGE }}
-          trivy-config: trivy.yaml
+          trivy-config: .github/trivy.yaml
           output: vulnerability-reports/vulnerability-admin-linux-amd64.json
           version: v0.74.0
           skip-setup-trivy: true
@@ -268,7 +268,7 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ env.ADMIN_ARM64_IMAGE }}
-          trivy-config: trivy.yaml
+          trivy-config: .github/trivy.yaml
           output: vulnerability-reports/vulnerability-admin-linux-arm64.json
           version: v0.74.0
           skip-setup-trivy: true
@@ -298,7 +298,7 @@ jobs:
             vulnerability-reports/vulnerability-admin-linux-amd64.json \
             vulnerability-reports/vulnerability-admin-linux-arm64.json
           python3 scripts/check_trivy_report.py \
-            --critical-exceptions release-image-critical-exceptions.json \
+            --critical-exceptions .github/release-image-critical-exceptions.json \
             --markdown-output release-sbom/VULNERABILITY-SUMMARY.md \
             vulnerability-reports/vulnerability-linux-amd64.json \
             vulnerability-reports/vulnerability-linux-arm64.json \

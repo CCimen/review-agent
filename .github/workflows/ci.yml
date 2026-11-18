@@ -36,8 +36,8 @@ jobs:
           cache: pip
           cache-dependency-path: |
             requirements.txt
-            requirements-dev.txt
-            requirements-admin.txt
+            requirements/requirements-dev.txt
+            requirements/requirements-admin.txt
 
       - name: Set up Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
@@ -45,7 +45,7 @@ jobs:
           node-version: '24'
 
       - name: Install Python dependencies
-        run: python3 -m pip install --disable-pip-version-check --requirement requirements.txt --requirement requirements-dev.txt --requirement requirements-admin.txt
+        run: python3 -m pip install --disable-pip-version-check --requirement requirements.txt --requirement requirements/requirements-dev.txt --requirement requirements/requirements-admin.txt
 
       - name: Install Pyright
         run: npm install --global pyright@1.1.408
@@ -74,11 +74,11 @@ jobs:
           cache: pip
           cache-dependency-path: |
             requirements.txt
-            requirements-admin.txt
-            requirements-dev.txt
+            requirements/requirements-admin.txt
+            requirements/requirements-dev.txt
 
       - name: Install Python dependencies
-        run: python3 -m pip install --disable-pip-version-check --requirement requirements.txt --requirement requirements-admin.txt --requirement requirements-dev.txt
+        run: python3 -m pip install --disable-pip-version-check --requirement requirements.txt --requirement requirements/requirements-admin.txt --requirement requirements/requirements-dev.txt
 
       - name: Validate PostgreSQL contract
         run: ./scripts/check_postgres_schema.sh
@@ -127,7 +127,7 @@ jobs:
         with:
           scan-type: fs
           scan-ref: .
-          trivy-config: trivy.yaml
+          trivy-config: .github/trivy.yaml
           output: dependency-vulnerabilities.json
           version: v0.74.0
 
@@ -148,8 +148,8 @@ jobs:
           test "$SCAN_OUTCOME" = success
           python3 scripts/check_trivy_report.py \
             --require-target "requirements.txt" \
-            --require-target "requirements-code-graph.txt" \
-            --require-target "requirements-admin.txt" \
+            --require-target "requirements/requirements-code-graph.txt" \
+            --require-target "requirements/requirements-admin.txt" \
             --require-target "admin/package-lock.json" \
             --require-target "install/package-lock.json" \
             --require-target "website/package-lock.json" \

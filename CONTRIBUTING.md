@@ -5,7 +5,7 @@ credentials or personal data. Install the pinned development tools alongside
 the runtime dependencies:
 
 ```bash
-python3 -m pip install --requirement requirements-admin.txt --requirement requirements-dev.txt
+python3 -m pip install --requirement requirements/requirements-admin.txt --requirement requirements/requirements-dev.txt
 npm install --global pyright@1.1.408
 ```
 

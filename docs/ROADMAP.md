@@ -15,18 +15,20 @@ last_verified: 2026-11-17
 | --- | --- | --- |
 | Code review on request | `/review` reviews the pull request's current base and head commits and publishes advisory findings | [How reviews work](./HOW_REVIEWS_WORK.md) |
 | Security review | Every code review traces untrusted input across trust boundaries in the changed code | [How reviews work](./HOW_REVIEWS_WORK.md#4-the-review) |
-| Large pull requests | A diff too large for one session is reviewed in up to twelve parts and merged into one review | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
+| Large pull requests | Changed files that together exceed one session are reviewed in up to twelve parts and merged into one review; files left unread are reported as incomplete coverage | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
 | Re-review and feedback | Earlier findings are re-checked; maintainers can mark a finding false positive or intentional | [Feedback and decisions](./FEEDBACK_AND_DECISIONS.md) |
 | Repository context | A `.review-agent/` package adds instructions, platform context, and accepted design decisions | [Repository context](./REPOSITORY_CONTEXT.md) |
 | Documentation review | `/review docs`, or an automatic mode, checks whether a pull request leaves mapped documents inaccurate | [Documentation review](./DOCUMENTATION_REVIEW.md) |
 | Code graph (optional) | Structural and semantic lookups of related code | [Code graph](./CODE_GRAPH.md) |
 | Admin console (optional) | Teams, roles, repository access, model connections, usage, audit, OIDC and SCIM | [Admin panel](./ADMIN_PANEL.md) |
-| Many organizations | One deployment serves any number of approved GitHub App installations | [GitHub App setup](./GITHUB_APP_PILOT.md#share-the-app-with-other-organizations) |
+| Many organizations | One deployment serves multiple approved GitHub App installations | [GitHub App setup](./GITHUB_APP_PILOT.md#share-the-app-with-other-organizations) |
 | Deployment | One Compose stack for Docker, Dokploy, Coolify, and Portainer, and a Helm chart for Kubernetes | [Deployment](./DEPLOYMENT.md) |
 
 State lives in one PostgreSQL database per environment. Jobs and publication
-are lease-based, so workers and publishers can run in several replicas and an
-interrupted review resumes from stored state.
+are lease-based, so workers and publishers can run in several replicas. An
+interrupted review is retried from its stored job with a new model session,
+within its attempt budget; an interrupted publication continues from its stored
+parts ([durability](./HOW_REVIEWS_WORK.md#9-durability)).
 
 ## What it does not do
 

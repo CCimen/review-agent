@@ -349,7 +349,7 @@ into that request. Other values load when their service starts:
 | Values | Service to restart |
 | --- | --- |
 | Active job limit, capacity retry delay, admission age, review attempt budget, default priority | `review-github-app-worker` |
-| Concurrency, lease, heartbeat, retries, polling, recovery, priority aging, Hermes timeout | `review-worker` |
+| Concurrency, lease, heartbeat, retries, polling, recovery, priority aging, Hermes timeout; publication size and attempt budget for documentation results decided without a model call | `review-worker` |
 | Publication size, publication attempt budget, feedback instructions | `hermes-review` |
 | Publication size, lease, heartbeat, retries, polling | `review-publisher` |
 | Webhook payload bound, request concurrency, timeout | `review-admission` |
@@ -486,7 +486,9 @@ shared deadline, shown in history and in Operations' delayed totals. After the
 deadline, a fresh quota check decides; only a fresh allowance clears the wait.
 
 **Maximum concurrent reviews** applies per connection and per team (across
-connections); both default to four. Lowering a cap lets active work finish and
+connections); both default to four. Both count review jobs, so each running
+part of a [split review](./OPERATIONS.md#split-reviews) counts as one.
+Lowering a cap lets active work finish and
 limits new claims. Worker capacity is an additional bound, and one repository
 runs one review at a time. Eligible teams take turns, with priority aging within
 a team. Unfinished remote executions keep their capacity until Hermes reports

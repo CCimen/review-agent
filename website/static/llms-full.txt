@@ -77,9 +77,11 @@ In an open pull request, add a new top-level comment:
 /review
 ```
 
-The published review names the base and head commits it covers, its coverage,
-and its findings. After fixing findings, push a commit and comment `/review`
-again. If no comment appears, follow the
+The published review links the head commit it reviewed and reports its coverage
+and findings. The base commit is stored with the run; the
+[admin console](./ADMIN_PANEL.md) shows it in the request's execution details.
+After fixing findings, push a commit and comment `/review` again. If no comment
+appears, follow the
 [runbook](./OPERATIONS.md#runbook).
 
 ## 4. Add repository context (optional)
@@ -769,18 +771,25 @@ digest has been retired as a rollback target.
 
 ## Scale and operate the queue
 
-Each worker process runs up to `REVIEW_AGENT_WORKER_CONCURRENCY` model reviews at
+Each worker process runs up to `REVIEW_AGENT_WORKER_CONCURRENCY` review jobs at
 once (`4` by default) and claims work only when a slot is free. PostgreSQL
-prevents two live leases for the same repository, while priority aging lets
-older ready jobs advance. Increase the per-process value while CPU, memory, and
-provider capacity remain healthy; add replicas when you need more capacity or
-failure isolation:
+lets one review run per repository at a time (the part jobs of one split review
+may overlap), while priority aging lets older ready jobs advance. Increase the
+per-process value while CPU, memory, and provider capacity remain healthy; add
+replicas when you need more capacity or failure isolation:
 
 ```bash
-# 100 cross-repository slots, plus room for 20 queued reviews.
+# 100 worker slots, and up to 120 reviews queued or running.
 REVIEW_AGENT_ACTIVE_JOB_LIMIT=120 REVIEW_AGENT_WORKER_CONCURRENCY=10 \
   docker compose up -d --scale review-worker=10
 ```
+
+Worker slots are an upper bound on running jobs, not a count of running
+reviews. Each model connection and each team also runs at most four jobs at
+once by default, and these workers all serve the shared connection. This
+example therefore still runs four jobs at a time until an owner raises that
+connection's **Maximum concurrent reviews** in the console; see
+[Limits](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits).
 
 Set `REVIEW_AGENT_ACTIVE_JOB_LIMIT` at or above the number of active and queued
 reviews you intend to accept. The bundled Compose database allows 200
@@ -1002,7 +1011,7 @@ docker compose exec hermes-review \
 
 ## Share the App with other organizations
 
-One deployment can serve installations from any number of GitHub accounts.
+One deployment can serve installations from multiple GitHub accounts.
 Nothing in Review Agent restricts which account installs the App; the approval
 in step 4 is the gate.
 
@@ -1245,9 +1254,11 @@ A rejected request never reaches the model.
 ## 2. The reviewed snapshot
 
 A review covers exactly one base commit and one head commit. File content is
-read at those commits. Every tool call re-checks the pull request: if the head
-or base moved, the run ends as superseded; if the pull request closed, the run
-stops. A new `/review` starts a fresh run on the new commits.
+read at those commits. The tools that read the pull request's files and diffs,
+record findings, and deliver the review compare the live pull request with
+those commits: if the head or base moved, the run ends as superseded; if the
+pull request closed, the run stops. Reading a stored part report checks only
+the worker's lease. A new `/review` starts a fresh run on the new commits.
 
 If the repository has a `.review-agent/` package, code reads its instructions,
 indexed context files, and accepted design decisions from the base commit and
@@ -1309,7 +1320,10 @@ recorded finding:
   least 7 for Medium and Low;
 - a finding the team has marked false positive or intentional is suppressed
   while the same code context remains;
-- two findings that make the same claim cannot both be published.
+- two findings with identical path, evidence, impact, and fix text cannot both
+  be published, and a finding the reviewer grouped under another as the same
+  root cause is not published separately. Code does not recognize one defect
+  described in different words; grouping those is the reviewer's task.
 
 ### Context and retrieval
 
@@ -1328,21 +1342,27 @@ in Review Agent reranks findings or context.
 
 ## 5. Large pull requests
 
-Diffs are paged, so a single large file does not block the review. When the
-whole diff is too large for one session, code splits the review:
+Diffs are paged, so a single large file does not block the review. Code splits
+the review when the changed files, not counting any file whose own diff is
+larger than the largest part, are together larger than that part
+([sizes](./OPERATIONS.md#split-reviews)):
 
 1. Changed files are packed in path order into at most twelve parts, sized from
    the model's context window.
-2. Each part runs as its own job and session. A part cannot report until it has
-   read every diff assigned to it.
+2. Each part runs as its own job and session. A part cannot report while a diff
+   assigned to it is unread or only partly read; a diff GitHub cannot provide
+   is recorded as unavailable.
 3. A final session reads every part report, checks the candidates against the
    code, removes duplicates, and delivers one review. It cannot deliver before
    it has read all reports.
 
 A split review costs the first session that registers the files and splits the
 review, one session per part, and the final one, and takes correspondingly
-longer. A file whose own diff exceeds one part, and files beyond
-the twelfth part, are not read and are listed under **Coverage details**.
+longer. In a split review, a file whose own diff exceeds the largest part, and
+files beyond the twelfth part, are assigned to no part; left unread, they are
+listed under **Coverage details**. When the other files fit in one part, the
+review is not split: its one session pages through the large file as far as it
+gets, and a diff it does not finish counts as incomplete coverage.
 
 ## 6. Coverage
 
@@ -1356,8 +1376,11 @@ clean result. Coverage describes what was read, not how well it was understood.
 `review_agent_deliver` freezes the review as rows in PostgreSQL. A separate
 publisher process writes it to GitHub:
 
-- It first confirms that the pull request still has the reviewed head commit.
-  A review of an outdated commit is never posted.
+- Before it writes each part of the review, it confirms that the pull request
+  is still open with the reviewed base and head commits; otherwise it stops and
+  marks the publication stale. A push that lands between that check and the
+  write is not seen, and a comment GitHub already accepted stays visible; see
+  [failure codes](./OPERATIONS.md#failure-codes).
 - Stored findings are rendered into a summary comment, split into continuation
   comments when long.
 - Up to twelve small, self-contained fixes are posted as native GitHub
@@ -1391,8 +1414,12 @@ No command changes prompts or policy on its own. See
 
 Jobs, runs, findings, and publications live in PostgreSQL. Workers and
 publishers hold leases with a generation number; a process that loses its lease
-cannot write. Both can run in several replicas, and an interrupted review or
-publication resumes from stored state. See [Operations](./OPERATIONS.md).
+cannot write. Both can run in several replicas. An interrupted review does not
+continue its model session: its job is claimed again under a new lease and
+starts a new session, until the job's attempt budget
+(`REVIEW_AGENT_JOB_MAX_ATTEMPTS`) is used up; parts of a split review that
+already reported are kept. An interrupted publication continues from its
+stored parts. See [Operations](./OPERATIONS.md).
 
 ## Limits
 
@@ -1767,8 +1794,9 @@ CODEOWNERS.
 
 The validator accepts more than a live review can use, so keep instructions and
 context below the live figure. These limits apply only to the package: guidance
-that is too large is left out with a recorded reason, and the pull request is
-still reviewed in full.
+that is too large is left out with a recorded reason, and the review continues
+without it. How much of the pull request is read is set by the
+[review limits](./OPERATIONS.md#review-limits), not by the package.
 
 ---
 
@@ -2474,7 +2502,7 @@ into that request. Other values load when their service starts:
 | Values | Service to restart |
 | --- | --- |
 | Active job limit, capacity retry delay, admission age, review attempt budget, default priority | `review-github-app-worker` |
-| Concurrency, lease, heartbeat, retries, polling, recovery, priority aging, Hermes timeout | `review-worker` |
+| Concurrency, lease, heartbeat, retries, polling, recovery, priority aging, Hermes timeout; publication size and attempt budget for documentation results decided without a model call | `review-worker` |
 | Publication size, publication attempt budget, feedback instructions | `hermes-review` |
 | Publication size, lease, heartbeat, retries, polling | `review-publisher` |
 | Webhook payload bound, request concurrency, timeout | `review-admission` |
@@ -2611,7 +2639,9 @@ shared deadline, shown in history and in Operations' delayed totals. After the
 deadline, a fresh quota check decides; only a fresh allowance clears the wait.
 
 **Maximum concurrent reviews** applies per connection and per team (across
-connections); both default to four. Lowering a cap lets active work finish and
+connections); both default to four. Both count review jobs, so each running
+part of a [split review](./OPERATIONS.md#split-reviews) counts as one.
+Lowering a cap lets active work finish and
 limits new claims. Worker capacity is an additional bound, and one repository
 runs one review at a time. Eligible teams take turns, with priority aging within
 a team. Unfinished remote executions keep their capacity until Hermes reports
@@ -3093,9 +3123,12 @@ so back it up and treat exports as sensitive. See [Security](./SECURITY.md).
 
 ## Why did a review fail or stop?
 
-Common causes are an unauthorized requester, a disabled repository, a stale head
-SHA, or a GitHub permission failure. Check the run's failure code in the
-[Operations runbook](./OPERATIONS.md#runbook).
+A request from an unauthorized requester or in a disabled repository is
+rejected before a run exists: look for the delivery's `status=` and `reason=`
+in the `review-github-app-worker` log
+([failure codes](./OPERATIONS.md#failure-codes)). Once a run exists, common
+causes are a stale head SHA or a GitHub permission failure; check the run's
+failure code in the [Operations runbook](./OPERATIONS.md#runbook).
 
 ## Can we follow reviews in Slack or Microsoft Teams?
 
@@ -3127,18 +3160,20 @@ Last verified: 2026-11-17
 | --- | --- | --- |
 | Code review on request | `/review` reviews the pull request's current base and head commits and publishes advisory findings | [How reviews work](./HOW_REVIEWS_WORK.md) |
 | Security review | Every code review traces untrusted input across trust boundaries in the changed code | [How reviews work](./HOW_REVIEWS_WORK.md#4-the-review) |
-| Large pull requests | A diff too large for one session is reviewed in up to twelve parts and merged into one review | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
+| Large pull requests | Changed files that together exceed one session are reviewed in up to twelve parts and merged into one review; files left unread are reported as incomplete coverage | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
 | Re-review and feedback | Earlier findings are re-checked; maintainers can mark a finding false positive or intentional | [Feedback and decisions](./FEEDBACK_AND_DECISIONS.md) |
 | Repository context | A `.review-agent/` package adds instructions, platform context, and accepted design decisions | [Repository context](./REPOSITORY_CONTEXT.md) |
 | Documentation review | `/review docs`, or an automatic mode, checks whether a pull request leaves mapped documents inaccurate | [Documentation review](./DOCUMENTATION_REVIEW.md) |
 | Code graph (optional) | Structural and semantic lookups of related code | [Code graph](./CODE_GRAPH.md) |
 | Admin console (optional) | Teams, roles, repository access, model connections, usage, audit, OIDC and SCIM | [Admin panel](./ADMIN_PANEL.md) |
-| Many organizations | One deployment serves any number of approved GitHub App installations | [GitHub App setup](./GITHUB_APP_PILOT.md#share-the-app-with-other-organizations) |
+| Many organizations | One deployment serves multiple approved GitHub App installations | [GitHub App setup](./GITHUB_APP_PILOT.md#share-the-app-with-other-organizations) |
 | Deployment | One Compose stack for Docker, Dokploy, Coolify, and Portainer, and a Helm chart for Kubernetes | [Deployment](./DEPLOYMENT.md) |
 
 State lives in one PostgreSQL database per environment. Jobs and publication
-are lease-based, so workers and publishers can run in several replicas and an
-interrupted review resumes from stored state.
+are lease-based, so workers and publishers can run in several replicas. An
+interrupted review is retried from its stored job with a new model session,
+within its attempt budget; an interrupted publication continues from its stored
+parts ([durability](./HOW_REVIEWS_WORK.md#9-durability)).
 
 ## What it does not do
 
@@ -3230,12 +3265,16 @@ connection or provider. A paused connection stops new dispatch.
 
 ## Limits
 
-- **Team capacity:** at most four of a team's reviews run at once, across all
-  its connections. Admins can change the cap. The team recorded at admission is
-  counted.
-- **Connection capacity:** at most four reviews per connection by default.
+The team and connection caps count review jobs. A review is one job, except a
+[split review](OPERATIONS.md#split-reviews), where each running part is one.
+
+- **Team capacity:** at most four of a team's review jobs run at once by
+  default, across all its connections. Admins can change the cap. The team
+  recorded at admission is counted.
+- **Connection capacity:** at most four review jobs per connection by default.
   Owners set it for the shared connection; owners and admins for a team-owned one.
-- **Repository:** one review runs per repository at a time.
+- **Repository:** one review runs per repository at a time; the parts of that
+  review may overlap.
 - **Fairness:** eligible teams take turns claiming work, with priority aging
   within each team.
 - **Quota:** teams that share a connection share its Codex account quota, which
@@ -3433,7 +3472,8 @@ On an open pull request, including a draft, an authorized user comments:
 Each `/review` after the previous run reaches a terminal state starts a new
 round (`Review 2`, ...), including a rerun of the same base and head. A second
 `/review` on the same pull request while a run is active is a duplicate.
-Different pull requests run concurrently. Applying a native suggestion does not
+Pull requests in different repositories run concurrently; one repository runs
+one review at a time. Applying a native suggestion does not
 mark its finding resolved; run CI and post a new `/review`. Review mechanics are
 in [How reviews work](./HOW_REVIEWS_WORK.md).
 
@@ -3622,8 +3662,10 @@ Scaling procedures and examples are in
 
 ### Queue rules
 
-- Total review slots = `review-worker` replicas × `REVIEW_AGENT_WORKER_CONCURRENCY`.
-  A worker claims only when a slot is free.
+- Worker slots = `review-worker` replicas × `REVIEW_AGENT_WORKER_CONCURRENCY`.
+  Each slot runs one review job; a split review uses one per running part. A
+  worker claims only when a slot is free and the job's model connection, team
+  and repository [limits](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits) allow it.
 - `REVIEW_AGENT_ACTIVE_JOB_LIMIT` bounds queued, leased and
   publication-waiting reviews. At the limit, the App worker keeps the accepted
   request and retries admission without using processing attempts. Each retry
@@ -3703,7 +3745,7 @@ reports incomplete coverage when one of these boundaries stops it:
 | Boundary | Limit |
 | --- | --- |
 | Changed files | GitHub lists at most 3,000 files per pull request. If even a one-file page exceeds the response budget, registration stays incomplete. |
-| Source files | Read in line pages at the exact revision. Files above 1 MB use the raw Contents response up to a 2 MB per-request memory guard; larger or binary files are unavailable and keep coverage incomplete. A source page carries at most 400 lines. |
+| Source files | Read in line pages at the exact revision. Files above 1 MB use the raw Contents response up to a 2 MB per-request memory guard; larger or binary files cannot be read as source. A failed source read does not change diff coverage, which counts only the diffs returned. A source page carries at most 400 lines. |
 | Patches GitHub omits | For an added UTF-8 file up to 1 MB, the gateway builds the patch from head content, up to 200,000 characters. Otherwise the file's diff stays incomplete. |
 | Tool results | `plugins.entries.review-agent-tools.settings.result_max_chars` (default 160,000), further held to the Hermes per-result and per-response limits for the session's model (100,000 and 200,000 characters for windows of 166,667 tokens or more). A single-path diff or source page holds at most a seventh of the per-result limit. A batched diff result holds at most a fifth of the smaller of `result_max_chars` and the per-response limit (32,000 by default); one diff call accepts up to 50 paths, and the review procedure allows at most four batch calls in one model response. |
 | Historical context | 200 paths per call. |
@@ -3723,18 +3765,19 @@ context-file allowance from the model's window. See the upstream
 
 ### Split reviews
 
-A code review whose diff exceeds one session's largest part is reviewed in
-parts; [Large pull requests](./HOW_REVIEWS_WORK.md#5-large-pull-requests)
+A code review is reviewed in parts when its changed files, not counting any
+file whose own diff exceeds the largest part, together exceed the largest part;
+[Large pull requests](./HOW_REVIEWS_WORK.md#5-large-pull-requests)
 describes how. Documentation reviews are never split.
 
 | Rule | Value |
 | --- | --- |
-| A review is split above | the largest part |
+| A review is split when | the diffs that each fit the largest part together exceed it |
 | Preferred part | about half the context window: about 372,000 diff characters at 500,000 tokens, 192,000 at 272,000 |
 | Largest part | below the compression threshold: about 608,000 diff characters at 500,000 tokens, 321,000 at 272,000 |
-| Parts in one review | 12 |
-| Jobs of one review that run at once | 3, and at most the model connection's concurrency minus one |
-| Report one part hands in | 12,307 serialized characters by default (a thirteenth of the smaller of `result_max_chars` and the per-response limit) |
+| Parts in one review | at most 12 |
+| Jobs of one review that run at once | at most 3, and at most the model connection's concurrency minus one, but never fewer than 1 |
+| Report one part hands in | the smaller of `result_max_chars` and the per-response limit, divided by the review's number of parts plus one, and at most the per-result limit. By default, with 160,000 as that smaller value: 40,000 serialized characters in a three-part review, 12,307 in a twelve-part one |
 | Changed file without a GitHub patch | counted as 48 characters per changed line |
 
 Cost and accounting:
@@ -3749,9 +3792,11 @@ Cost and accounting:
   parts. `review-agent-admin jobs list` names each job's `part`; `0` is the main
   job. Queue health does not count a main job waiting for its parts as waiting
   or due work.
-- A file whose own diff exceeds a part, and files after the twelfth part, are
-  not read and appear in the coverage details. The gateway log records each
-  session's window and each split's part sizes.
+- In a split review, a file whose own diff exceeds the largest part, and files
+  after the twelfth part, are assigned to no part; left unread, they appear in
+  the coverage details. When the other files fit one part, the review is not
+  split and its single session reads such a file as far as it gets. The gateway
+  log records each session's window and each split's part sizes.
 
 ## Documentation review operation
 

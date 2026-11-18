@@ -40,9 +40,11 @@ In an open pull request, add a new top-level comment:
 /review
 ```
 
-The published review names the base and head commits it covers, its coverage,
-and its findings. After fixing findings, push a commit and comment `/review`
-again. If no comment appears, follow the
+The published review links the head commit it reviewed and reports its coverage
+and findings. The base commit is stored with the run; the
+[admin console](./ADMIN_PANEL.md) shows it in the request's execution details.
+After fixing findings, push a commit and comment `/review` again. If no comment
+appears, follow the
 [runbook](./OPERATIONS.md#runbook).
 
 ## 4. Add repository context (optional)

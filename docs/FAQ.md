@@ -101,9 +101,12 @@ so back it up and treat exports as sensitive. See [Security](./SECURITY.md).
 
 ## Why did a review fail or stop?
 
-Common causes are an unauthorized requester, a disabled repository, a stale head
-SHA, or a GitHub permission failure. Check the run's failure code in the
-[Operations runbook](./OPERATIONS.md#runbook).
+A request from an unauthorized requester or in a disabled repository is
+rejected before a run exists: look for the delivery's `status=` and `reason=`
+in the `review-github-app-worker` log
+([failure codes](./OPERATIONS.md#failure-codes)). Once a run exists, common
+causes are a stale head SHA or a GitHub permission failure; check the run's
+failure code in the [Operations runbook](./OPERATIONS.md#runbook).
 
 ## Can we follow reviews in Slack or Microsoft Teams?
 

@@ -284,5 +284,6 @@ CODEOWNERS.
 
 The validator accepts more than a live review can use, so keep instructions and
 context below the live figure. These limits apply only to the package: guidance
-that is too large is left out with a recorded reason, and the pull request is
-still reviewed in full.
+that is too large is left out with a recorded reason, and the review continues
+without it. How much of the pull request is read is set by the
+[review limits](./OPERATIONS.md#review-limits), not by the package.

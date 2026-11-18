@@ -179,7 +179,8 @@ On an open pull request, including a draft, an authorized user comments:
 Each `/review` after the previous run reaches a terminal state starts a new
 round (`Review 2`, ...), including a rerun of the same base and head. A second
 `/review` on the same pull request while a run is active is a duplicate.
-Different pull requests run concurrently. Applying a native suggestion does not
+Pull requests in different repositories run concurrently; one repository runs
+one review at a time. Applying a native suggestion does not
 mark its finding resolved; run CI and post a new `/review`. Review mechanics are
 in [How reviews work](./HOW_REVIEWS_WORK.md).
 
@@ -368,8 +369,10 @@ Scaling procedures and examples are in
 
 ### Queue rules
 
-- Total review slots = `review-worker` replicas × `REVIEW_AGENT_WORKER_CONCURRENCY`.
-  A worker claims only when a slot is free.
+- Worker slots = `review-worker` replicas × `REVIEW_AGENT_WORKER_CONCURRENCY`.
+  Each slot runs one review job; a split review uses one per running part. A
+  worker claims only when a slot is free and the job's model connection, team
+  and repository [limits](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits) allow it.
 - `REVIEW_AGENT_ACTIVE_JOB_LIMIT` bounds queued, leased and
   publication-waiting reviews. At the limit, the App worker keeps the accepted
   request and retries admission without using processing attempts. Each retry
@@ -449,7 +452,7 @@ reports incomplete coverage when one of these boundaries stops it:
 | Boundary | Limit |
 | --- | --- |
 | Changed files | GitHub lists at most 3,000 files per pull request. If even a one-file page exceeds the response budget, registration stays incomplete. |
-| Source files | Read in line pages at the exact revision. Files above 1 MB use the raw Contents response up to a 2 MB per-request memory guard; larger or binary files are unavailable and keep coverage incomplete. A source page carries at most 400 lines. |
+| Source files | Read in line pages at the exact revision. Files above 1 MB use the raw Contents response up to a 2 MB per-request memory guard; larger or binary files cannot be read as source. A failed source read does not change diff coverage, which counts only the diffs returned. A source page carries at most 400 lines. |
 | Patches GitHub omits | For an added UTF-8 file up to 1 MB, the gateway builds the patch from head content, up to 200,000 characters. Otherwise the file's diff stays incomplete. |
 | Tool results | `plugins.entries.review-agent-tools.settings.result_max_chars` (default 160,000), further held to the Hermes per-result and per-response limits for the session's model (100,000 and 200,000 characters for windows of 166,667 tokens or more). A single-path diff or source page holds at most a seventh of the per-result limit. A batched diff result holds at most a fifth of the smaller of `result_max_chars` and the per-response limit (32,000 by default); one diff call accepts up to 50 paths, and the review procedure allows at most four batch calls in one model response. |
 | Historical context | 200 paths per call. |
@@ -469,18 +472,19 @@ context-file allowance from the model's window. See the upstream
 
 ### Split reviews
 
-A code review whose diff exceeds one session's largest part is reviewed in
-parts; [Large pull requests](./HOW_REVIEWS_WORK.md#5-large-pull-requests)
+A code review is reviewed in parts when its changed files, not counting any
+file whose own diff exceeds the largest part, together exceed the largest part;
+[Large pull requests](./HOW_REVIEWS_WORK.md#5-large-pull-requests)
 describes how. Documentation reviews are never split.
 
 | Rule | Value |
 | --- | --- |
-| A review is split above | the largest part |
+| A review is split when | the diffs that each fit the largest part together exceed it |
 | Preferred part | about half the context window: about 372,000 diff characters at 500,000 tokens, 192,000 at 272,000 |
 | Largest part | below the compression threshold: about 608,000 diff characters at 500,000 tokens, 321,000 at 272,000 |
-| Parts in one review | 12 |
-| Jobs of one review that run at once | 3, and at most the model connection's concurrency minus one |
-| Report one part hands in | 12,307 serialized characters by default (a thirteenth of the smaller of `result_max_chars` and the per-response limit) |
+| Parts in one review | at most 12 |
+| Jobs of one review that run at once | at most 3, and at most the model connection's concurrency minus one, but never fewer than 1 |
+| Report one part hands in | the smaller of `result_max_chars` and the per-response limit, divided by the review's number of parts plus one, and at most the per-result limit. By default, with 160,000 as that smaller value: 40,000 serialized characters in a three-part review, 12,307 in a twelve-part one |
 | Changed file without a GitHub patch | counted as 48 characters per changed line |
 
 Cost and accounting:
@@ -495,9 +499,11 @@ Cost and accounting:
   parts. `review-agent-admin jobs list` names each job's `part`; `0` is the main
   job. Queue health does not count a main job waiting for its parts as waiting
   or due work.
-- A file whose own diff exceeds a part, and files after the twelfth part, are
-  not read and appear in the coverage details. The gateway log records each
-  session's window and each split's part sizes.
+- In a split review, a file whose own diff exceeds the largest part, and files
+  after the twelfth part, are assigned to no part; left unread, they appear in
+  the coverage details. When the other files fit one part, the review is not
+  split and its single session reads such a file as far as it gets. The gateway
+  log records each session's window and each split's part sizes.
 
 ## Documentation review operation
 

@@ -671,18 +671,25 @@ digest has been retired as a rollback target.
 
 ## Scale and operate the queue
 
-Each worker process runs up to `REVIEW_AGENT_WORKER_CONCURRENCY` model reviews at
+Each worker process runs up to `REVIEW_AGENT_WORKER_CONCURRENCY` review jobs at
 once (`4` by default) and claims work only when a slot is free. PostgreSQL
-prevents two live leases for the same repository, while priority aging lets
-older ready jobs advance. Increase the per-process value while CPU, memory, and
-provider capacity remain healthy; add replicas when you need more capacity or
-failure isolation:
+lets one review run per repository at a time (the part jobs of one split review
+may overlap), while priority aging lets older ready jobs advance. Increase the
+per-process value while CPU, memory, and provider capacity remain healthy; add
+replicas when you need more capacity or failure isolation:
 
 ```bash
-# 100 cross-repository slots, plus room for 20 queued reviews.
+# 100 worker slots, and up to 120 reviews queued or running.
 REVIEW_AGENT_ACTIVE_JOB_LIMIT=120 REVIEW_AGENT_WORKER_CONCURRENCY=10 \
   docker compose up -d --scale review-worker=10
 ```
+
+Worker slots are an upper bound on running jobs, not a count of running
+reviews. Each model connection and each team also runs at most four jobs at
+once by default, and these workers all serve the shared connection. This
+example therefore still runs four jobs at a time until an owner raises that
+connection's **Maximum concurrent reviews** in the console; see
+[Limits](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits).
 
 Set `REVIEW_AGENT_ACTIVE_JOB_LIMIT` at or above the number of active and queued
 reviews you intend to accept. The bundled Compose database allows 200

@@ -204,7 +204,7 @@ docker compose exec hermes-review \
 
 ## Share the App with other organizations
 
-One deployment can serve installations from any number of GitHub accounts.
+One deployment can serve installations from multiple GitHub accounts.
 Nothing in Review Agent restricts which account installs the App; the approval
 in step 4 is the gate.
 

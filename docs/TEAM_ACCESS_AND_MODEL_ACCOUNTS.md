@@ -73,12 +73,16 @@ connection or provider. A paused connection stops new dispatch.
 
 ## Limits
 
-- **Team capacity:** at most four of a team's reviews run at once, across all
-  its connections. Admins can change the cap. The team recorded at admission is
-  counted.
-- **Connection capacity:** at most four reviews per connection by default.
+The team and connection caps count review jobs. A review is one job, except a
+[split review](OPERATIONS.md#split-reviews), where each running part is one.
+
+- **Team capacity:** at most four of a team's review jobs run at once by
+  default, across all its connections. Admins can change the cap. The team
+  recorded at admission is counted.
+- **Connection capacity:** at most four review jobs per connection by default.
   Owners set it for the shared connection; owners and admins for a team-owned one.
-- **Repository:** one review runs per repository at a time.
+- **Repository:** one review runs per repository at a time; the parts of that
+  review may overlap.
 - **Fairness:** eligible teams take turns claiming work, with priority aging
   within each team.
 - **Quota:** teams that share a connection share its Codex account quota, which

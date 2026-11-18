@@ -220,7 +220,7 @@ class IntentionalDesignEvidence:
 class FindingDecision:
     id: FindingDecisionId
     finding_id: FindingId
-    occurrence_id: FindingOccurrenceId | None
+    occurrence_id: FindingOccurrenceId
     decision: DecisionKind
     reason: str
     actor: str

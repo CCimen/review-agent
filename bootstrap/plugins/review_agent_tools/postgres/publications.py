@@ -286,8 +286,6 @@ class PublicationPreparationContext:
     current: tuple[PreparationFinding, ...]
     previous: tuple[PreviousPublicationFinding, ...]
     published_fingerprints: frozenset[str]
-    dropped_occurrence_ids: frozenset[int]
-    dropped_reasons: tuple[tuple[int, str], ...]
     coverage: PreparationCoverage
     repository_decisions: RepositoryDecisionContext
     reconciliations: tuple[postgres_findings.FindingReconciliation, ...] = ()
@@ -564,16 +562,6 @@ def preparation_context(
                 for row in closure_rows
             )
 
-    reconciliation_rows = connection.execute(
-        """
-        SELECT finding_occurrence_id, COALESCE(reason, '')
-        FROM review_agent.candidate_reconciliations
-        WHERE review_run_id = %s AND final_decision = 'drop'
-        ORDER BY finding_occurrence_id
-        """,
-        (run_id,),
-    ).fetchall()
-
     from . import coverage as postgres_coverage
 
     coverage = postgres_coverage.summarize(connection, run_id)
@@ -702,10 +690,6 @@ def preparation_context(
         ),
         published_fingerprints=frozenset(
             str(row[0]) for row in published_fingerprint_rows
-        ),
-        dropped_occurrence_ids=frozenset(int(row[0]) for row in reconciliation_rows),
-        dropped_reasons=tuple(
-            (int(row[0]), str(row[1])) for row in reconciliation_rows
         ),
         conversation_baseline=conversation_baseline,
         conversation_closures=conversation_closures,

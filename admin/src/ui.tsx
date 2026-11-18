@@ -168,7 +168,6 @@ const failureSentences: Record<string, string> = {
   review_failed: "The review did not finish",
   stale_timeout: "The review stopped responding and was marked stale",
   snapshot_superseded: "The pull request changed during the review",
-  superseded_duplicate_migration: "A duplicate request was retired during an upgrade",
   review_deliver_error: "The review failed while it was being delivered",
   unexpected_review_deliver_failure:
     "The review failed unexpectedly while it was being delivered",

@@ -566,7 +566,7 @@ Durable history is kept unless this table says otherwise:
 | `admin_run_actions` | Deployment owner | Preserve who retried, cancelled or marked a run stalled, and why. |
 | `admin_audit_events` | Deployment owner | Preserve access changes and human audit evidence. Successful application read receipts can be pruned only with the bounded integration command below. |
 | `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage and idempotency receipts. |
-| `coach_runs`, `coach_candidates`, `coach_intervention_outcomes`, `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | Quality owner | Preserve private coaching and verification evidence; unavailable to the live reviewer. |
+| `coach_runs`, `coach_candidates`, `coach_intervention_outcomes` | Quality owner | Preserve private coaching evidence; unavailable to the live reviewer. |
 
 Raw webhook bodies are not stored. Terminal documentation deliveries keep their
 bounded normalized event envelope until the pruning command removes the

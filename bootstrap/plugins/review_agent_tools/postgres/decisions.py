@@ -21,6 +21,7 @@ from ..domain.finding import (
 )
 from ..domain.review import ReviewRunId
 from ..repository_context import decision_context as repository_decision_context
+from . import registry
 from . import repository_decisions as decision_snapshots
 
 
@@ -131,9 +132,7 @@ def _append_decision(
         raise DecisionStoreError("decision occurrence does not belong to the selected finding")
     # Match publication's PR -> run -> identity lock order. Group validation
     # and activation must see a stable decision snapshot, even across PRs.
-    connection.execute(
-        "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE", (scope[0],),
-    ).fetchone()
+    registry.lock_pull_request(connection, scope[0])
     connection.execute(
         "SELECT id FROM review_agent.review_runs WHERE id = %s FOR UPDATE", (scope[1],),
     ).fetchone()

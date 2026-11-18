@@ -41,6 +41,7 @@ from ..domain.review import (
     group_diff_coverage,
 )
 from ..repository_context.decision_context import RepositoryDecisionContext
+from . import registry
 from . import repository_decisions as postgres_repository_decisions
 from . import decisions as postgres_decisions
 from . import findings as postgres_findings
@@ -988,6 +989,17 @@ def _publication_row(
         ).fetchone()
 
 
+def publication_id_for_run(
+    connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
+) -> PublicationId | None:
+    """The publication already prepared for a run, if any."""
+    row = connection.execute(
+        "SELECT id FROM review_agent.publications WHERE review_run_id = %s",
+        (run_id,),
+    ).fetchone()
+    return None if row is None else PublicationId(int(row[0]))
+
+
 def get_publication(
     connection: psycopg.Connection[TupleRow], publication_id: PublicationId
 ) -> StoredPublication:
@@ -1532,9 +1544,7 @@ def complete_publication(
     initial = _publication_row(connection, publication_id)
     if initial is None:
         raise PublicationNotFound("publication does not exist")
-    connection.execute(
-        "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE", (initial.pull_request_id,),
-    ).fetchone()
+    registry.lock_pull_request(connection, initial.pull_request_id)
     connection.execute(
         "SELECT id FROM review_agent.review_runs WHERE id = %s FOR UPDATE", (initial.review_run_id,),
     ).fetchone()
@@ -1729,12 +1739,9 @@ def prepare_publication(
         ).fetchone()
         if subject is None or not isinstance(check, CheckRunDelivery) or check.head_sha != subject[0]:
             raise PublicationConflict("documentation check must use the exact reviewed head")
-    existing_id = connection.execute(
-        "SELECT id FROM review_agent.publications WHERE review_run_id = %s",
-        (run_id,),
-    ).fetchone()
+    existing_id = publication_id_for_run(connection, run_id)
     if existing_id is not None:
-        existing = get_publication(connection, PublicationId(int(existing_id[0])))
+        existing = get_publication(connection, existing_id)
         if existing.plan != plan:
             raise PublicationConflict(
                 "review run already has a different immutable publication plan"

@@ -92,6 +92,22 @@ def _require_transaction(connection: psycopg.Connection[TupleRow]) -> None:
         raise RegistryError("registry operations require an active transaction")
 
 
+def lock_pull_request(
+    connection: psycopg.Connection[TupleRow], pull_request_id: PullRequestId
+) -> bool:
+    """Lock one pull-request row and report whether it exists.
+
+    Work that changes a pull request's runs, jobs, findings or publications
+    takes this lock first and the run lock second, so concurrent work on the
+    same pull request serializes in one order.
+    """
+    row = connection.execute(
+        "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE",
+        (pull_request_id,),
+    ).fetchone()
+    return row is not None
+
+
 def _repository_parts(
     definition: RepositoryDefinition,
 ) -> tuple[str, int, str, str, str]:

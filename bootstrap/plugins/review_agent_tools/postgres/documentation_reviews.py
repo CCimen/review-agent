@@ -594,3 +594,27 @@ def previous_findings(
     if len(rows) > MAX_FINDINGS_PER_REVIEW:
         raise DocumentationReviewError("previous documentation findings exceed the review bound")
     return tuple(rows)
+
+
+def check_run_pull_requests(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    check_run_id: int,
+    provider_repository_id: int,
+) -> tuple[int, ...]:
+    """Pull requests whose documentation publication owns a GitHub check run.
+
+    Returns at most two numbers: callers need to tell exactly one owner from
+    none or several, not to list them.
+    """
+    rows = connection.execute(
+        """SELECT pull.number FROM review_agent.publication_parts part
+        JOIN review_agent.publications publication ON publication.id = part.publication_id
+        JOIN review_agent.pull_requests pull ON pull.id = publication.pull_request_id
+        JOIN review_agent.repositories repository ON repository.id = pull.repository_id
+        WHERE part.part_type = 'check_run' AND part.external_id = %s
+          AND publication.purpose = 'documentation' AND repository.provider_repository_id = %s
+        LIMIT 2""",
+        (check_run_id, provider_repository_id),
+    ).fetchall()
+    return tuple(row[0] for row in rows)

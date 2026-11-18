@@ -113,7 +113,6 @@ def prepare_postgres_publication(
     """Build and freeze one exact plan in a single bounded transaction."""
     from ..domain.publication import (
         PublicationFindingOutcome,
-        PublicationId,
         SuggestionReviewDelivery,
     )
     from ..domain.review import ReviewRunId
@@ -124,14 +123,11 @@ def prepare_postgres_publication(
 
     resolved_run_id = ReviewRunId(run_id)
     with runtime.transaction() as connection:
-        existing = connection.execute(
-            "SELECT id FROM review_agent.publications WHERE review_run_id = %s",
-            (resolved_run_id,),
-        ).fetchone()
+        existing = postgres_publications.publication_id_for_run(
+            connection, resolved_run_id
+        )
         if existing is not None:
-            stored = postgres_publications.get_publication(
-                connection, PublicationId(int(existing[0]))
-            )
+            stored = postgres_publications.get_publication(connection, existing)
             return PreparedPostgresPublication(
                 publication_id=int(stored.id),
                 findings_count=sum(
@@ -193,7 +189,7 @@ def prepare_postgres_documentation_publication(
     review_lease_generation: int | None = None,
 ) -> PreparedPostgresPublication:
     from ..domain.review import ReviewPhase, ReviewRunId
-    from ..postgres import documentation_reviews, jobs, publications, review_runs
+    from ..postgres import documentation_reviews, jobs, publications, registry, review_runs
     from .publication_planner import (
         build_documentation_publication,
         PublicationPlanningError,
@@ -202,10 +198,7 @@ def prepare_postgres_documentation_publication(
     resolved_id = ReviewRunId(run_id)
     with runtime.transaction() as connection:
         run = review_runs.get_run(connection, resolved_id)
-        connection.execute(
-            "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE",
-            (run.pull_request_id,),
-        )
+        registry.lock_pull_request(connection, run.pull_request_id)
         review_runs.lock_run(connection, resolved_id)
         if review_job_id is not None or review_lease_generation is not None:
             if review_job_id is None or review_lease_generation is None:

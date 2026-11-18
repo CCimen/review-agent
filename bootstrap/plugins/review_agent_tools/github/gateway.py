@@ -23,7 +23,15 @@ from ..code_graph.contract import (
 from ..code_graph.embeddings import embedding_inputs, openai_embeddings
 from ..domain.review import ReviewPurpose, ReviewRunId
 from ..domain.documentation_review import DocumentationReviewError, EvidenceRead, EvidenceRole
-from ..postgres import documentation_reviews, github_app, jobs, review_runs, review_requesters, webhook_deliveries
+from ..postgres import (
+    documentation_admissions,
+    documentation_reviews,
+    github_app,
+    jobs,
+    review_runs,
+    review_requesters,
+    webhook_deliveries,
+)
 from ..postgres.runtime import PostgreSQLRuntime
 from ..source_control import (
     GitHubReadClient,
@@ -1241,16 +1249,12 @@ class ReviewGitHubGateway:
             if _positive(payload.get("app_id"), "app_id") != self._tokens.app_identity().provider_app_id:
                 raise GitHubGatewayRejected("check_run_not_owned")
             check_id = _positive(payload.get("check_run_id"), "check_run_id")
-            rows = connection.execute("""SELECT pull.number FROM review_agent.publication_parts part
-                JOIN review_agent.publications publication ON publication.id = part.publication_id
-                JOIN review_agent.pull_requests pull ON pull.id = publication.pull_request_id
-                JOIN review_agent.repositories repository ON repository.id = pull.repository_id
-                WHERE part.part_type = 'check_run' AND part.external_id = %s
-                  AND publication.purpose = 'documentation' AND repository.provider_repository_id = %s
-                LIMIT 2""", (check_id, repository_id)).fetchall()
-            if len(rows) != 1:
+            owners = documentation_reviews.check_run_pull_requests(
+                connection, check_run_id=check_id, provider_repository_id=repository_id
+            )
+            if len(owners) != 1:
                 raise GitHubGatewayRejected("check_run_not_owned")
-            pr_number = _positive(rows[0][0], "pr_number")
+            pr_number = _positive(owners[0], "pr_number")
         return _IssueCommentCommand(
             provider_installation_id=_positive(delivery.provider_installation_id, "provider_installation_id"),
             provider_repository_id=repository_id, repository=repository, pr_number=pr_number, comment_id=None,
@@ -1347,10 +1351,10 @@ class ReviewGitHubGateway:
                 if scope.run.purpose is ReviewPurpose.DOCUMENTATION:
                     github_app.authorize_documentation_review(connection, scope.provider_repository_id, profile_key=self._profile)
                     if comment_id is None:
-                        promoted = connection.execute("""SELECT admission.promotion_json->'comment_id'
-                            FROM review_agent.documentation_admissions admission
-                            WHERE admission.review_run_id = %s""", (scope.run.id,)).fetchone()
-                        if promoted is not None:
+                        promoted = documentation_admissions.promoted_comment(
+                            connection, scope.run.id
+                        )
+                        if promoted:
                             comment_id = _positive(promoted[0], "comment_id")
                 if comment_id is None:
                     raise GitHubGatewayRejected(

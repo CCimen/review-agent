@@ -408,7 +408,7 @@ def admit_postgres_review_in_transaction(
     if reuse_completed_documentation:
         if request.purpose is not ReviewPurpose.DOCUMENTATION:
             raise ReviewRunError("completed-result reuse is only available for automatic documentation")
-        connection.execute("SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE", (pull_request_id,))
+        postgres_registry.lock_pull_request(connection, pull_request_id)
         completed = connection.execute("""SELECT run.id FROM review_agent.review_runs run
             JOIN review_agent.publications publication ON publication.review_run_id = run.id
             JOIN review_agent.documentation_reviews result ON result.review_run_id = run.id

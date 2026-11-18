@@ -11,7 +11,7 @@ from review_agent_tools.documentation.preflight import (  # noqa: E402
     deterministic_outcome,
     policy_scope,
 )
-from review_agent_tools.documentation.scope import ChangedPath  # noqa: E402
+from review_agent_tools.domain.documentation_scope import ChangedPath  # noqa: E402
 from review_agent_tools.domain.documentation_review import DocumentationOutcome  # noqa: E402
 from review_agent_tools.github.source import ReviewPolicySource  # noqa: E402
 

@@ -568,7 +568,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self,
     ) -> None:
         from review_agent_tools.admin import application as admin_application
-        from review_agent_tools.documentation.scope import (
+        from review_agent_tools.domain.documentation_scope import (
             ChangedPath,
             DocumentationScope,
         )

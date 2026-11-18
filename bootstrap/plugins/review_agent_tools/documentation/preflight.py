@@ -9,6 +9,7 @@ from ..review import (
     contract as review_contract,
     run_application as review_run_application,
 )
+from ..domain.documentation_scope import ChangedPath, DocumentationScope
 from . import scope as documentation_scope
 from ..repository_context import (
     decision_context as repository_decision_context,
@@ -37,11 +38,11 @@ def policy_scope(
     base_sha: str,
     comparison_sha: str | None,
     head_sha: str,
-    changed_files: tuple[documentation_scope.ChangedPath, ...],
+    changed_files: tuple[ChangedPath, ...],
     inventory_complete: bool,
     base: ReviewPolicySource,
     head: ReviewPolicySource,
-) -> documentation_scope.DocumentationScope:
+) -> DocumentationScope:
     """Use accepted target-base rules; retain a head proposal without activating it."""
     if base.revision != base_sha or head.revision != head_sha:
         raise ToolInputError("documentation policy does not match the review snapshot")
@@ -92,7 +93,7 @@ def policy_scope(
 
 
 def deterministic_outcome(
-    scope: documentation_scope.DocumentationScope,
+    scope: DocumentationScope,
 ) -> DocumentationOutcome | None:
     if scope.status == "not_configured":
         return DocumentationOutcome.NOT_CONFIGURED
@@ -146,7 +147,7 @@ def run_preflight(
     if result is None:
         raise ToolInputError("documentation comparison was not recorded")
     if result.scope is None:
-        files: list[documentation_scope.ChangedPath] = []
+        files: list[ChangedPath] = []
         cursor = ""
         while True:
             with runtime.transaction() as connection:
@@ -154,7 +155,7 @@ def run_preflight(
                     connection, run_id=run_id, repository=run_scope.repository,
                     pr_number=run_scope.pr_number, limit=200, cursor=cursor,
                 )
-            files.extend(documentation_scope.ChangedPath(
+            files.extend(ChangedPath(
                 item.change_status, item.path, item.previous_path or None,
             ) for item in page.items)
             if len(files) > documentation_scope.MAX_CHANGED_FILES:

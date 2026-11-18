@@ -3016,7 +3016,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
 
     def documentation_findings_result(self, *, evidence: str = "Concrete evidence.",
                                       reasons: tuple[str, ...] = ("Documentation impact remains unresolved for src/new.py.",)):
-        from review_agent_tools.documentation.scope import ChangedPath
+        from review_agent_tools.domain.documentation_scope import ChangedPath
         from review_agent_tools.domain.documentation_review import DocumentationOutcome
         from review_agent_tools.postgres import documentation_reviews
         from tests.test_postgres_documentation_reviews import scope

@@ -12,7 +12,7 @@ from psycopg.rows import TupleRow, class_row
 from psycopg.pq import TransactionStatus
 from psycopg.types.json import Jsonb
 
-from ..documentation.scope import DocumentationScope
+from ..domain.documentation_scope import DocumentationScope
 from ..domain.documentation_review import (
     MAX_EVIDENCE_READS,
     MAX_INCOMPLETE_REASONS,

@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -60,7 +61,7 @@ class ProfileBundleTests(unittest.TestCase):
 
         with mock.patch.dict(os.environ, conflicting, clear=True):
             config, _ = self.install.review_contract.render_managed_config(
-                self.install.INPUTS.config,
+                self.install.review_contract.locate_behavior_inputs().config,
                 environment=supplied,
             )
 
@@ -85,6 +86,7 @@ class ProfileBundleTests(unittest.TestCase):
         profile_environment: str | None = "default-standard",
         deployment_environment: dict[str, str] | None = None,
     ) -> int:
+        located = self.install.review_contract.locate_behavior_inputs()
         with (
             mock.patch.dict(
                 os.environ,
@@ -102,9 +104,11 @@ class ProfileBundleTests(unittest.TestCase):
             ),
             mock.patch.object(self.install, "HERMES_HOME", hermes_home),
             mock.patch.object(
-                self.install,
-                "PROFILES_SOURCE",
-                profiles_source or self.install.PROFILES_SOURCE,
+                self.install.review_contract,
+                "locate_behavior_inputs",
+                return_value=replace(
+                    located, profiles=profiles_source or located.profiles
+                ),
             ),
             mock.patch.object(
                 sys,
@@ -164,7 +168,7 @@ class ProfileBundleTests(unittest.TestCase):
             installed_config_bytes = (hermes_home / "config.yaml").read_bytes()
             _, expected_config_bytes = (
                 self.install.review_contract.render_managed_config(
-                    self.install.INPUTS.config,
+                    self.install.review_contract.locate_behavior_inputs().config,
                     environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE, "REVIEW_AGENT_MODEL": TEST_MODEL},
                 )
             )
@@ -524,37 +528,56 @@ class ProfileBundleTests(unittest.TestCase):
                 json.dumps(manifest), encoding="utf-8"
             )
 
-            with mock.patch.object(self.install, "PROFILES_SOURCE", profiles):
-                with self.assertRaisesRegex(
-                    self.install.ProfileError,
-                    "may define only schema_version and skills",
-                ):
-                    self.install.load_profile(
-                        "unsafe-profile", required_skills=()
-                    )
-                with self.assertRaisesRegex(
-                    self.install.ProfileError, "lower-case words"
-                ):
-                    self.install.load_profile(
-                        "../unsafe-profile", required_skills=()
-                    )
-                with self.assertRaisesRegex(
-                    self.install.ProfileError, "unknown review profile"
-                ):
-                    self.install.load_profile(
-                        "missing-profile", required_skills=()
-                    )
-
-                (custom / "profile.json").write_text(
-                    json.dumps({"schema_version": 1, "skills": ["review-agent-docs"]}),
-                    encoding="utf-8",
+            with self.assertRaisesRegex(
+                self.install.ProfileError,
+                "may define only schema_version and skills",
+            ):
+                self.install.load_profile(
+                    "unsafe-profile", profiles=profiles, required_skills=()
                 )
-                with self.assertRaisesRegex(
-                    self.install.ProfileError, "missing required review skill"
-                ):
-                    self.install.load_profile(
-                        "unsafe-profile", required_skills=("review-agent-pr",)
-                    )
+            with self.assertRaisesRegex(
+                self.install.ProfileError, "lower-case words"
+            ):
+                self.install.load_profile(
+                    "../unsafe-profile", profiles=profiles, required_skills=()
+                )
+            with self.assertRaisesRegex(
+                self.install.ProfileError, "unknown review profile"
+            ):
+                self.install.load_profile(
+                    "missing-profile", profiles=profiles, required_skills=()
+                )
+
+            (custom / "profile.json").write_text(
+                json.dumps({"schema_version": 1, "skills": ["review-agent-docs"]}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                self.install.ProfileError, "missing required review skill"
+            ):
+                self.install.load_profile(
+                    "unsafe-profile",
+                    profiles=profiles,
+                    required_skills=("review-agent-pr",),
+                )
+
+    def test_installer_reports_missing_inputs_as_a_usage_error(self) -> None:
+        contract = self.install.review_contract
+        missing = contract.ReviewContractError("managed reviewer config.yaml is not in /x")
+        for arguments, code in ((["--help"], 0), ([], 2)):
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(
+                    contract, "locate_behavior_inputs", side_effect=missing
+                ),
+                mock.patch.object(sys, "argv", ["install.py", *arguments]),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as stopped,
+            ):
+                self.install.main()
+            self.assertEqual(code, stopped.exception.code)
+        self.assertIn("managed reviewer config.yaml is not in /x", stderr.getvalue())
 
     def test_installer_rejects_missing_review_skill_before_writing_home(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

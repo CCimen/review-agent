@@ -579,6 +579,10 @@ direct build, from the repository root, is
 package's optional dependency group for the console API is `console`; it was
 `admin` on `main` and in no release.
 
+An existing checkout keeps what it built in the old directory. After pulling,
+`admin/node_modules/` and `admin/dist/` are no longer ignored by git; delete
+them.
+
 Logger names follow the module path. In every service except `hermes-review`
 the prefix `review_agent_tools.` is now `review_agent.`: for example,
 `review_agent_tools.worker` became `review_agent.cli.worker`. What a command

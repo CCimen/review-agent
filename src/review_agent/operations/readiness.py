@@ -344,11 +344,7 @@ def validate_database_configuration(
     )
 
 
-def preflight(
-    environment: Mapping[str, str],
-    *,
-    bootstrap_source: Path | None = None,
-) -> PreflightReport:
+def preflight(environment: Mapping[str, str]) -> PreflightReport:
     """Validate local configuration and packaged behavior without network or DB I/O."""
     settings = ReviewAgentSettings(environment)
     contract_environment = review_contract.deployment_environment(environment)
@@ -368,7 +364,6 @@ def preflight(
             "Packaged review profile contract is valid",
             lambda: review_contract.load_packaged_contract(
                 settings.profile,
-                source=bootstrap_source,
                 environment=contract_environment,
             ),
         ),

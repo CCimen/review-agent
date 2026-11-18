@@ -1337,7 +1337,7 @@ recorded finding:
 - the model's publication score is at least 8 for Critical and High, and at
   least 7 for Medium and Low;
 - a finding the team has marked false positive or intentional is suppressed
-  while the same code context remains;
+  while the same code context remains and the decision has not expired;
 - two findings with identical path, evidence, impact, and fix text cannot both
   be published, and a finding the reviewer grouped under another as the same
   root cause is not published separately. Code does not recognize one defect
@@ -2606,6 +2606,8 @@ revisions that contain newer fields, so roll back images and database together.
 Environment values are bootstrap defaults. After the first save, the saved
 revision overrides these variables for every service that reads policy; a
 revision saved before a control existed keeps the environment default for it.
+Documentation review is the exception: a revision that does not mention it
+leaves it off.
 
 | Managed in Settings | Variables |
 | --- | --- |
@@ -2847,7 +2849,9 @@ curl --fail-with-body --get \
 The console uses the same authenticated API it documents. Open **API reference**
 in the console, or `/api/docs`, for Swagger UI under the current session; the
 schema is at `/api/openapi.json`. The frontend contract is `console/openapi.json`
-and the generated `console/src/api.generated.ts`.
+and the generated `console/src/api.generated.ts`. The schema is the complete
+list of endpoints and parameters. It does not say who may call an endpoint, so
+the table below gives the access rule for the main ones.
 
 | Endpoint | Access | Data |
 | --- | --- | --- |
@@ -3542,8 +3546,8 @@ and `installation_repositories` events to `/webhooks/github-app`.
 `check_run` drive automatic documentation review and its re-runs; the
 installation events keep the repository inventory current. Admission persists
 the signed delivery before any provider read. The App worker then checks, through
-the private gateway, the sender's current access and the repository's enabled
-state before creating a run; see
+the private gateway, the repository's enabled state and then the sender's
+current access before creating a run; see
 [who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review).
 Feedback commands follow the same durable path, and the gateway rechecks the
 sender's write or admin permission and the open pull request before anything is

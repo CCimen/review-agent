@@ -100,7 +100,7 @@ recorded finding:
 - the model's publication score is at least 8 for Critical and High, and at
   least 7 for Medium and Low;
 - a finding the team has marked false positive or intentional is suppressed
-  while the same code context remains;
+  while the same code context remains and the decision has not expired;
 - two findings with identical path, evidence, impact, and fix text cannot both
   be published, and a finding the reviewer grouped under another as the same
   root cause is not published separately. Code does not recognize one defect

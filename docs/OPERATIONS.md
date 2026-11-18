@@ -153,8 +153,8 @@ and `installation_repositories` events to `/webhooks/github-app`.
 `check_run` drive automatic documentation review and its re-runs; the
 installation events keep the repository inventory current. Admission persists
 the signed delivery before any provider read. The App worker then checks, through
-the private gateway, the sender's current access and the repository's enabled
-state before creating a run; see
+the private gateway, the repository's enabled state and then the sender's
+current access before creating a run; see
 [who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review).
 Feedback commands follow the same durable path, and the gateway rechecks the
 sender's write or admin permission and the open pull request before anything is

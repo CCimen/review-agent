@@ -365,6 +365,8 @@ revisions that contain newer fields, so roll back images and database together.
 Environment values are bootstrap defaults. After the first save, the saved
 revision overrides these variables for every service that reads policy; a
 revision saved before a control existed keeps the environment default for it.
+Documentation review is the exception: a revision that does not mention it
+leaves it off.
 
 | Managed in Settings | Variables |
 | --- | --- |
@@ -606,7 +608,9 @@ curl --fail-with-body --get \
 The console uses the same authenticated API it documents. Open **API reference**
 in the console, or `/api/docs`, for Swagger UI under the current session; the
 schema is at `/api/openapi.json`. The frontend contract is `console/openapi.json`
-and the generated `console/src/api.generated.ts`.
+and the generated `console/src/api.generated.ts`. The schema is the complete
+list of endpoints and parameters. It does not say who may call an endpoint, so
+the table below gives the access rule for the main ones.
 
 | Endpoint | Access | Data |
 | --- | --- | --- |

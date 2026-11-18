@@ -683,14 +683,7 @@ def active_repeat_suppressions(
         for row in rows
         if (
             (candidate := decisions.get(FindingId(int(row[0])))) is not None
-            and suppression_is_active(
-                decision=candidate.latest.decision,
-                decision_context_hash=candidate.latest.context_hash,
-                current_context_hash=str(row[2]),
-                expires_at=candidate.latest.expires_at,
-                intentional_evidence_current=(candidate.intentional_evidence_current),
-                now=now,
-            )
+            and candidate.is_active(current_context_hash=str(row[2]), now=now)
         )
     )
 

@@ -23,7 +23,6 @@ from ..domain.finding import (
     FindingCategory,
     Severity,
     require_unique_finding_identities,
-    suppression_is_active,
 )
 from ..domain.review import PullRequestId, RepositoryId, ReviewPurpose, ReviewRunId
 
@@ -736,13 +735,8 @@ def stage_finding_relationships(
             latest = decision.latest
             if latest.expires_at is not None and latest.expires_at <= moment:
                 continue
-            active = suppression_is_active(
-                decision=latest.decision,
-                decision_context_hash=latest.context_hash,
-                current_context_hash=context_hash,
-                expires_at=latest.expires_at,
-                intentional_evidence_current=decision.intentional_evidence_current,
-                now=moment,
+            active = decision.is_active(
+                current_context_hash=context_hash, now=moment
             )
             suppressed = suppressed or active
             if active or latest.decision.value in {"reopen", "resolved"}:

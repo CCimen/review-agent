@@ -18,6 +18,7 @@ from ..domain.finding import (
     FindingId,
     FindingOccurrenceId,
     IntentionalDesignEvidence,
+    suppression_is_active,
 )
 from ..domain.review import ReviewRunId
 from ..repository_context import decision_context as repository_decision_context
@@ -49,6 +50,17 @@ class SuppressionDecision:
 
     latest: FindingDecision
     intentional_evidence_current: bool
+
+    def is_active(self, *, current_context_hash: str, now: datetime) -> bool:
+        """Whether this decision still suppresses the finding in that context."""
+        return suppression_is_active(
+            decision=self.latest.decision,
+            decision_context_hash=self.latest.context_hash,
+            current_context_hash=current_context_hash,
+            expires_at=self.latest.expires_at,
+            intentional_evidence_current=self.intentional_evidence_current,
+            now=now,
+        )
 
 
 @dataclass(frozen=True, slots=True)

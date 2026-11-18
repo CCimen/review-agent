@@ -27,7 +27,6 @@ from ..postgres import (
     admin_reporting,
     admin_usage,
     admin_quality,
-    admin_run_actions,
     quality_reporting,
     quality_triage,
     audit,
@@ -35,6 +34,7 @@ from ..postgres import (
     teams,
     integrations,
 )
+from . import run_actions as admin_run_actions
 from ..postgres.team_access import (
     AccessDenied,
     AccessRequest,

@@ -97,3 +97,54 @@ docker run --rm --user 12345:0 \
     --env HERMES_HOME=/opt/data \
     --entrypoint /opt/hermes/bin/hermes \
     "$image" gateway --help >/dev/null
+
+# Hermes must discover the installed plugin and register its tools: installing
+# files proves nothing about loading. The second install is an upgrade over an
+# existing profile home.
+docker run --rm --user 12345:0 \
+    --tmpfs /opt/data:rw,mode=0770,uid=12345,gid=0 \
+    --env HOME=/opt/data \
+    --env HERMES_HOME=/opt/data \
+    --env REVIEW_AGENT_MODEL=image-check-model \
+    --workdir /opt/hermes \
+    --entrypoint sh \
+    "$image" -ec '
+        /opt/review-agent-bootstrap/install.sh >/dev/null
+        /opt/review-agent-bootstrap/install.sh >/dev/null
+        /opt/hermes/.venv/bin/python - <<PY
+from pathlib import Path
+import sys
+
+import yaml
+from hermes_cli.plugins import discover_plugins, get_plugin_manager
+
+home = Path("/opt/data")
+discover_plugins(force=True)
+manager = get_plugin_manager()
+rows = [row for row in manager.list_plugins() if row["name"] == "review-agent-tools"]
+assert len(rows) == 1, rows
+assert rows[0]["enabled"] and rows[0]["error"] is None, rows[0]
+
+loaded = manager._plugins[rows[0]["key"]]
+plugin = Path(loaded.module.__file__).parent
+assert plugin.is_relative_to(home / "plugins"), plugin
+declared = yaml.safe_load((plugin / "plugin.yaml").read_text())["provides_tools"]
+assert sorted(loaded.tools_registered) == sorted(declared), loaded.tools_registered
+
+factories = manager.get_platform_handler_factories("api_server")
+assert [owner for _, owner in factories] == ["review-agent-tools"], factories
+
+# One copy of the package, loaded inside the plugin namespace, and the name
+# "tools" still means the Hermes package.
+package = loaded.module.__name__
+strays = sorted(
+    name for name, module in sys.modules.items()
+    if getattr(module, "__file__", None)
+    and Path(module.__file__).is_relative_to(plugin)
+    and name != package and not name.startswith(package + ".")
+)
+assert not strays, strays
+import tools
+assert Path(tools.__file__).is_relative_to("/opt/hermes"), tools.__file__
+PY
+    '

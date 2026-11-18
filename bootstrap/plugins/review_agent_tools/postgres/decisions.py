@@ -67,7 +67,7 @@ class SuppressionDecision:
 class _DecisionRow:
     id: FindingDecisionId
     finding_id: FindingId
-    finding_occurrence_id: FindingOccurrenceId | None
+    finding_occurrence_id: FindingOccurrenceId
     decision: str
     reason: str
     actor: str
@@ -247,8 +247,6 @@ def _insert_intentional_evidence(
 ) -> None:
     if evidence is None:
         return
-    if decision.occurrence_id is None:
-        raise DecisionStoreError("intentional decision is missing its occurrence")
     connection.execute(
         """
         INSERT INTO review_agent.intentional_design_evidence (

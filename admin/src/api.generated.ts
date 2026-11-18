@@ -2582,7 +2582,7 @@ export interface components {
             /** Finding Id */
             finding_id: number;
             /** Occurrence Id */
-            occurrence_id: number | null;
+            occurrence_id: number;
             decision: components["schemas"]["DecisionKind"];
             /** Reason */
             reason: string;

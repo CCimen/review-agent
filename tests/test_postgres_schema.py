@@ -586,6 +586,8 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
 
     def test_decision_audit_is_idempotent_by_decision_and_source_comment(self) -> None:
         repository_id = self.repository(355, "team/decision-audit")
+        pull_request_id = self.pull_request(repository_id, 14)
+        run_id = self.create_run(pull_request_id, self.subject(pull_request_id))
         first_finding = self.finding(repository_id, "a" * 64)
         second_finding = self.finding(repository_id, "b" * 64)
         decision_ids: list[int] = []
@@ -595,12 +597,13 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                     psql(
                         """
                         INSERT INTO review_agent.finding_decisions (
-                            finding_id, decision, reason, actor, created_at
+                            finding_id, finding_occurrence_id, decision, reason,
+                            actor, created_at
                         ) VALUES (
-                            %d, 'resolved', 'fixed', 'reviewer', CURRENT_TIMESTAMP
+                            %d, %d, 'resolved', 'fixed', 'reviewer', CURRENT_TIMESTAMP
                         ) RETURNING id;
                         """
-                        % finding_id
+                        % (finding_id, self.occurrence(run_id, finding_id))
                     ).stdout.strip()
                 )
             )
@@ -995,6 +998,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 % run_id
             ).stdout.strip()
         )
+        self.assert_rejected(
+            "UPDATE review_agent.review_run_files SET part = 2 WHERE id = %d;"
+            % run_file_id,
+            "review_run_files_part_fk",
+        )
         psql(
             """
             INSERT INTO review_agent.review_file_reads (
@@ -1341,33 +1349,45 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             pull_request_id, self.subject(pull_request_id), status="completed"
         )
         finding_id = self.finding(repository_id, "7" * 64)
+        occurrence_id = self.occurrence(run_id, finding_id)
 
         self.assert_rejected(
             """
             INSERT INTO review_agent.finding_decisions (
-                finding_id, decision, reason, actor, context_hash, created_at,
-                expires_at
+                finding_id, finding_occurrence_id, decision, reason, actor,
+                context_hash, created_at, expires_at
             ) VALUES (
-                %d, 'false_positive', 'not applicable', 'reviewer',
+                %d, %d, 'false_positive', 'not applicable', 'reviewer',
                 '%s', CURRENT_TIMESTAMP, NULL
             );
             """
-            % (finding_id, "6" * 64),
+            % (finding_id, occurrence_id, "6" * 64),
             "finding_decisions_governance_ck",
         )
         self.assert_rejected(
             """
             INSERT INTO review_agent.finding_decisions (
-                finding_id, decision, reason, actor, context_hash, adr_id,
-                created_at, expires_at
+                finding_id, finding_occurrence_id, decision, reason, actor,
+                context_hash, adr_id, created_at, expires_at
             ) VALUES (
-                %d, 'intentional_by_design', 'documented design', 'reviewer',
+                %d, %d, 'intentional_by_design', 'documented design', 'reviewer',
                 '%s', '', CURRENT_TIMESTAMP,
                 CURRENT_TIMESTAMP + INTERVAL '180 days'
             );
             """
-            % (finding_id, "8" * 64),
+            % (finding_id, occurrence_id, "8" * 64),
             "finding_decisions_adr_ck",
+        )
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.finding_decisions (
+                finding_id, decision, reason, actor, context_hash, created_at
+            ) VALUES (
+                %d, 'resolved', 'fixed', 'reviewer', '%s', CURRENT_TIMESTAMP
+            );
+            """
+            % (finding_id, "9" * 64),
+            "finding_occurrence_id",
         )
         self.assert_rejected(
             """

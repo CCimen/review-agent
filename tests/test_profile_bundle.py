@@ -15,7 +15,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE_SOURCE = ROOT / "bootstrap" / "profiles" / "default-standard"
-PLUGIN_SOURCE = ROOT / "bootstrap" / "plugins" / "review_agent_tools"
+PLUGIN_SOURCE = ROOT / "src" / "review_agent"
 HERMES_IMAGE = "nousresearch/hermes-agent:test@sha256:" + "1" * 64
 # Every deployment names its review model; tests use a neutral one.
 TEST_MODEL = "test-review-model"
@@ -267,6 +267,49 @@ class ProfileBundleTests(unittest.TestCase):
                 )
 
             self.assertEqual(self.load_installed_contract(hermes_home), packaged_contract)
+
+    def test_default_inputs_are_the_image_bootstrap_then_this_checkout(self) -> None:
+        contract = self.install.review_contract
+        with tempfile.TemporaryDirectory() as temp:
+            image = Path(temp).resolve() / "image"
+            with mock.patch.object(contract, "_IMAGE_BOOTSTRAP", image):
+                checkout = contract.locate_behavior_inputs()
+                image.mkdir()
+                (image / "config.yaml").write_text("", encoding="utf-8")
+                in_image = contract.locate_behavior_inputs()
+
+        self.assertEqual(
+            contract.BehaviorInputs(
+                config=ROOT / "bootstrap" / "config.yaml",
+                profiles=ROOT / "bootstrap" / "profiles",
+                package=PLUGIN_SOURCE,
+            ),
+            checkout,
+        )
+        # The engine is the running package wherever config and profiles lie.
+        self.assertEqual(
+            contract.BehaviorInputs(
+                config=image / "config.yaml",
+                profiles=image / "profiles",
+                package=PLUGIN_SOURCE,
+            ),
+            in_image,
+        )
+
+    def test_missing_inputs_name_the_image_and_the_checkout_location(self) -> None:
+        contract = self.install.review_contract
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            installed = root / "src" / "review_agent" / "review" / "contract.py"
+            with (
+                mock.patch.object(contract, "_IMAGE_BOOTSTRAP", root / "image"),
+                mock.patch.object(contract, "__file__", str(installed)),
+                self.assertRaises(contract.ReviewContractError) as raised,
+            ):
+                contract.locate_behavior_inputs()
+
+        self.assertIn(str(root / "image"), str(raised.exception))
+        self.assertIn(str(root / "bootstrap"), str(raised.exception))
 
     def test_model_overrides_are_rendered_into_one_review_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

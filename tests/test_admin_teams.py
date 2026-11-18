@@ -8,9 +8,9 @@ import psycopg
 from tests import test_admin_api, test_postgres_reporting_cli
 from unittest.mock import Mock, patch
 
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime
-from review_agent_tools.postgres import github_app
-from review_agent_tools.settings import PostgresDatabaseUrl
+from review_agent.postgres.runtime import PostgreSQLRuntime
+from review_agent.postgres import github_app
+from review_agent.settings import PostgresDatabaseUrl
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -55,7 +55,7 @@ class AdminTeamTests(unittest.TestCase):
             "id": 5001, "login": "CCimen", "type": "User"
         }
         with patch(
-            "review_agent_tools.admin.repository_requests_api.operator_setup.github_app_authenticator",
+            "review_agent.admin.repository_requests_api.operator_setup.github_app_authenticator",
             return_value=authenticator,
         ):
             added = self.client.post(path, json={"login": "CCimen"})
@@ -84,7 +84,7 @@ class AdminTeamTests(unittest.TestCase):
         self.fixture.login("reader@example.com")
         self.assertFalse(self.client.get(path).json()["can_manage"])
         self.assertEqual(self.client.post(f"{path}/5001/revoke").status_code, 403)
-        with patch("review_agent_tools.admin.repository_requests_api.operator_setup.github_app_authenticator", return_value=authenticator):
+        with patch("review_agent.admin.repository_requests_api.operator_setup.github_app_authenticator", return_value=authenticator):
             self.assertEqual(self.client.post(path, json={"login": "CCimen"}).status_code, 403)
         self.fixture.login("maintainer@example.com")
         self.assertEqual(self.client.post(f"{path}/5001/revoke").status_code, 204)
@@ -762,8 +762,8 @@ class AdminTeamTests(unittest.TestCase):
         self,
     ) -> None:
         from unittest.mock import Mock, patch
-        from review_agent_tools.github import app_inventory
-        from review_agent_tools.postgres import github_app
+        from review_agent.github import app_inventory
+        from review_agent.postgres import github_app
 
         team = self.client.post(
             "/api/teams", json={"name": "Payments", "reason": "Onboard"}
@@ -836,7 +836,7 @@ class AdminTeamTests(unittest.TestCase):
         self.fixture.login()
         with (
             patch(
-                "review_agent_tools.operator_setup.github_app_authenticator",
+                "review_agent.operator_setup.github_app_authenticator",
                 return_value=Mock(),
             ),
             patch.object(
@@ -908,8 +908,8 @@ class AdminTeamTests(unittest.TestCase):
         self,
     ) -> None:
         from unittest.mock import Mock, patch
-        from review_agent_tools.github import app_inventory
-        from review_agent_tools.postgres import github_app
+        from review_agent.github import app_inventory
+        from review_agent.postgres import github_app
 
         team = self.client.post(
             "/api/teams", json={"name": "Payments", "reason": "Onboard"}
@@ -957,7 +957,7 @@ class AdminTeamTests(unittest.TestCase):
 
         with (
             patch(
-                "review_agent_tools.operator_setup.github_app_authenticator",
+                "review_agent.operator_setup.github_app_authenticator",
                 return_value=Mock(),
             ),
             patch.object(
@@ -1090,7 +1090,7 @@ class AdminTeamTests(unittest.TestCase):
     def test_console_pool_can_serve_concurrent_page_queries(self) -> None:
         from concurrent.futures import ThreadPoolExecutor
         from threading import Barrier
-        from review_agent_tools.postgres.runtime import PostgreSQLRuntimeRole
+        from review_agent.postgres.runtime import PostgreSQLRuntimeRole
 
         runtime = PostgreSQLRuntime(
             PostgresDatabaseUrl(DSN), role=PostgreSQLRuntimeRole.OPERATOR

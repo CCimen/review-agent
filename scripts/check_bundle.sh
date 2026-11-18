@@ -2,19 +2,19 @@
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
-python3 -m compileall -q "$ROOT/bootstrap" "$ROOT/tools" "$ROOT/scripts" "$ROOT/tests"
+python3 -m compileall -q "$ROOT/src" "$ROOT/bootstrap" "$ROOT/tools" "$ROOT/scripts" "$ROOT/tests"
 if ! command -v ruff >/dev/null 2>&1; then
   printf '%s\n' "ruff is required for bundle checks. Install requirements/requirements-dev.txt and rerun." >&2
   exit 1
 fi
-ruff check "$ROOT/bootstrap" "$ROOT/tools" "$ROOT/scripts" "$ROOT/tests"
+ruff check "$ROOT/src" "$ROOT/bootstrap" "$ROOT/tools" "$ROOT/scripts" "$ROOT/tests"
 if ! command -v pyright >/dev/null 2>&1; then
   printf '%s\n' "pyright is required for bundle checks. Install pyright and rerun." >&2
   exit 1
 fi
 pyright -p "$ROOT"
 python3 "$ROOT/scripts/check_app_only_candidate.py"
-PYTHONPATH="$ROOT/bootstrap/plugins" python3 -m unittest discover -s "$ROOT/tests" -v
+PYTHONPATH="$ROOT/src" python3 -m unittest discover -s "$ROOT/tests" -v
 
 python3 - "$ROOT" <<'PY'
 from pathlib import Path
@@ -26,7 +26,7 @@ root = Path(sys.argv[1])
 for relative in [
     "compose.yaml",
     "bootstrap/config.yaml",
-    "bootstrap/plugins/review_agent_tools/plugin.yaml",
+    "src/review_agent/plugin.yaml",
 ]:
     path = root / relative
     with path.open(encoding="utf-8") as handle:

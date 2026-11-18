@@ -3737,11 +3737,40 @@ export interface components {
             generated_at: string;
             data: components["schemas"]["ReviewDetail"];
         };
+        /**
+         * RepositoryAccess
+         * @enum {string}
+         */
+        RepositoryAccess: "available" | "removed" | "installation_suspended" | "installation_deleted";
+        /** RepositoryAccessItem */
+        RepositoryAccessItem: {
+            /** Repository Id */
+            repository_id: number;
+            /** Repository */
+            repository: string;
+            access: components["schemas"]["RepositoryAccess"];
+            /** Enabled */
+            enabled: boolean;
+            /** Automatic Activation Blocked */
+            automatic_activation_blocked: boolean;
+            trigger_mode: components["schemas"]["TriggerMode"];
+            /** Profile */
+            profile: string | null;
+            /** Updated By */
+            updated_by: string;
+            /** Update Reason */
+            update_reason: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** RepositoryAccessPage */
         RepositoryAccessPage: {
             capability: components["schemas"]["AccessCapability"];
             /** Items */
-            items: components["schemas"]["review_agent_tools__admin__access_api__RepositoryAccess"][];
+            items: components["schemas"]["RepositoryAccessItem"][];
             /** Next After Id */
             next_after_id: number | null;
         };
@@ -4529,7 +4558,7 @@ export interface components {
             repository: string;
             /** Enabled */
             enabled: boolean;
-            access: components["schemas"]["review_agent_tools__postgres__github_app__RepositoryAccess"] | null;
+            access: components["schemas"]["RepositoryAccess"] | null;
             /** Profile */
             profile: string | null;
             /**
@@ -4742,35 +4771,6 @@ export interface components {
             /** Active Leases */
             active_leases: number | null;
         };
-        /** RepositoryAccess */
-        review_agent_tools__admin__access_api__RepositoryAccess: {
-            /** Repository Id */
-            repository_id: number;
-            /** Repository */
-            repository: string;
-            access: components["schemas"]["review_agent_tools__postgres__github_app__RepositoryAccess"];
-            /** Enabled */
-            enabled: boolean;
-            /** Automatic Activation Blocked */
-            automatic_activation_blocked: boolean;
-            trigger_mode: components["schemas"]["TriggerMode"];
-            /** Profile */
-            profile: string | null;
-            /** Updated By */
-            updated_by: string;
-            /** Update Reason */
-            update_reason: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
-        /**
-         * RepositoryAccess
-         * @enum {string}
-         */
-        review_agent_tools__postgres__github_app__RepositoryAccess: "available" | "removed" | "installation_suspended" | "installation_deleted";
     };
     responses: never;
     parameters: never;
@@ -7222,7 +7222,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["review_agent_tools__admin__access_api__RepositoryAccess"];
+                    "application/json": components["schemas"]["RepositoryAccessItem"];
                 };
             };
             /** @description Validation Error */
@@ -7391,7 +7391,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["review_agent_tools__admin__access_api__RepositoryAccess"];
+                    "application/json": components["schemas"]["RepositoryAccessItem"];
                 };
             };
             /** @description Validation Error */
@@ -7426,7 +7426,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["review_agent_tools__admin__access_api__RepositoryAccess"];
+                    "application/json": components["schemas"]["RepositoryAccessItem"];
                 };
             };
             /** @description Validation Error */

@@ -20,39 +20,38 @@ from review_agent_private_io import write_private_file
 def _plugin_parent() -> Path:
     candidates = (
         Path("/opt/review-agent-bootstrap/plugins"),
-        Path(os.environ.get("HERMES_HOME", "/opt/data")) / "plugins",
-        Path(__file__).resolve().parents[1] / "bootstrap" / "plugins",
+        Path(__file__).resolve().parents[1] / "src",
     )
     for candidate in candidates:
-        if (candidate / "review_agent_tools" / "operator_application.py").exists():
+        if (candidate / "review_agent" / "operator_application.py").exists():
             sys.path.insert(0, str(candidate))
             return candidate
-    raise SystemExit("Could not locate the review_agent_tools package")
+    raise SystemExit("Could not locate the review_agent package")
 
 
 _plugin_parent()
 
-from review_agent_tools import operator_application, operator_input  # noqa: E402
-from review_agent_tools.review import decision_application  # noqa: E402
-from review_agent_tools.domain.feedback import (  # noqa: E402
+from review_agent import operator_application, operator_input  # noqa: E402
+from review_agent.review import decision_application  # noqa: E402
+from review_agent.domain.feedback import (  # noqa: E402
     FeedbackDomainError,
     FeedbackTriageStatus,
 )
-from review_agent_tools.domain.finding import FindingDomainError  # noqa: E402
-from review_agent_tools.postgres import (  # noqa: E402
+from review_agent.domain.finding import FindingDomainError  # noqa: E402
+from review_agent.postgres import (  # noqa: E402
     findings as postgres_findings,
     quality_reporting,
     quality_triage,
     reporting as postgres_reporting,
     review_runs as postgres_review_runs,
 )
-from review_agent_tools.postgres.runtime import (  # noqa: E402
+from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLNotReady,
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
     PostgreSQLUnavailable,
 )
-from review_agent_tools.settings import (  # noqa: E402
+from review_agent.settings import (  # noqa: E402
     ReviewAgentSettings,
     SettingsError,
 )

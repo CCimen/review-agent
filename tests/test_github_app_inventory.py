@@ -14,12 +14,12 @@ from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools import operator_application  # noqa: E402
-from review_agent_tools.github import app_auth, app_inventory  # noqa: E402
-from review_agent_tools.postgres import github_app  # noqa: E402
-from review_agent_tools.postgres.runtime import (  # noqa: E402
+from review_agent import operator_application  # noqa: E402
+from review_agent.github import app_auth, app_inventory  # noqa: E402
+from review_agent.postgres import github_app  # noqa: E402
+from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLUnavailable,
 )

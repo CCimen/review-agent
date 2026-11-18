@@ -3,18 +3,18 @@ version = 1
 # Copy to this repository's .review-agent/documentation.toml through a reviewed PR.
 [[area]]
 id = "review-commands"
-sources = ["bootstrap/plugins/review_agent_tools/github_webhook.py", "bootstrap/plugins/review_agent_tools/feedback_commands.py", "bootstrap/plugins/review_agent_tools/github/app_processor.py"]
+sources = ["src/review_agent/github_webhook.py", "src/review_agent/feedback_commands.py", "src/review_agent/github/app_processor.py"]
 documents = ["docs/HOW_REVIEWS_WORK.md", "docs/FEEDBACK_AND_DECISIONS.md", "docs/DOCUMENTATION_REVIEW.md"]
 intent = "Keep review triggers, feedback commands, authorization and automatic scheduling accurate."
 
 [[area]]
 id = "repository-context"
-sources = ["bootstrap/plugins/review_agent_tools/domain/documentation_policy.py", "bootstrap/plugins/review_agent_tools/documentation/scope.py", "bootstrap/plugins/review_agent_tools/repository_context/guidance_context.py", "bootstrap/plugins/review_agent_tools/repository_context/decision_context.py"]
+sources = ["src/review_agent/domain/documentation_policy.py", "src/review_agent/documentation/scope.py", "src/review_agent/repository_context/guidance_context.py", "src/review_agent/repository_context/decision_context.py"]
 documents = ["docs/REPOSITORY_CONTEXT.md", "docs/BEHAVIOR_OWNERSHIP.md"]
 intent = "Keep accepted-base policy, configuration bounds, guidance and ADR ownership accurate."
 
 [[area]]
 id = "deployment"
-sources = ["compose.yaml", "Dockerfile", "admin/Dockerfile", "bootstrap/plugins/review_agent_tools/operator_setup.py", "bootstrap/plugins/review_agent_tools/deployment_settings.py"]
+sources = ["compose.yaml", "Dockerfile", "admin/Dockerfile", "src/review_agent/operator_setup.py", "src/review_agent/deployment_settings.py"]
 documents = ["docs/DEPLOYMENT.md", "docs/OPERATIONS.md", "docs/GITHUB_APP_PILOT.md", "docs/ADMIN_PANEL.md"]
 intent = "Keep installation permissions, service topology, operator settings, upgrade and recovery instructions accurate."

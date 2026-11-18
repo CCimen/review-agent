@@ -14,9 +14,9 @@ from unittest.mock import patch
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools.review import contract as review_contract  # noqa: E402
+from review_agent.review import contract as review_contract  # noqa: E402
 
 HELM_IMAGE = "registry.example/review-agent@sha256:" + "0" * 64
 
@@ -318,23 +318,31 @@ class DeploymentConfigTests(unittest.TestCase):
         self.assertNotIn("/opt/review-agent-bootstrap/install.sh", reviewer_section)
 
     def test_admin_service_serves_the_frontend_the_image_installs(self):
-        from review_agent_tools.admin import api
+        from review_agent.admin import api
 
         environment = {
             "REVIEW_AGENT_DATABASE_URL": "postgresql://localhost/not_connected",
             "REVIEW_AGENT_ADMIN_PUBLIC_URL": "https://admin.example.test",
         }
-        with patch.dict(os.environ, environment), patch.object(api, "create_app") as create:
-            api.app_from_environment()
-        # The image copies the package and the built frontend to the same
-        # relative places as this checkout.
-        dockerfile = read("admin/Dockerfile")
+        with tempfile.TemporaryDirectory() as temp:
+            image_dist = Path(temp) / "dist"
+            with (
+                patch.dict(os.environ, environment),
+                patch.object(api, "create_app") as create,
+                patch.object(api, "IMAGE_STATIC_DIR", image_dist),
+            ):
+                api.app_from_environment()
+                image_dist.mkdir()
+                api.app_from_environment()
+        checkout, image = (call.kwargs["static_dir"] for call in create.call_args_list)
+        # A checkout serves the frontend built beside src/; the image serves the
+        # directory its Dockerfile copies the build to.
+        self.assertEqual(ROOT / "admin" / "dist", checkout)
+        self.assertEqual(image_dist, image)
         self.assertIn(
-            "COPY bootstrap/plugins/review_agent_tools /app/bootstrap/plugins/review_agent_tools",
-            dockerfile,
+            f"COPY --from=frontend /build/dist {api.IMAGE_STATIC_DIR}\n",
+            read("admin/Dockerfile"),
         )
-        self.assertIn("COPY --from=frontend /build/dist /app/admin/dist", dockerfile)
-        self.assertEqual(ROOT / "admin" / "dist", create.call_args.kwargs["static_dir"])
 
     def test_live_reviewer_keeps_unsafe_toolsets_disabled(self):
         config = read("bootstrap/config.yaml")

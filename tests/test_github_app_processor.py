@@ -14,29 +14,29 @@ import psycopg
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools import github_webhook  # noqa: E402
-from review_agent_tools.review import (  # noqa: E402
+from review_agent import github_webhook  # noqa: E402
+from review_agent.review import (  # noqa: E402
     contract as review_contract,
     run_application as review_run_application,
 )
-from review_agent_tools.github import app_auth, app_processor  # noqa: E402
-from review_agent_tools.github.app_auth import (  # noqa: E402
+from review_agent.github import app_auth, app_processor  # noqa: E402
+from review_agent.github.app_auth import (  # noqa: E402
     InstallationToken,
     GitHubAppTokenService,
 )
-from review_agent_tools.github.gateway import (  # noqa: E402
+from review_agent.github.gateway import (  # noqa: E402
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
     ReviewGitHubGateway,
 )
-from review_agent_tools.github.gateway_client import (  # noqa: E402
+from review_agent.github.gateway_client import (  # noqa: E402
     ReviewGitHubGatewayClient,
 )
-from review_agent_tools.github.publication import GitHubIssueCommentGateway  # noqa: E402
-from review_agent_tools.postgres import (  # noqa: E402
+from review_agent.github.publication import GitHubIssueCommentGateway  # noqa: E402
+from review_agent.postgres import (  # noqa: E402
     github_app,
     deployment_settings,
     review_runs,
@@ -44,11 +44,11 @@ from review_agent_tools.postgres import (  # noqa: E402
     registry,
     webhook_deliveries,
 )
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools.deployment_settings import DeploymentSettings  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
-from review_agent_tools.source_control import (  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.deployment_settings import DeploymentSettings  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.source_control import (  # noqa: E402
     GitHubReadClient,
     GitHubReadError,
 )
@@ -455,7 +455,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
             self.assertEqual(receipt, (automatic, manual))
             job = connection.execute("SELECT priority FROM review_agent.review_jobs WHERE review_run_id = %s", (run.id,)).fetchone()
             self.assertEqual(job[0], 0)
-            from review_agent_tools.postgres import retention
+            from review_agent.postgres import retention
             pruned = retention.prune_receipts(connection, target="terminal_webhook_deliveries",
                 before=datetime.now(timezone.utc) + timedelta(seconds=1), limit=100, apply=True)
             self.assertGreater(pruned.deleted, 0)
@@ -485,9 +485,9 @@ class GitHubAppProcessorTests(unittest.TestCase):
 
     def publish_documentation(self) -> tuple[int, int]:
         from dataclasses import replace
-        from review_agent_tools.domain.documentation_review import DocumentationOutcome
-        from review_agent_tools.postgres import documentation_reviews
-        from review_agent_tools.review.publication_application import (
+        from review_agent.domain.documentation_review import DocumentationOutcome
+        from review_agent.postgres import documentation_reviews
+        from review_agent.review.publication_application import (
             prepare_postgres_documentation_publication,
             publish_postgres_publication,
         )
@@ -556,8 +556,8 @@ class GitHubAppProcessorTests(unittest.TestCase):
             self.assertEqual(unowned.reason, "check_run_not_owned")
 
     def test_manual_mode_retires_queued_automatic_and_off_preserves_only_code(self) -> None:
-        from review_agent_tools.domain.documentation_operating_policy import DocumentationMode
-        from review_agent_tools.postgres import documentation_admissions
+        from review_agent.domain.documentation_operating_policy import DocumentationMode
+        from review_agent.postgres import documentation_admissions
         self.enable_documentation()
         github = _GitHub()
         with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
@@ -596,7 +596,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
             self.assertEqual(review_runs.get_run(connection, explicit_runs[1]).status.value, "running")
             failure = review_runs.claim_next_failure_status(connection, lease_owner="failure-publisher", lease_duration=timedelta(minutes=5))
             assert failure is not None
-        from review_agent_tools.github.publication_gateway import PublicationGatewayRequest, ReviewPublicationGateway
+        from review_agent.github.publication_gateway import PublicationGatewayRequest, ReviewPublicationGateway
         writer = Mock()
         publication_gateway = ReviewPublicationGateway(postgres=self.runtime, tokens=cast(GitHubAppTokenService, self.tokens), profile="default-standard", github_factory=lambda _: writer)
         with self.assertRaises(GitHubGatewayRejected) as rejected:

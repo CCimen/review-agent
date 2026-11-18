@@ -10,7 +10,7 @@ services:
   review-provider-control:
     image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
     restart: unless-stopped
-    entrypoint: ["/opt/hermes/.venv/bin/python", "-m", "review_agent_tools.provider_gateway"]
+    entrypoint: ["/opt/hermes/.venv/bin/python", "-m", "review_agent.provider_gateway"]
     user: "10000:10000"
     # Hermes requires loopback access for its dashboard session token.
     network_mode: "service:hermes-review"

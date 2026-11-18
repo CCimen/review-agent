@@ -10,11 +10,11 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock, patch
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import capacity  # noqa: E402
-from review_agent_tools.review import (  # noqa: E402
+from review_agent import capacity  # noqa: E402
+from review_agent.review import (  # noqa: E402
     contract as review_contract,
     delivery_tool as review_delivery_tool,
     memory_tools as review_memory_tools,
@@ -25,10 +25,10 @@ from review_agent_tools.review import (  # noqa: E402
     source_tools as review_source_tools,
     tool_runtime as review_tool_runtime,
 )
-from review_agent_tools.model_runtime import window as model_window  # noqa: E402
-from review_agent_tools.domain.review import resolve_review_subject  # noqa: E402
-from review_agent_tools.github.source import ReviewSourceBytes  # noqa: E402
-from review_agent_tools.postgres.coverage import FileIndexSummary  # noqa: E402
+from review_agent.model_runtime import window as model_window  # noqa: E402
+from review_agent.domain.review import resolve_review_subject  # noqa: E402
+from review_agent.github.source import ReviewSourceBytes  # noqa: E402
+from review_agent.postgres.coverage import FileIndexSummary  # noqa: E402
 
 TEST_REVIEW_CONTRACT = review_contract.ReviewContract(
     profile="default-standard",

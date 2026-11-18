@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "bootstrap" / "plugins" / "review_agent_tools"
+PLUGIN = ROOT / "src" / "review_agent"
 sys.path.insert(0, str(PLUGIN))
 
 

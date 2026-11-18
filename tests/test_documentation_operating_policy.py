@@ -7,11 +7,11 @@ from unittest.mock import patch
 import psycopg
 
 from tests import test_admin_api
-from review_agent_tools.domain.documentation_operating_policy import (
+from review_agent.domain.documentation_operating_policy import (
     DocumentationMode,
     resolve_mode,
 )
-from review_agent_tools.postgres import registry
+from review_agent.postgres import registry
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -276,10 +276,10 @@ class DocumentationPolicyAPITests(unittest.TestCase):
         from concurrent.futures import ThreadPoolExecutor, TimeoutError
         from threading import Event
         from uuid import UUID
-        from review_agent_tools.admin import application as admin_application
-        from review_agent_tools.postgres import repository_requests, team_access
-        from review_agent_tools.postgres.runtime import PostgreSQLRuntime
-        from review_agent_tools.settings import PostgresDatabaseUrl
+        from review_agent.admin import application as admin_application
+        from review_agent.postgres import repository_requests, team_access
+        from review_agent.postgres.runtime import PostgreSQLRuntime
+        from review_agent.settings import PostgresDatabaseUrl
 
         user = self.client.post(
             "/api/users",
@@ -397,7 +397,7 @@ class DocumentationPolicyMigrationTests(unittest.TestCase):
     def test_existing_team_and_repository_upgrade_to_manual_inheritance(self) -> None:
         from pathlib import Path
         from tempfile import TemporaryDirectory
-        from review_agent_tools.postgres_migrations import runner
+        from review_agent.postgres_migrations import runner
 
         with TemporaryDirectory() as directory:
             old = Path(directory)

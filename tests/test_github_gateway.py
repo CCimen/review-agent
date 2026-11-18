@@ -19,15 +19,15 @@ from unittest.mock import Mock, call, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools.domain.review import ReviewPurpose  # noqa: E402
-from review_agent_tools.github import gateway as gateway_module  # noqa: E402
-from review_agent_tools.github import (  # noqa: E402
+from review_agent.domain.review import ReviewPurpose  # noqa: E402
+from review_agent.github import gateway as gateway_module  # noqa: E402
+from review_agent.github import (  # noqa: E402
     publication as publication_module,
     publication_gateway as publication_gateway_module,
 )
-from review_agent_tools.github.gateway import (  # noqa: E402
+from review_agent.github.gateway import (  # noqa: E402
     FeedbackAcknowledgementRequest,
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
@@ -36,22 +36,22 @@ from review_agent_tools.github.gateway import (  # noqa: E402
     ReviewGitHubGateway,
     ReviewSourceRequest,
 )
-from review_agent_tools.github.gateway_client import (  # noqa: E402
+from review_agent.github.gateway_client import (  # noqa: E402
     AuthorizedPublicationGateway,
     ReviewGitHubGatewayClient,
     _error_details,
 )
-from review_agent_tools.github.publication import (  # noqa: E402
+from review_agent.github.publication import (  # noqa: E402
     GitHubPublicationAuthorityLost,
     GitHubPublicationError,
     GitHubIssueCommentGateway,
     IssueComment,
 )
-from review_agent_tools.github.publication_gateway import (  # noqa: E402
+from review_agent.github.publication_gateway import (  # noqa: E402
     PublicationGatewayRequest,
     ReviewPublicationGateway,
 )
-from review_agent_tools.github.source import (  # noqa: E402
+from review_agent.github.source import (  # noqa: E402
     GitHubSourceError,
     ReviewComparison,
     ReviewFilePatch,
@@ -59,12 +59,12 @@ from review_agent_tools.github.source import (  # noqa: E402
     read_review_comparison,
     read_review_pull,
 )
-from review_agent_tools.postgres.review_runs import ReviewRunScope  # noqa: E402
-from review_agent_tools.code_graph.contract import (  # noqa: E402
+from review_agent.postgres.review_runs import ReviewRunScope  # noqa: E402
+from review_agent.code_graph.contract import (  # noqa: E402
     GraphIdentity,
     GraphPolicy,
 )
-from review_agent_tools.source_control import (  # noqa: E402
+from review_agent.source_control import (  # noqa: E402
     GitHubReadError,
     PullSnapshot,
     SameOriginHttpsRedirectHandler,
@@ -155,7 +155,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             read_review_comparison(github, self._scope())
 
     def test_comparison_absence_and_identity_violation_have_distinct_reasons(self) -> None:
-        from review_agent_tools.github import gateway as module
+        from review_agent.github import gateway as module
         github = Mock()
         tokens = Mock()
         gateway = module.ReviewGitHubGateway(postgres=Mock(), tokens=tokens, profile="default-standard", github_factory=lambda _: github)
@@ -1497,7 +1497,7 @@ class DocumentationCheckProviderTests(unittest.TestCase):
         self.assertNotIn("external_id=", request.full_url)
 
     def test_check_creation_freezes_exact_head_and_never_retries_ambiguous_post(self) -> None:
-        from review_agent_tools.domain.publication import CheckRunDelivery
+        from review_agent.domain.publication import CheckRunDelivery
         delivery = CheckRunDelivery("Documentation review", "a" * 40,
             "review-agent:canonical publication=sha256:" + "b" * 64,
             "neutral", "Documentation changes recommended", "Full report")
@@ -1526,8 +1526,8 @@ class DocumentationCheckProviderTests(unittest.TestCase):
 
 
     def test_gateway_reconciles_only_exact_app_marker_and_blocks_ambiguous_create(self) -> None:
-        from review_agent_tools.domain.publication import CheckRunDelivery
-        from review_agent_tools.github.publication import CheckRun, CheckRunScan
+        from review_agent.domain.publication import CheckRunDelivery
+        from review_agent.github.publication import CheckRun, CheckRunScan
         delivery = CheckRunDelivery("Documentation review", "a" * 40,
             "review-agent:canonical publication=sha256:" + "b" * 64,
             "neutral", "Docs result", "Frozen report")

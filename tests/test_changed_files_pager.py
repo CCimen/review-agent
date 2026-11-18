@@ -7,12 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import changed_files  # noqa: E402
-from review_agent_tools.review import source_tools as review_source_tools  # noqa: E402
-from review_agent_tools.github.source import ReviewSourceBytes  # noqa: E402
+from review_agent import changed_files  # noqa: E402
+from review_agent.review import source_tools as review_source_tools  # noqa: E402
+from review_agent.github.source import ReviewSourceBytes  # noqa: E402
 
 
 def _files(n: int, *, with_patch: bool = True):

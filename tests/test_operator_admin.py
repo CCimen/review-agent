@@ -18,26 +18,26 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN_PARENT = ROOT / "bootstrap" / "plugins"
+PLUGIN_PARENT = ROOT / "src"
 sys.path.insert(0, str(PLUGIN_PARENT))
 
-from review_agent_tools import operator_application, operator_setup  # noqa: E402
-from review_agent_tools.github import app_auth  # noqa: E402
-from review_agent_tools.github.gateway import (  # noqa: E402
+from review_agent import operator_application, operator_setup  # noqa: E402
+from review_agent.github import app_auth  # noqa: E402
+from review_agent.github.gateway import (  # noqa: E402
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
     OperatorAppStatus,
     OperatorSmokeResult,
 )
-from review_agent_tools.postgres import (  # noqa: E402
+from review_agent.postgres import (  # noqa: E402
     github_app,
     jobs,
     publications,
     retention,
 )
-from review_agent_tools.postgres.runtime import PostgreSQLUnavailable  # noqa: E402
-from review_agent_tools.domain.review import RepositoryId  # noqa: E402
-from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLUnavailable  # noqa: E402
+from review_agent.domain.review import RepositoryId  # noqa: E402
+from review_agent.settings import ReviewAgentSettings  # noqa: E402
 
 
 PINNED_HERMES_IMAGE = (

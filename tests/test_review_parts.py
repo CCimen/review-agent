@@ -6,10 +6,10 @@ from pathlib import Path
 
 import yaml
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.domain import review as review_domain  # noqa: E402
+from review_agent.domain import review as review_domain  # noqa: E402
 
 
 class ReviewPartPlanTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class ReviewPartPlanTests(unittest.TestCase):
         # Part sizing assumes Hermes compacts at window x threshold: no output
         # reservation, per-model threshold, or absolute cap moves that point.
         config = yaml.safe_load(
-            (PACKAGE_ROOT.parent / "config.yaml").read_text(encoding="utf-8")
+            (PACKAGE_ROOT.parent / "bootstrap" / "config.yaml").read_text(encoding="utf-8")
         )
         self.assertEqual(set(config["compression"]), {"threshold", "codex_gpt55_autoraise"})
         self.assertNotIn("max_tokens", config["model"])

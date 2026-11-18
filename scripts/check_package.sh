@@ -3,7 +3,7 @@
 # is the whole package: its modules, its migrations and its plugin manifest.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-PACKAGE=bootstrap/plugins/review_agent_tools
+PACKAGE=src/review_agent
 # The compiled lock that pins every declared dependency.
 PINS=$ROOT/requirements/requirements-admin.txt
 WORK=$(mktemp -d)
@@ -18,9 +18,9 @@ install() {
 
 # Build from a copy of the inputs: an in-tree build leaves build/ and an
 # egg-info directory in the checkout, and a stale build/ leaks deleted files.
-mkdir -p "$WORK/source/bootstrap/plugins"
+mkdir -p "$WORK/source/src"
 cp "$ROOT/pyproject.toml" "$ROOT/LICENSE" "$ROOT/NOTICE.md" "$WORK/source/"
-cp -R "$ROOT/$PACKAGE" "$WORK/source/bootstrap/plugins/"
+cp -R "$ROOT/$PACKAGE" "$WORK/source/src/"
 "$PYTHON" -m pip wheel --quiet --disable-pip-version-check --no-deps \
   --wheel-dir "$WORK/dist" "$WORK/source"
 WHEEL=$(echo "$WORK"/dist/review_agent-*.whl)
@@ -36,14 +36,14 @@ from pathlib import Path
 from pkgutil import walk_packages
 import sys
 
-import review_agent_tools
-from review_agent_tools.postgres_migrations import runner
+import review_agent
+from review_agent.postgres_migrations import runner
 
 source = Path(sys.argv[1])
 tracked = set(Path(sys.argv[2]).read_text(encoding="utf-8").split())
-installed = Path(review_agent_tools.__file__).resolve().parent
+installed = Path(review_agent.__file__).resolve().parent
 if not installed.is_relative_to(Path(sys.prefix).resolve()):
-    raise SystemExit(f"review_agent_tools resolved outside the install: {installed}")
+    raise SystemExit(f"review_agent resolved outside the install: {installed}")
 print(f"Installed copy: {installed}")
 
 shipped = {
@@ -71,12 +71,12 @@ if find_spec("fastapi") is not None or find_spec("aiohttp") is not None:
 # Everything but the console and the Hermes runtime API is core: the worker,
 # admission, the publisher, the GitHub gateway, operator commands and the stores.
 optional = (
-    "review_agent_tools.admin",
-    "review_agent_tools.model_runtime.hermes_runtime_api",
+    "review_agent.admin",
+    "review_agent.model_runtime.hermes_runtime_api",
 )
 core = [
     module.name
-    for module in walk_packages(review_agent_tools.__path__, "review_agent_tools.")
+    for module in walk_packages(review_agent.__path__, "review_agent.")
     if not module.name.startswith(optional)
 ]
 for name in core:
@@ -85,10 +85,10 @@ print(f"Core: {len(core)} modules import without the optional groups")
 PY
 
 install "$WHEEL[admin]"
-"$PYTHON" -c "import review_agent_tools.admin.api"
+"$PYTHON" -c "import review_agent.admin.api"
 printf '%s\n' "Console API imports with the admin group"
 install "$WHEEL[hermes]"
-"$PYTHON" -c "import review_agent_tools.model_runtime.hermes_runtime_api"
+"$PYTHON" -c "import review_agent.model_runtime.hermes_runtime_api"
 printf '%s\n' "Hermes runtime API imports with the hermes group"
 
 printf '%s\n' "Package checks passed."

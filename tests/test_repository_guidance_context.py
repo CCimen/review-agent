@@ -10,14 +10,14 @@ from typing import Literal, cast
 from unittest.mock import Mock
 
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.domain import repository_guidance_context  # noqa: E402
-from review_agent_tools.repository_context import (  # noqa: E402
+from review_agent.domain import repository_guidance_context  # noqa: E402
+from review_agent.repository_context import (  # noqa: E402
     guidance_context as repository_guidance_loader,
 )
-from review_agent_tools.github.source import ReviewFilePage  # noqa: E402
+from review_agent.github.source import ReviewFilePage  # noqa: E402
 
 
 BASE_SHA = "a" * 40

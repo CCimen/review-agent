@@ -5,10 +5,10 @@ import unittest
 from pathlib import Path
 
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.domain import documentation_policy  # noqa: E402
+from review_agent.domain import documentation_policy  # noqa: E402
 
 
 class DocumentationPolicyTests(unittest.TestCase):
@@ -74,7 +74,7 @@ reason = "Old releases."
                     documentation_policy.parse_policy(content)
 
     def test_review_agent_starter_uses_existing_source_and_document_paths(self) -> None:
-        root = PACKAGE_ROOT.parents[1]
+        root = PACKAGE_ROOT.parent
         policy = documentation_policy.parse_policy(
             (root / "examples/documentation-review/review-agent.toml").read_text()
         )

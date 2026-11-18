@@ -12,15 +12,15 @@ import importlib.util
 import os
 import json
 from pathlib import Path
-from review_agent_tools.admin.api import create_app
-from review_agent_tools.build_info import read_build_info
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime
-from review_agent_tools.settings import PostgresDatabaseUrl
+from review_agent.admin.api import create_app
+from review_agent.build_info import read_build_info
+from review_agent.postgres.runtime import PostgreSQLRuntime
+from review_agent.settings import PostgresDatabaseUrl
 assert os.getuid() == 10000
 static = Path("/app/admin/dist")
 assert (static / "index.html").is_file()
 assert list((static / "assets").glob("*.js"))
-build_path = Path("/app/bootstrap/plugins/review_agent_tools/_build.json")
+build_path = Path("/app/bootstrap/plugins/review_agent/_build.json")
 assert build_path.is_file()
 assert read_build_info().model_dump() == json.loads(build_path.read_bytes())
 inventory = json.loads(Path("/app/share/review-agent/frontend.cyclonedx.json").read_bytes())
@@ -53,7 +53,7 @@ for endpoint, fields in ((registration["post"], {"email"}), (completion, {"token
     assert request["additionalProperties"] is False
 os.environ["REVIEW_AGENT_DATABASE_URL"] = "postgresql://localhost/not_connected"
 os.environ["REVIEW_AGENT_ADMIN_PUBLIC_URL"] = "https://admin.example.test"
-from review_agent_tools.admin.api import app_from_environment
+from review_agent.admin.api import app_from_environment
 served = [Path(route.app.directory) for route in app_from_environment().routes if getattr(route, "name", None) == "assets"]
 assert served == [static / "assets"], served
 assert not Path("/opt/hermes").exists()

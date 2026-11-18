@@ -9,8 +9,8 @@ from uuid import UUID
 from unittest.mock import Mock
 from urllib import error, request
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap/plugins"))
-from review_agent_tools.model_runtime.hermes_control import (  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from review_agent.model_runtime.hermes_control import (  # noqa: E402
     HermesControlClient,
     LoginSession,
     ProviderStatus,
@@ -19,9 +19,9 @@ from review_agent_tools.model_runtime.hermes_control import (  # noqa: E402
     HermesRuntimeStatus,
     RuntimeCheck,
 )
-from review_agent_tools.provider_gateway import ProviderGateway  # noqa: E402
-from review_agent_tools.model_runtime.accounts import ModelProvider  # noqa: E402
-from review_agent_tools.model_runtime.quota import (  # noqa: E402
+from review_agent.provider_gateway import ProviderGateway  # noqa: E402
+from review_agent.model_runtime.accounts import ModelProvider  # noqa: E402
+from review_agent.model_runtime.quota import (  # noqa: E402
     AccountQuota,
     ManagedQuota,
     ObservedQuota,

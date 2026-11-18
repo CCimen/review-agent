@@ -41,7 +41,7 @@ class Installation(BaseModel):
     updated_at: datetime
 
 
-class RepositoryAccess(BaseModel):
+class RepositoryAccessItem(BaseModel):
     repository_id: int
     repository: str
     access: github_app.RepositoryAccess
@@ -62,7 +62,7 @@ class InstallationPage(BaseModel):
 
 class RepositoryAccessPage(BaseModel):
     capability: AccessCapability
-    items: list[RepositoryAccess]
+    items: list[RepositoryAccessItem]
     next_after_id: int | None
 
 
@@ -135,8 +135,8 @@ def _installation(value: github_app.GitHubAppInstallation) -> Installation:
     )
 
 
-def _repository(value: github_app.RepositoryAccessState) -> RepositoryAccess:
-    return RepositoryAccess(
+def _repository(value: github_app.RepositoryAccessState) -> RepositoryAccessItem:
+    return RepositoryAccessItem(
         repository_id=value.provider_repository_id,
         repository=value.full_name,
         access=value.access_state,
@@ -431,7 +431,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
         repository_id: RepositoryId,
         request: RepositoryEnablement,
         actor: Annotated[User, Depends(auth.current_admin)],
-    ) -> RepositoryAccess:
+    ) -> RepositoryAccessItem:
         try:
             result = operator_application.enable_github_app_repository(
                 runtime,
@@ -461,7 +461,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
         repository_id: RepositoryId,
         request: AuditReason,
         actor: Annotated[User, Depends(auth.current_admin)],
-    ) -> RepositoryAccess:
+    ) -> RepositoryAccessItem:
         try:
             result = operator_application.disable_github_app_repository(
                 runtime,
@@ -489,7 +489,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
     def onboard_repository(
         request: RepositoryOnboarding,
         actor: Annotated[User, Depends(auth.current_admin)],
-    ) -> RepositoryAccess:
+    ) -> RepositoryAccessItem:
         try:
             result = operator_application.onboard_github_app_repository(
                 runtime,

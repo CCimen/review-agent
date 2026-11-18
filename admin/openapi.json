@@ -4763,7 +4763,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/review_agent_tools__admin__access_api__RepositoryAccess"
+                  "$ref": "#/components/schemas/RepositoryAccessItem"
                 }
               }
             }
@@ -5069,7 +5069,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/review_agent_tools__admin__access_api__RepositoryAccess"
+                  "$ref": "#/components/schemas/RepositoryAccessItem"
                 }
               }
             }
@@ -5128,7 +5128,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/review_agent_tools__admin__access_api__RepositoryAccess"
+                  "$ref": "#/components/schemas/RepositoryAccessItem"
                 }
               }
             }
@@ -14074,6 +14074,80 @@
         ],
         "title": "Report[ReviewDetail]"
       },
+      "RepositoryAccess": {
+        "type": "string",
+        "enum": [
+          "available",
+          "removed",
+          "installation_suspended",
+          "installation_deleted"
+        ],
+        "title": "RepositoryAccess"
+      },
+      "RepositoryAccessItem": {
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "title": "Repository Id"
+          },
+          "repository": {
+            "type": "string",
+            "title": "Repository"
+          },
+          "access": {
+            "$ref": "#/components/schemas/RepositoryAccess"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "automatic_activation_blocked": {
+            "type": "boolean",
+            "title": "Automatic Activation Blocked"
+          },
+          "trigger_mode": {
+            "$ref": "#/components/schemas/TriggerMode"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile"
+          },
+          "updated_by": {
+            "type": "string",
+            "title": "Updated By"
+          },
+          "update_reason": {
+            "type": "string",
+            "title": "Update Reason"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repository_id",
+          "repository",
+          "access",
+          "enabled",
+          "automatic_activation_blocked",
+          "trigger_mode",
+          "profile",
+          "updated_by",
+          "update_reason",
+          "updated_at"
+        ],
+        "title": "RepositoryAccessItem"
+      },
       "RepositoryAccessPage": {
         "properties": {
           "capability": {
@@ -14081,7 +14155,7 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/review_agent_tools__admin__access_api__RepositoryAccess"
+              "$ref": "#/components/schemas/RepositoryAccessItem"
             },
             "type": "array",
             "title": "Items"
@@ -16398,7 +16472,7 @@
           "access": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/review_agent_tools__postgres__github_app__RepositoryAccess"
+                "$ref": "#/components/schemas/RepositoryAccess"
               },
               {
                 "type": "null"
@@ -16993,80 +17067,6 @@
           "active_leases"
         ],
         "title": "WorkerInstance"
-      },
-      "review_agent_tools__admin__access_api__RepositoryAccess": {
-        "properties": {
-          "repository_id": {
-            "type": "integer",
-            "title": "Repository Id"
-          },
-          "repository": {
-            "type": "string",
-            "title": "Repository"
-          },
-          "access": {
-            "$ref": "#/components/schemas/review_agent_tools__postgres__github_app__RepositoryAccess"
-          },
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled"
-          },
-          "automatic_activation_blocked": {
-            "type": "boolean",
-            "title": "Automatic Activation Blocked"
-          },
-          "trigger_mode": {
-            "$ref": "#/components/schemas/TriggerMode"
-          },
-          "profile": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Profile"
-          },
-          "updated_by": {
-            "type": "string",
-            "title": "Updated By"
-          },
-          "update_reason": {
-            "type": "string",
-            "title": "Update Reason"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "repository_id",
-          "repository",
-          "access",
-          "enabled",
-          "automatic_activation_blocked",
-          "trigger_mode",
-          "profile",
-          "updated_by",
-          "update_reason",
-          "updated_at"
-        ],
-        "title": "RepositoryAccess"
-      },
-      "review_agent_tools__postgres__github_app__RepositoryAccess": {
-        "type": "string",
-        "enum": [
-          "available",
-          "removed",
-          "installation_suspended",
-          "installation_deleted"
-        ],
-        "title": "RepositoryAccess"
       }
     },
     "securitySchemes": {

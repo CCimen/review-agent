@@ -130,7 +130,7 @@ generate_image_sboms() {
         if [[ "$component" == review-agent-admin ]]; then
             # Creating a stopped container reads either architecture without emulation.
             container_id="$(docker create --platform "linux/$architecture" "$digest_ref")"
-            docker cp "$container_id:/app/bootstrap/plugins/review_agent_tools/_build.json" "$metadata_dir/build.json"
+            docker cp "$container_id:/app/bootstrap/plugins/review_agent/_build.json" "$metadata_dir/build.json"
             jq -e --arg version "$release_tag" --arg revision "$SOURCE_SHA" \
                 '. == {version: $version, revision: $revision}' \
                 "$metadata_dir/build.json" >/dev/null || {

@@ -5,10 +5,10 @@ import sys
 import unittest
 from pathlib import Path
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import suggestion_validation  # noqa: E402
+from review_agent import suggestion_validation  # noqa: E402
 
 
 class SuggestionValidationTests(unittest.TestCase):

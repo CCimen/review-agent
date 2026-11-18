@@ -13,20 +13,20 @@ from aiohttp.test_utils import TestClient, TestServer
 import jwt
 
 from tests import test_postgres_jobs
-from review_agent_tools.model_runtime import (
+from review_agent.model_runtime import (
     hermes_runtime_api,
     quota as model_quota,
     window as model_window,
 )
-from review_agent_tools.review import contract as review_contract
-from review_agent_tools.model_runtime.hermes_control import MANAGED_REVIEW_PATH
-from review_agent_tools.model_runtime.accounts import (
+from review_agent.review import contract as review_contract
+from review_agent.model_runtime.hermes_control import MANAGED_REVIEW_PATH
+from review_agent.model_runtime.accounts import (
     AccountAvailability,
     ModelProvider,
     RuntimeAccount,
     account_identity,
 )
-from review_agent_tools.postgres import admin_reporting, jobs
+from review_agent.postgres import admin_reporting, jobs
 
 
 class AccountIdentityTests(unittest.TestCase):

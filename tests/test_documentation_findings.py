@@ -6,10 +6,10 @@ from pathlib import Path
 import sys
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from review_agent_tools.documentation.findings import validate_assessment  # noqa: E402
-from review_agent_tools.domain.documentation_review import (  # noqa: E402
+from review_agent.documentation.findings import validate_assessment  # noqa: E402
+from review_agent.domain.documentation_review import (  # noqa: E402
     DocumentationResult,
     PreviousDocumentationFinding,
     decode_assessment,
@@ -17,15 +17,15 @@ from review_agent_tools.domain.documentation_review import (  # noqa: E402
     EvidenceRead,
     EvidenceRole,
 )
-from review_agent_tools.domain.finding import FindingContent  # noqa: E402
-from review_agent_tools.domain.review import ReviewPurpose, ReviewRunId  # noqa: E402
-from review_agent_tools.feedback_commands import (
+from review_agent.domain.finding import FindingContent  # noqa: E402
+from review_agent.domain.review import ReviewPurpose, ReviewRunId  # noqa: E402
+from review_agent.feedback_commands import (
     parse_review_feedback_command,
     review_command_purpose,
 )  # noqa: E402
-from review_agent_tools.memory_validation import ReviewMemoryError  # noqa: E402
-from review_agent_tools.postgres.documentation_reviews import coverage_reasons  # noqa: E402
-from review_agent_tools.domain.repository_decision_context import (  # noqa: E402
+from review_agent.memory_validation import ReviewMemoryError  # noqa: E402
+from review_agent.postgres.documentation_reviews import coverage_reasons  # noqa: E402
+from review_agent.domain.repository_decision_context import (  # noqa: E402
     not_configured,
 )
 from tests.test_postgres_documentation_reviews import evidence, scope  # noqa: E402
@@ -304,12 +304,12 @@ class DocumentationFindingTests(unittest.TestCase):
     def test_accepted_adr_metadata_invalidates_suppression_and_failed_context_stays_incomplete(
         self,
     ) -> None:
-        from review_agent_tools.domain.repository_decisions import (
+        from review_agent.domain.repository_decisions import (
             DecisionIndexEntry,
             DecisionIndexMatch,
             parse_adr,
         )
-        from review_agent_tools.domain.repository_decision_context import (
+        from review_agent.domain.repository_decision_context import (
             loaded,
             pending,
         )

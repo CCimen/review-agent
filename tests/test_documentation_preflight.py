@@ -5,15 +5,15 @@ from pathlib import Path
 import sys
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from review_agent_tools.documentation.preflight import (  # noqa: E402
+from review_agent.documentation.preflight import (  # noqa: E402
     deterministic_outcome,
     policy_scope,
 )
-from review_agent_tools.domain.documentation_scope import ChangedPath  # noqa: E402
-from review_agent_tools.domain.documentation_review import DocumentationOutcome  # noqa: E402
-from review_agent_tools.github.source import ReviewPolicySource  # noqa: E402
+from review_agent.domain.documentation_scope import ChangedPath  # noqa: E402
+from review_agent.domain.documentation_review import DocumentationOutcome  # noqa: E402
+from review_agent.github.source import ReviewPolicySource  # noqa: E402
 
 
 POLICY = '''version = 1

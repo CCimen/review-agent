@@ -18,27 +18,26 @@ import psycopg
 def _load_package() -> None:
     candidates = (
         Path("/opt/review-agent-bootstrap/plugins"),
-        Path(os.environ.get("HERMES_HOME", "/opt/data")) / "plugins",
-        Path(__file__).resolve().parents[1] / "bootstrap" / "plugins",
+        Path(__file__).resolve().parents[1] / "src",
     )
     for candidate in candidates:
-        if (candidate / "review_agent_tools" / "admission.py").is_file():
+        if (candidate / "review_agent" / "admission.py").is_file():
             sys.path.insert(0, str(candidate))
             return
-    raise SystemExit("Could not locate the review_agent_tools package")
+    raise SystemExit("Could not locate the review_agent package")
 
 
 _load_package()
 
-from review_agent_tools import admission  # noqa: E402
-from review_agent_tools.github_webhook import verify_signature  # noqa: E402
-from review_agent_tools.postgres.runtime import (  # noqa: E402
+from review_agent import admission  # noqa: E402
+from review_agent.github_webhook import verify_signature  # noqa: E402
+from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
     PostgreSQLRuntimeError,
 )
-from review_agent_tools.settings import SettingsError  # noqa: E402
-from review_agent_tools.postgres.deployment_settings import apply_at_startup  # noqa: E402
+from review_agent.settings import SettingsError  # noqa: E402
+from review_agent.postgres.deployment_settings import apply_at_startup  # noqa: E402
 
 
 GITHUB_APP_MAX_BODY_BYTES = 2_097_152

@@ -6,8 +6,8 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 
 from tests import test_admin_api, test_postgres_reporting_cli
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime
-from review_agent_tools.settings import PostgresDatabaseUrl
+from review_agent.postgres.runtime import PostgreSQLRuntime
+from review_agent.settings import PostgresDatabaseUrl
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -143,8 +143,8 @@ class IntegrationAPITests(unittest.TestCase):
             self.assertNotIn(issued["token"], str(event))
 
     def test_revocation_is_rechecked_by_the_reporting_application(self) -> None:
-        from review_agent_tools.admin import application as admin_application
-        from review_agent_tools.postgres.team_access import (
+        from review_agent.admin import application as admin_application
+        from review_agent.postgres.team_access import (
             AccessDenied,
             IntegrationAccessRequest,
         )

@@ -112,7 +112,7 @@ Next: [How reviews work](./HOW_REVIEWS_WORK.md).
 Title: Deploy Review Agent
 Canonical URL: https://ccimen.github.io/review-agent/docs/deployment
 Status: current
-Last verified: 2026-11-17
+Last verified: 2026-11-18
 
 # Deploy Review Agent
 
@@ -610,6 +610,42 @@ script again from the top. Afterwards, verify:
 kubectl exec deployment/hermes-review -- review-agent-admin doctor
 ```
 
+
+### Upgrade notes
+
+**After 0.4.14: the Python package is `review_agent`.** Its source moved from
+`bootstrap/plugins/review_agent_tools/` to `src/review_agent/` and its import
+name changed with it. Installed command names (`review-agent-*` and
+`/opt/review-agent-bootstrap/install.sh`), HTTP routes, tables, environment
+variables and reviewer tool names are unchanged. So are the Hermes plugin name
+`review-agent-tools` and its directory `plugins/review_agent_tools` in the
+Hermes home.
+
+Three module paths changed. A command that names the old path fails, because
+the module `review_agent_tools` no longer exists:
+
+| Where | 0.4.14 | Now |
+| --- | --- | --- |
+| `review-provider-control` entrypoint in `compose.providers.yaml` | `python -m review_agent_tools.provider_gateway` | `python -m review_agent.provider_gateway` |
+| Console image command | `uvicorn review_agent_tools.admin.api:app_from_environment` | `uvicorn review_agent.admin.api:app_from_environment` |
+| First platform owner, run in the console container | `python -m review_agent_tools.admin_auth` | `python -m review_agent.admin_auth` |
+
+Use this release's `compose.providers.yaml`; its `PYTHONPATH` is unchanged. The
+console image starts the new command itself, so only a deployment that
+overrides the image command must change it. The 0.4.14 `compose.yaml`,
+`compose.admin.yaml` and `compose.code-graph.yaml` work unchanged with these
+images.
+
+Logger names follow the module path. In every service except `hermes-review`,
+`review_agent_tools.<module>` is now `review_agent.<module>`: for example,
+`review_agent_tools.worker` became `review_agent.worker`. Inside `hermes-review`
+the plugin's loggers keep the name `hermes_plugins.review_agent_tools.<module>`,
+including the two named under [Review limits](OPERATIONS.md#review-limits).
+
+In the console's OpenAPI document, the component schema
+`review_agent_tools__admin__access_api__RepositoryAccess` is now
+`RepositoryAccessItem`, and `review_agent_tools__postgres__github_app__RepositoryAccess`
+is now `RepositoryAccess`. Paths, operation IDs and payloads are unchanged.
 
 ### Rollback boundary
 
@@ -1979,7 +2015,7 @@ or feedback.
 Title: Review Agent operator console
 Canonical URL: https://ccimen.github.io/review-agent/docs/admin-panel
 Status: current
-Last verified: 2026-11-17
+Last verified: 2026-11-18
 
 # Review Agent operator console
 
@@ -2058,14 +2094,14 @@ private database and gateway, which the chart does not supply.
    container's terminal:
 
    ```bash
-   python -m review_agent_tools.admin_auth --email admin@example.org
+   python -m review_agent.admin_auth --email admin@example.org
    ```
 
    From a local Compose terminal:
 
    ```bash
    docker compose -f compose.yaml -f compose.admin.yaml exec review-admin \
-     python -m review_agent_tools.admin_auth --email admin@example.org
+     python -m review_agent.admin_auth --email admin@example.org
    ```
 
    Enter the password at the hidden prompt, never in arguments, environment
@@ -3107,7 +3143,7 @@ required.
 Title: Operations
 Canonical URL: https://ccimen.github.io/review-agent/docs/operations
 Status: current
-Last verified: 2026-11-17
+Last verified: 2026-11-18
 
 # Operations
 
@@ -3558,9 +3594,9 @@ reports incomplete coverage when one of these boundaries stops it:
 | Historical context | 200 paths per call. |
 | Findings | 200 per atomic record; more rejects the record. At most 12 native suggestions per round. |
 | Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES` (65,000 UTF-8 bytes per comment part, including framing and metadata). Larger reviews are split into continuation comments. |
-| Diff cache | At most 16 snapshots and 32 MiB per tool process; eviction causes a fresh read, never a skipped file. Debug logs from `review_agent_tools.review.diff_cache` report hits and oversized snapshots without source content. |
+| Diff cache | At most 16 snapshots and 32 MiB per tool process; eviction causes a fresh read, never a skipped file. Debug logs from `hermes_plugins.review_agent_tools.review.diff_cache` report hits and oversized snapshots without source content. |
 
-An INFO log from `review_agent_tools.review.source_tools` reports
+An INFO log from `hermes_plugins.review_agent_tools.review.source_tools` reports
 `Java guidance returned` with the run ID and profile digest when the Java
 companion is delivered. It confirms delivery to the model, not that every check
 was applied.

@@ -4,7 +4,7 @@ slug: /deployment
 title: Deploy Review Agent
 description: Choose an image, set secrets, and deploy with Compose, Dokploy, Coolify, Portainer, or Kubernetes; upgrade and roll back.
 status: current
-last_verified: 2026-11-17
+last_verified: 2026-11-18
 ---
 
 import Tabs from '@theme/Tabs';
@@ -517,6 +517,42 @@ kubectl exec deployment/hermes-review -- review-agent-admin doctor
 
 </TabItem>
 </Tabs>
+
+### Upgrade notes
+
+**After 0.4.14: the Python package is `review_agent`.** Its source moved from
+`bootstrap/plugins/review_agent_tools/` to `src/review_agent/` and its import
+name changed with it. Installed command names (`review-agent-*` and
+`/opt/review-agent-bootstrap/install.sh`), HTTP routes, tables, environment
+variables and reviewer tool names are unchanged. So are the Hermes plugin name
+`review-agent-tools` and its directory `plugins/review_agent_tools` in the
+Hermes home.
+
+Three module paths changed. A command that names the old path fails, because
+the module `review_agent_tools` no longer exists:
+
+| Where | 0.4.14 | Now |
+| --- | --- | --- |
+| `review-provider-control` entrypoint in `compose.providers.yaml` | `python -m review_agent_tools.provider_gateway` | `python -m review_agent.provider_gateway` |
+| Console image command | `uvicorn review_agent_tools.admin.api:app_from_environment` | `uvicorn review_agent.admin.api:app_from_environment` |
+| First platform owner, run in the console container | `python -m review_agent_tools.admin_auth` | `python -m review_agent.admin_auth` |
+
+Use this release's `compose.providers.yaml`; its `PYTHONPATH` is unchanged. The
+console image starts the new command itself, so only a deployment that
+overrides the image command must change it. The 0.4.14 `compose.yaml`,
+`compose.admin.yaml` and `compose.code-graph.yaml` work unchanged with these
+images.
+
+Logger names follow the module path. In every service except `hermes-review`,
+`review_agent_tools.<module>` is now `review_agent.<module>`: for example,
+`review_agent_tools.worker` became `review_agent.worker`. Inside `hermes-review`
+the plugin's loggers keep the name `hermes_plugins.review_agent_tools.<module>`,
+including the two named under [Review limits](OPERATIONS.md#review-limits).
+
+In the console's OpenAPI document, the component schema
+`review_agent_tools__admin__access_api__RepositoryAccess` is now
+`RepositoryAccessItem`, and `review_agent_tools__postgres__github_app__RepositoryAccess`
+is now `RepositoryAccess`. Paths, operation IDs and payloads are unchanged.
 
 ### Rollback boundary
 

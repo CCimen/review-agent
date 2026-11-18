@@ -17,6 +17,10 @@ from typing import cast, Protocol
 RECEIPT_NAME = ".review-agent-profile.json"
 PROFILE_MANIFEST_NAME = "review-agent-profile.json"
 SCHEMA_VERSION = 2
+# The engine's directory in a Hermes home and its logical name in the receipt.
+# Hermes loads the plugin from there; the import name review_agent is separate.
+PLUGIN_DIRECTORY = "plugins/review_agent_tools"
+_IMAGE_BOOTSTRAP = Path("/opt/review-agent-bootstrap")
 # Migration 024 reserves this identity for retained and unassigned shared work.
 SHARED_CONNECTION_ID = 1
 _PINNED_IMAGE_RE = re.compile(r"^\S+@sha256:[0-9a-f]{64}$")
@@ -303,9 +307,7 @@ def _installed_files(
         ),
     )
     config_files = (_file(home / "config.yaml", "config.yaml"),)
-    engine_files = _tree(
-        home / "plugins" / "review_agent_tools", "plugins/review_agent_tools"
-    )
+    engine_files = _tree(home / PLUGIN_DIRECTORY, PLUGIN_DIRECTORY)
     return profile_files, config_files, engine_files
 
 
@@ -339,8 +341,42 @@ def _profile_skills(manifest_path: Path) -> tuple[str, ...]:
     return skills
 
 
+@dataclass(frozen=True, slots=True)
+class BehaviorInputs:
+    """Where the reviewer's behavior lies before it is installed into a home."""
+
+    config: Path  # the managed config.yaml
+    profiles: Path  # holds one directory per profile key
+    package: Path  # the engine, hashed file by file
+
+
+def locate_behavior_inputs(bootstrap: Path | None = None) -> BehaviorInputs:
+    """Find the managed config and profiles for the engine that is running.
+
+    ``bootstrap`` holds ``config.yaml`` and ``profiles/``. Without it, that is
+    the image's bootstrap directory, else ``bootstrap/`` in the checkout whose
+    ``src/`` holds this package.
+    """
+    package = Path(__file__).resolve().parents[1]
+    if bootstrap is None:
+        candidates = (_IMAGE_BOOTSTRAP, package.parents[1] / "bootstrap")
+        bootstrap = next(
+            (item for item in candidates if (item / "config.yaml").is_file()), None
+        )
+        if bootstrap is None:
+            raise ReviewContractError(
+                "managed reviewer config.yaml is in neither "
+                f"{candidates[0]} nor {candidates[1]}"
+            )
+    return BehaviorInputs(
+        config=bootstrap / "config.yaml",
+        profiles=bootstrap / "profiles",
+        package=package,
+    )
+
+
 def _packaged_files(
-    source: Path,
+    inputs: BehaviorInputs,
     profile: str,
     skills: tuple[str, ...],
     *,
@@ -348,7 +384,7 @@ def _packaged_files(
 ) -> tuple[
     tuple[ContractFile, ...], tuple[ContractFile, ...], tuple[ContractFile, ...]
 ]:
-    profile_source = source / "profiles" / profile
+    profile_source = inputs.profiles / profile
     profile_files = (
         _file(profile_source / "profile.json", "profile/profile.json"),
         _file(profile_source / "SOUL.md", "profile/SOUL.md"),
@@ -365,9 +401,7 @@ def _packaged_files(
         ),
     )
     config_files = (ContractFile(path="config.yaml", sha256=_digest(config_bytes)),)
-    engine_files = _tree(
-        source / "plugins" / "review_agent_tools", "plugins/review_agent_tools"
-    )
+    engine_files = _tree(inputs.package, PLUGIN_DIRECTORY)
     return profile_files, config_files, engine_files
 
 
@@ -450,19 +484,21 @@ def load_packaged_contract(
     *,
     environment: Mapping[str, str],
 ) -> ReviewContract:
-    """Derive admission identity from the immutable reviewer files in its image."""
+    """Derive admission identity from the immutable reviewer files in its image.
+
+    ``source`` overrides the directory that holds config.yaml and profiles/.
+    """
     if _PROFILE_KEY_RE.fullmatch(profile) is None:
         raise ReviewContractError("configured review profile is invalid")
-    resolved_source = (source or Path("/opt/review-agent-bootstrap")).resolve()
-    profile_source = resolved_source / "profiles" / profile
-    skills = _profile_skills(profile_source / "profile.json")
+    inputs = locate_behavior_inputs(source)
+    skills = _profile_skills(inputs.profiles / profile / "profile.json")
     config, config_bytes = render_managed_config(
-        resolved_source / "config.yaml",
+        inputs.config,
         environment=environment,
     )
     return _build_contract(
         _packaged_files(
-            resolved_source,
+            inputs,
             profile,
             skills,
             config_bytes=config_bytes,

@@ -13,16 +13,19 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple, cast
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "plugins"))
-from review_agent_tools.review import contract as review_contract  # noqa: E402
+SOURCE = Path(__file__).resolve().parent
+# Nothing is installed yet when this runs. The package lies beside this file in
+# the image (plugins/review_agent) and under src/ in a checkout.
+sys.path[:0] = [str(SOURCE / "plugins"), str(SOURCE.parent / "src")]
+from review_agent.review import contract as review_contract  # noqa: E402
 
 try:
     import yaml
 except ImportError as exc:  # Hermes ships PyYAML; fail clearly on unexpected images.
     raise SystemExit("PyYAML is required in the Hermes image") from exc
 
-SOURCE = Path(__file__).resolve().parent
-PROFILES_SOURCE = SOURCE / "profiles"
+INPUTS = review_contract.locate_behavior_inputs(SOURCE)
+PROFILES_SOURCE = INPUTS.profiles
 DEFAULT_PROFILE = "default-standard"
 REQUIRED_PROFILE_SKILLS = ("review-agent-pr", "review-agent-docs")
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", "/opt/data")).resolve()
@@ -185,7 +188,7 @@ def main() -> int:
 
     try:
         managed, managed_bytes = review_contract.render_managed_config(
-            SOURCE / "config.yaml",
+            INPUTS.config,
             environment=contract_environment,
         )
         installed_profile, previous_skills = installed_profile_receipt()
@@ -237,8 +240,8 @@ def main() -> int:
         HERMES_HOME / review_contract.PROFILE_MANIFEST_NAME,
     )
     copy_managed_tree(
-        SOURCE / "plugins" / "review_agent_tools",
-        HERMES_HOME / "plugins" / "review_agent_tools",
+        INPUTS.package,
+        HERMES_HOME / review_contract.PLUGIN_DIRECTORY,
     )
 
     # Prevent future bundled-skill seeding. Existing bundled skills are not deleted.

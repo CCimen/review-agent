@@ -15,12 +15,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-import review_agent_tools  # noqa: E402
-from review_agent_tools import capacity, schemas  # noqa: E402
-from review_agent_tools.review import (  # noqa: E402
+import review_agent  # noqa: E402
+from review_agent import capacity, schemas  # noqa: E402
+from review_agent.review import (  # noqa: E402
     contract as review_contract,
     code_graph_tool as review_code_graph_tool,
     delivery_tool as review_delivery_tool,
@@ -30,32 +30,32 @@ from review_agent_tools.review import (  # noqa: E402
     source_initialization as review_source_initialization,
     tool_runtime as review_tool_runtime,
 )
-from review_agent_tools.model_runtime import window as model_window  # noqa: E402
-from review_agent_tools.documentation import tools as documentation_tools  # noqa: E402
-from review_agent_tools.domain import (  # noqa: E402
+from review_agent.model_runtime import window as model_window  # noqa: E402
+from review_agent.documentation import tools as documentation_tools  # noqa: E402
+from review_agent.domain import (  # noqa: E402
     repository_decision_context,
     repository_guidance_context,
 )
-from review_agent_tools.domain.repository_decisions import RepositoryDecision  # noqa: E402
-from review_agent_tools.domain.documentation_review import PreviousDocumentationFinding  # noqa: E402
-from review_agent_tools.domain.review import (  # noqa: E402
+from review_agent.domain.repository_decisions import RepositoryDecision  # noqa: E402
+from review_agent.domain.documentation_review import PreviousDocumentationFinding  # noqa: E402
+from review_agent.domain.review import (  # noqa: E402
     CoverageState,
     DiffState,
     ReviewPurpose,
     classify_review_mode,
     resolve_review_subject,
 )
-from review_agent_tools.github.source import ReviewFilePage, ReviewSourceBytes  # noqa: E402
-from review_agent_tools.github.gateway import GitHubGatewayRetryable  # noqa: E402
-from review_agent_tools.postgres.coverage import (  # noqa: E402
+from review_agent.github.source import ReviewFilePage, ReviewSourceBytes  # noqa: E402
+from review_agent.github.gateway import GitHubGatewayRetryable  # noqa: E402
+from review_agent.postgres.coverage import (  # noqa: E402
     CoverageSummary,
     FileIndexSummary,
     RunFile,
     RunFileLookup,
     RunFilePage,
 )
-from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
-from review_agent_tools.code_graph.contract import GraphError  # noqa: E402
+from review_agent.domain.review import ReviewRunId  # noqa: E402
+from review_agent.code_graph.contract import GraphError  # noqa: E402
 
 TEST_REVIEW_CONTRACT = review_contract.ReviewContract(
     profile="default-standard",
@@ -218,7 +218,7 @@ class ToolContractTests(unittest.TestCase):
             with self.subTest(changed=changed):
                 files = {java: self._guidance_file(java, changed=changed == java),
                          changed: self._guidance_file(changed, changed=True)}
-                with self.assertLogs("review_agent_tools.review.source_tools", level="INFO") as logs:
+                with self.assertLogs("review_agent.review.source_tools", level="INFO") as logs:
                     result, read = self._java_guidance_result(changed_path=changed, java_path=java, files=files)
                 self.assertEqual(result["instructions"], "Java guidance body.")
                 self.assertEqual(result["changed_path"], changed)
@@ -269,7 +269,7 @@ class ToolContractTests(unittest.TestCase):
 
     def test_java_guidance_returns_bounded_failure_without_truncating_instructions(self) -> None:
         java = "src/main/java/example/Service.java"
-        with self.assertNoLogs("review_agent_tools.review.source_tools", level="INFO"):
+        with self.assertNoLogs("review_agent.review.source_tools", level="INFO"):
             result, _ = self._java_guidance_result(
                 changed_path=java, java_path=java,
                 files={java: self._guidance_file(java, changed=True)},
@@ -513,7 +513,7 @@ class ToolContractTests(unittest.TestCase):
             )
             with (
                 patch.dict(os.environ, {"REVIEW_AGENT_CODE_GRAPH_URL": "http://graph:8647"}),
-                patch("review_agent_tools.code_graph.client.urllib.request.build_opener") as opener,
+                patch("review_agent.code_graph.client.urllib.request.build_opener") as opener,
             ):
                 opener.return_value.open.side_effect = BadStatusLine("invalid graph response")
                 result = json.loads(review_source_tools.review_begin(
@@ -1519,7 +1519,7 @@ class ToolContractTests(unittest.TestCase):
         with (
             patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime),
             patch.object(review_source_tools, "gateway_source_session") as source,
-            self.assertLogs("review_agent_tools.review.tool_runtime", level="ERROR"),
+            self.assertLogs("review_agent.review.tool_runtime", level="ERROR"),
         ):
             result = json.loads(
                 review_source_tools.review_begin(
@@ -1583,7 +1583,7 @@ class ToolContractTests(unittest.TestCase):
                 side_effect=RuntimeError(secret_detail),
             ),
             self.assertLogs(
-                "review_agent_tools.review.tool_runtime",
+                "review_agent.review.tool_runtime",
                 level="ERROR",
             ) as logged,
         ):
@@ -1608,13 +1608,13 @@ class ToolContractTests(unittest.TestCase):
             turn_chars=default,
         )
         with patch.object(
-            review_agent_tools,
+            review_agent,
             "_installed_result_max_chars",
             return_value=160_000,
         ), patch.object(model_window, "default_budget", return_value=(100_000, 200_000)):
-            review_agent_tools.register(registry)
+            review_agent.register(registry)
 
-        manifest = (PACKAGE_ROOT / "review_agent_tools" / "plugin.yaml").read_text(
+        manifest = (PACKAGE_ROOT / "review_agent" / "plugin.yaml").read_text(
             encoding="utf-8"
         )
         declared_block = manifest.partition("provides_tools:")[2].partition(
@@ -1637,7 +1637,7 @@ class ToolContractTests(unittest.TestCase):
     def test_every_module_the_plugin_loads_by_name_exists(self) -> None:
         # Registration builds these module paths at run time, so neither the
         # type checker nor an import rewrite sees them.
-        source = (PACKAGE_ROOT / "review_agent_tools" / "__init__.py").read_text(
+        source = (PACKAGE_ROOT / "review_agent" / "__init__.py").read_text(
             encoding="utf-8"
         )
         loaded = re.findall(r'import_module\(f"\{__name__\}\.([a-z_.]+)"\)', source)
@@ -1645,7 +1645,7 @@ class ToolContractTests(unittest.TestCase):
         for module in loaded:
             with self.subTest(module=module):
                 self.assertIsNotNone(
-                    importlib.util.find_spec(f"review_agent_tools.{module}")
+                    importlib.util.find_spec(f"review_agent.{module}")
                 )
 
 

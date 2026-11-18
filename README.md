@@ -119,7 +119,7 @@ The runtime, admin API, and console live in this repository so API and schema
 changes ship together:
 
 ```text
-bootstrap/plugins/review_agent_tools/   the application package; start reading here
+src/review_agent/                       the application package; start reading here
 tools/                                  entrypoints for the services and operator commands
 bootstrap/                              installer, managed configuration, reviewer profiles
 admin/                                  admin console frontend

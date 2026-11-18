@@ -13,23 +13,23 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from review_agent_tools.code_graph.contract import (  # noqa: E402
+from review_agent.code_graph.contract import (  # noqa: E402
     EMBEDDING_DIMENSIONS,
     GraphError,
     GraphIdentity,
     GraphPolicy,
     GraphSubject,
 )
-from review_agent_tools.code_graph.cache import extract_snapshot  # noqa: E402
-from review_agent_tools.code_graph.embeddings import (  # noqa: E402
+from review_agent.code_graph.cache import extract_snapshot  # noqa: E402
+from review_agent.code_graph.embeddings import (  # noqa: E402
     embedding_inputs,
     openai_embeddings,
 )
-from review_agent_tools.code_graph.service import CodeGraphService  # noqa: E402
-from review_agent_tools.github.gateway import GitHubGatewayRejected  # noqa: E402
-from review_agent_tools.code_graph import indexer as code_graph_indexer  # noqa: E402
+from review_agent.code_graph.service import CodeGraphService  # noqa: E402
+from review_agent.github.gateway import GitHubGatewayRejected  # noqa: E402
+from review_agent.code_graph import indexer as code_graph_indexer  # noqa: E402
 
 
 _RUNNER = '''import json, pathlib, sqlite3, sys
@@ -387,7 +387,7 @@ else:
             service.client = client
             request = {"identity": GraphIdentity(1, 2, 3).to_mapping(), "operation": "prepare", "pattern": "", "target": ""}
             try:
-                with patch("review_agent_tools.code_graph.service.threading.Thread.start", side_effect=RuntimeError("thread limit")):
+                with patch("review_agent.code_graph.service.threading.Thread.start", side_effect=RuntimeError("thread limit")):
                     self.assertEqual(service.handle(request)["status"], "unavailable")
                 request["identity"] = GraphIdentity(2, 2, 3).to_mapping()
                 self.assertEqual(service.handle(request)["status"], "building")

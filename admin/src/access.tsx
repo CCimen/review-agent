@@ -66,8 +66,7 @@ export function RepositoryTabs({ role }: { role: Account["role"] }) {
 type InstallationPage = components["schemas"]["InstallationPage"];
 type Installation = components["schemas"]["Installation"];
 type RepositoryAccessPage = components["schemas"]["RepositoryAccessPage"];
-type RepositoryAccess =
-  components["schemas"]["review_agent_tools__admin__access_api__RepositoryAccess"];
+type RepositoryAccess = components["schemas"]["RepositoryAccessItem"];
 
 type Connection = components["schemas"]["AppConnection"];
 type LiveInstallation = components["schemas"]["LiveInstallationStatus"];

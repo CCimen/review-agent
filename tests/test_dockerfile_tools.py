@@ -127,7 +127,7 @@ class DockerfileToolsTests(unittest.TestCase):
             index for index, line in enumerate(lines) if line.startswith("!")
         )
         for exclusion in (
-            "bootstrap/plugins/review_agent_tools/_build.json",
+            "src/review_agent/_build.json",
             "**/__pycache__/",
             "**/*.py[cod]",
         ):
@@ -178,7 +178,11 @@ class DockerfileToolsTests(unittest.TestCase):
 
     def test_installed_memory_cli_imports_support_modules(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            install_dir = Path(temp)
+            # The commands sit in one directory and find the package under the
+            # src/ beside it, as in a checkout.
+            install_dir = Path(temp) / "bin"
+            install_dir.mkdir()
+            (Path(temp) / "src").symlink_to(ROOT / "src", target_is_directory=True)
             for module in (ROOT / "tools").glob("review_agent_*.py"):
                 shutil.copy2(module, install_dir / module.name)
             shutil.copy2(
@@ -191,10 +195,7 @@ class DockerfileToolsTests(unittest.TestCase):
                 check=False,
                 capture_output=True,
                 text=True,
-                env={
-                    "HERMES_HOME": str(ROOT / "bootstrap"),
-                    "PYTHONPATH": str(ROOT / "bootstrap" / "plugins"),
-                },
+                env={},
             )
         self.assertEqual(0, completed.returncode, completed.stderr)
 

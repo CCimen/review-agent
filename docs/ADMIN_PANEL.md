@@ -4,7 +4,7 @@ slug: /admin-panel
 title: Review Agent operator console
 description: Inspect reviews, manage repository access and finding decisions, and apply deployment policy through an authenticated console.
 status: current
-last_verified: 2026-11-17
+last_verified: 2026-11-18
 ---
 
 # Review Agent operator console
@@ -84,14 +84,14 @@ private database and gateway, which the chart does not supply.
    container's terminal:
 
    ```bash
-   python -m review_agent_tools.admin_auth --email admin@example.org
+   python -m review_agent.admin_auth --email admin@example.org
    ```
 
    From a local Compose terminal:
 
    ```bash
    docker compose -f compose.yaml -f compose.admin.yaml exec review-admin \
-     python -m review_agent_tools.admin_auth --email admin@example.org
+     python -m review_agent.admin_auth --email admin@example.org
    ```
 
    Enter the password at the hidden prompt, never in arguments, environment

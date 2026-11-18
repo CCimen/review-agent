@@ -63,6 +63,9 @@ from ..postgres.runtime import (
 from ..settings import ReviewAgentSettings
 
 
+# Where admin/Dockerfile copies the built frontend in the console image.
+IMAGE_STATIC_DIR = Path("/app/admin/dist")
+
 Days = Annotated[int, Query(ge=1, le=90)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Repository = Annotated[
@@ -475,6 +478,14 @@ def create_app(
     return app
 
 
+def _built_frontend() -> Path:
+    """The image's frontend, else admin/dist in the checkout that holds src/."""
+    if IMAGE_STATIC_DIR.is_dir():
+        return IMAGE_STATIC_DIR
+    package = Path(__file__).resolve().parents[1]
+    return package.parents[1] / "admin" / "dist"
+
+
 def app_from_environment() -> FastAPI:
     settings = ReviewAgentSettings.from_environment()
     runtime = PostgreSQLRuntime(
@@ -483,5 +494,5 @@ def app_from_environment() -> FastAPI:
     return create_app(
         runtime,
         public_url=os.environ.get("REVIEW_AGENT_ADMIN_PUBLIC_URL", ""),
-        static_dir=Path(__file__).resolve().parents[4] / "admin" / "dist",
+        static_dir=_built_frontend(),
     )

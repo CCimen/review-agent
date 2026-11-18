@@ -8,11 +8,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools.admin.api import create_app  # noqa: E402
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.admin.api import create_app  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 
 
 def main() -> None:

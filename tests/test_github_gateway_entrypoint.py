@@ -16,9 +16,9 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools.github.gateway import (  # noqa: E402
+from review_agent.github.gateway import (  # noqa: E402
     AuthorizedFeedback,
     AuthorizedReviewSnapshot,
     GitHubGatewayProtocolError,
@@ -29,23 +29,23 @@ from review_agent_tools.github.gateway import (  # noqa: E402
     ReviewSourceRequest,
     ReviewGitHubGateway,
 )
-from review_agent_tools.github import gateway_client  # noqa: E402
-from review_agent_tools.github.gateway_client import (  # noqa: E402
+from review_agent.github import gateway_client  # noqa: E402
+from review_agent.github.gateway_client import (  # noqa: E402
     ReviewGitHubGatewayClient,
 )
-from review_agent_tools.github.source import ReviewPullSource  # noqa: E402
-from review_agent_tools.github.publication_gateway import (  # noqa: E402
+from review_agent.github.source import ReviewPullSource  # noqa: E402
+from review_agent.github.publication_gateway import (  # noqa: E402
     ReviewPublicationGateway,
 )
-from review_agent_tools.github.publication import (  # noqa: E402
+from review_agent.github.publication import (  # noqa: E402
     InlineReviewComment,
     IssueComment,
     PullRequestReview,
     PullRequestReviewComment,
     PullRequestState,
 )
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.code_graph.contract import GraphIdentity  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.code_graph.contract import GraphIdentity  # noqa: E402
 
 
 def _entrypoint_module():

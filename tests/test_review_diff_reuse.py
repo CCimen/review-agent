@@ -10,10 +10,10 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from review_agent_tools.review import source_tools as tools  # noqa: E402
-from review_agent_tools.github.gateway import (  # noqa: E402
+from review_agent.review import source_tools as tools  # noqa: E402
+from review_agent.github.gateway import (  # noqa: E402
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
 )

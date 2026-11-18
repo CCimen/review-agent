@@ -42,7 +42,7 @@ from . import decisions as postgres_decisions
 from .team_access import ReadScope, repository_source
 
 
-EXPORT_SCHEMA_VERSION = 17
+EXPORT_SCHEMA_VERSION = 18
 
 
 class ReportingError(ValueError):

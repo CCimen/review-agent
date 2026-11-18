@@ -626,7 +626,9 @@ on_change = ["Run the cross-scope authorization test."]
             repository="example-org/example-repository",
             row_limit=100,
         ).to_json_obj()
-        self.assertEqual(exported["schema_version"], 17)
+        self.assertEqual(exported["schema_version"], 18)
+        self.assertNotIn("coach_runs", exported)
+        self.assertNotIn("coach_candidates", exported)
         triage_rows = exported["review_quality_feedback_triage"]
         assert isinstance(triage_rows, list)
         self.assertEqual(triage_rows[-1]["stable_key"], actionable.stable_key)

@@ -25,23 +25,21 @@ RUN apt-get -o Acquire::Retries=3 update \
     && /opt/admin-venv/bin/pip install --no-cache-dir --disable-pip-version-check -r requirements-admin.txt \
     && dpkg --purge --force-remove-essential perl-base
 # The package is installed on top of the lock: --no-deps keeps every dependency
-# on its pin. Nothing needs pip or its vendored packages after that.
-COPY pyproject.toml LICENSE NOTICE.md /tmp/review-agent/
-COPY src/review_agent /tmp/review-agent/src/review_agent
-RUN /opt/admin-venv/bin/pip install --no-cache-dir --disable-pip-version-check --no-deps /tmp/review-agent \
-    && rm -r /tmp/review-agent \
+# on its pin. The source is mounted for the build only, so no layer holds it,
+# and nothing needs pip or its vendored packages after that.
+RUN --mount=type=bind,target=/mnt,rw \
+    /opt/admin-venv/bin/pip install --no-cache-dir --disable-pip-version-check --no-deps /mnt \
     && /opt/admin-venv/bin/python -m pip uninstall --yes pip \
     && /usr/local/bin/python -m pip uninstall --yes pip \
     && rm -rf /usr/local/lib/python3.14/ensurepip
 COPY --from=frontend /build/dist /app/admin/dist
 COPY --from=frontend /build/frontend.cyclonedx.json /build/frontend-lock.sha256 /app/share/review-agent/
-COPY scripts/write_build_info.py scripts/validate_release_tag.py /tmp/build-info/
 ARG REVIEW_AGENT_VERSION=development
 ARG REVIEW_AGENT_REVISION=unknown
-RUN python /tmp/build-info/write_build_info.py \
+RUN --mount=type=bind,source=scripts,target=/mnt \
+    python /mnt/write_build_info.py \
     /opt/admin-venv/lib/python3.14/site-packages/review_agent/_build.json \
-    --version "$REVIEW_AGENT_VERSION" --revision "$REVIEW_AGENT_REVISION" \
-    && rm -r /tmp/build-info
+    --version "$REVIEW_AGENT_VERSION" --revision "$REVIEW_AGENT_REVISION"
 LABEL org.opencontainers.image.version=$REVIEW_AGENT_VERSION \
       org.opencontainers.image.revision=$REVIEW_AGENT_REVISION
 USER 10000:10000

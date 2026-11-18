@@ -10,13 +10,13 @@ npm install --global pyright@1.1.408
 ```
 
 The tests and checks put `src` on the import path themselves. To run a command
-from the checkout, install the package in editable mode on top of those pins
+from the checkout, install the package in editable mode, held to those pins,
 and call the command by name. `pyproject.toml` maps each command to its module
 in `src/review_agent/cli/`, and `PYTHONPATH=src python3 -m review_agent.cli.admin`
 runs the same code without installing:
 
 ```bash
-python3 -m pip install --no-deps --editable .
+python3 -m pip install --constraint requirements/requirements-admin.txt --editable .
 review-agent-admin capabilities
 ```
 

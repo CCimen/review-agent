@@ -60,8 +60,8 @@ otherwise preserve the existing package and edit it in place:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
-.venv/bin/python -m pip install --disable-pip-version-check --no-deps -e .
+.venv/bin/python -m pip install --disable-pip-version-check \
+  --constraint requirements/requirements-admin.txt -e .
 repository_root=/path/to/repository
 if [ -e "$repository_root/.review-agent" ]; then
   echo ".review-agent already exists; preserve it and edit it in place."
@@ -139,8 +139,8 @@ Prepare the source checkout once:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
-.venv/bin/python -m pip install --disable-pip-version-check --no-deps -e .
+.venv/bin/python -m pip install --disable-pip-version-check \
+  --constraint requirements/requirements-admin.txt -e .
 .venv/bin/review-agent-admin capabilities
 ```
 

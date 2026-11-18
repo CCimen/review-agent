@@ -405,7 +405,11 @@ wiring if you maintain a modified Compose file.
 
 Drain every long-running Review Agent component before running a migration.
 This prevents an old process from writing against a schema that changed after
-its image was built.
+its image was built. A review still queued when the images change fails with
+`review_contract_changed`, because a release changes the installed reviewer:
+let the [queue](./OPERATIONS.md#queue) finish before you stop the services,
+or request those reviews again afterwards, as
+[Failure codes](./OPERATIONS.md#failure-codes) describes.
 
 <Tabs groupId="upgrade-platform">
 <TabItem value="compose-upgrade" label="Compose">
@@ -528,7 +532,7 @@ modules in that package, and both images now install the package into their
 Python environment instead of copying its files. The main image no longer holds
 `/opt/review-agent-bootstrap/plugins/` or `/usr/local/bin/review_agent_*.py`.
 Installed command names (`review-agent-*` in `/usr/local/bin`, and
-`/opt/review-agent-bootstrap/install.sh`), their arguments, HTTP routes, tables,
+`/opt/review-agent-bootstrap/install.sh`), HTTP routes, table names,
 environment variables and reviewer tool names are unchanged. So are the Hermes
 plugin name `review-agent-tools` and its directory `plugins/review_agent_tools`
 in the Hermes home.
@@ -547,7 +551,7 @@ a module:
 | `review-code-graph` entrypoint in `compose.code-graph.yaml` | `/opt/hermes/.venv/bin/python /usr/local/bin/review_agent_code_graph.py` | `/usr/local/bin/review-agent-code-graph` |
 | Console image command | `uvicorn review_agent_tools.admin_api:app_from_environment` | `uvicorn review_agent.console.app:app_from_environment` |
 | First platform owner, run in the console container | `python -m review_agent_tools.admin_auth` | `python -m review_agent.console.auth` |
-| Operator commands in a source checkout | `python tools/review_agent_admin.py` | `.venv/bin/review-agent-admin`, after `pip install --no-deps -e .` into that environment |
+| Operator commands in a source checkout | `python tools/review_agent_admin.py` | `.venv/bin/review-agent-admin`, after `pip install --constraint requirements/requirements-admin.txt -e .` into that environment |
 
 The console image starts the new command itself, so only a deployment that
 overrides the image command must change it. This release's
@@ -567,18 +571,22 @@ logged as `__main__` now carries its module, for example
 the plugin's loggers keep the prefix `hermes_plugins.review_agent_tools.`. The
 rest of a name changed where its module moved, so a log filter on a module
 needs that module's new path; [CONTRIBUTING.md](https://github.com/CCimen/review-agent/blob/main/CONTRIBUTING.md#where-the-code-lives)
-lists the packages. The two loggers named under
-[Review limits](OPERATIONS.md#review-limits):
+lists the packages. Both loggers named under
+[Review limits](OPERATIONS.md#review-limits) changed; the 0.4.14 documentation
+wrote them without the `hermes_plugins.` prefix:
 
 | Logger | 0.4.14 | Now |
 | --- | --- | --- |
-| Diff cache | `hermes_plugins.review_agent_tools.review.diff_cache` | unchanged |
-| Java guidance | `hermes_plugins.review_agent_tools.review.source_tools` | `hermes_plugins.review_agent_tools.tools.source` |
+| Diff cache | `hermes_plugins.review_agent_tools.review_diff_cache` | `hermes_plugins.review_agent_tools.review.diff_cache` |
+| Java guidance | `hermes_plugins.review_agent_tools.review_source_tools` | `hermes_plugins.review_agent_tools.tools.source` |
 
 In the console's OpenAPI document, the component schema
-`review_agent_tools__admin__access_api__RepositoryAccess` is now
-`RepositoryAccessItem`, and `review_agent_tools__postgres__github_app__RepositoryAccess`
-is now `RepositoryAccess`. Paths, operation IDs and payloads are unchanged.
+`review_agent_tools__admin_access_api__RepositoryAccess` is now
+`RepositoryAccessItem`, with that `title`, and
+`review_agent_tools__postgres__github_app__RepositoryAccess` is now
+`RepositoryAccess`. Paths and operation IDs are unchanged. One payload
+changed: `FindingDecision.occurrence_id` could be `null` and is now always an
+integer.
 
 ### Rollback boundary
 

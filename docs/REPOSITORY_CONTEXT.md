@@ -43,14 +43,16 @@ Every file is optional. `documentation.toml` and the decision files work without
 ## Start with the copyable package
 
 A Review Agent checkout runs its commands from a virtual environment that
-holds the pinned requirements and the checkout itself. Create it once, then
-copy the starter only when the repository has no package. Edit an existing
-package in place. Then validate the target repository:
+holds the checkout and its dependencies at their pinned versions. Create it
+once, then copy the starter only when the repository has no package. Edit an
+existing package in place. Then validate the target repository. These commands
+belong to the revision this page describes; in a checkout of a release, use
+the commands in that checkout's copy of this page:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
-.venv/bin/python -m pip install --disable-pip-version-check --no-deps -e .
+.venv/bin/python -m pip install --disable-pip-version-check \
+  --constraint requirements/requirements-admin.txt -e .
 repository_root=/path/to/repository
 if [ -e "$repository_root/.review-agent" ]; then
   echo ".review-agent already exists; preserve it and edit it in place."

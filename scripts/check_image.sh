@@ -41,6 +41,7 @@ for line in Path("/opt/review-agent-requirements.txt").read_text().splitlines():
 # and argv are the ones under test, with the constraints of compose.code-graph.yaml.
 docker run --rm --network none --user 10000:10000 --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
+    --memory 4g --cpus 2.0 --pids-limit 64 \
     --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m \
     --tmpfs /var/lib/review-agent-code-graph:rw,mode=0700,uid=10000,gid=10000 \
     --entrypoint /opt/hermes/.venv/bin/python "$image" -c '

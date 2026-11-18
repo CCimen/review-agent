@@ -40,18 +40,22 @@ def _installed_commands() -> dict[str, str]:
 
 
 class DockerfileToolsTests(unittest.TestCase):
-    def test_every_installed_command_is_one_cli_module(self) -> None:
-        modules = []
-        for command, target in _installed_commands().items():
-            module, _, function = target.partition(":")
+    def test_every_installed_command_runs_the_module_named_after_it(self) -> None:
+        commands = _installed_commands()
+        expected = {}
+        for command in commands:
             self.assertTrue(command.startswith("review-agent-"), command)
-            self.assertEqual("main", function, command)
-            package, _, name = module.rpartition(".")
-            self.assertEqual("review_agent.cli", package, command)
-            modules.append(name)
+            name = command.removeprefix("review-agent-").replace("-", "_")
+            expected[command] = f"review_agent.cli.{name}:main"
+        # The one historical name: it inspects stored records.
+        expected["review-agent-memory"] = "review_agent.cli.records:main"
+        self.assertEqual(expected, commands)
 
         self.assertEqual(
-            sorted(modules),
+            sorted(
+                target.partition(":")[0].rpartition(".")[2]
+                for target in commands.values()
+            ),
             sorted(
                 path.stem
                 for path in (ROOT / "src" / "review_agent" / "cli").glob("*.py")

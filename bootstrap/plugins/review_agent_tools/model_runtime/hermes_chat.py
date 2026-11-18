@@ -12,10 +12,9 @@ import re
 from typing import cast
 from urllib import error, parse, request
 
-from ..domain.review import ReviewPurpose
 from ..postgres import jobs
-from ..review import contract as review_contract, part_instructions as review_part_instructions
-from ..review.turn import ClaimedReview, ReviewTurnError
+from ..review import contract as review_contract
+from ..review.turn import ClaimedReview, ReviewTurnError, turn_messages
 from ..source_control import SameOriginHttpsRedirectHandler
 from ..worker_telemetry import TokenUsage
 from .hermes_control import MANAGED_REVIEW_PATH
@@ -86,36 +85,11 @@ class HermesChatClient:
             lease_generation=claimed.job.lease_generation,
         )
         contract = review_contract.queued_contract(claimed.resolved_config)
-        instructions = self._system_instructions
-        first_call = (
-            "Call review_agent_begin first with repository "
-            f"{claimed.repository!r}, pr_number {claimed.pr_number}, "
-            f"and existing_run_id {int(claimed.job.review_run_id)}. "
+        instructions, request_text = turn_messages(
+            claimed,
+            code_instructions=self._system_instructions,
+            documentation_instructions=self._documentation_instructions,
         )
-        if claimed.purpose is ReviewPurpose.DOCUMENTATION:
-            if self._documentation_instructions is None:
-                raise ReviewTurnError(
-                    "Documentation review skill is not installed",
-                    retryable=False, code="worker_misconfigured",
-                )
-            instructions = self._documentation_instructions
-            first_call = f"Call review_agent_docs_begin first with run_id {int(claimed.job.review_run_id)}. "
-        request_text = (
-            "Continue the assigned durable pull-request review. "
-            f"{first_call}"
-            "Follow the review skill and finish through deterministic "
-            "delivery."
-        )
-        if claimed.part:
-            instructions += review_part_instructions.PART_INSTRUCTIONS
-            request_text = review_part_instructions.part_request(
-                first_call, part=claimed.part, parts=claimed.parts
-            )
-        elif claimed.parts:
-            instructions += review_part_instructions.FINAL_INSTRUCTIONS
-            request_text = review_part_instructions.final_request(
-                first_call, parts=claimed.parts
-            )
         payload = json.dumps(
             {
                 "messages": [

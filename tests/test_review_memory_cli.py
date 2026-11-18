@@ -4,7 +4,9 @@ from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 import os
+import stat
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -19,6 +21,7 @@ sys.path.insert(0, str(TOOLS))
 sys.path.insert(0, str(PLUGIN_PARENT))
 
 import review_agent_memory as memory  # noqa: E402
+from review_agent_private_io import write_private_file  # noqa: E402
 from review_agent_tools import operator_input  # noqa: E402
 from review_agent_tools.postgres import quality_reporting, quality_triage  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
@@ -344,6 +347,22 @@ class ReviewAgentMemoryCliTests(unittest.TestCase):
         self.assertEqual(json.loads(stdout.getvalue()), {"status": "complete"})
         self.assertEqual(stderr.getvalue(), "")
         runtime.close.assert_called_once_with()
+
+    def test_private_writer_uses_0600_and_refuses_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "export.json"
+            write_private_file(destination, "{}\n")
+
+            mode = stat.S_IMODE(destination.stat().st_mode)
+            self.assertEqual(mode, 0o600)
+
+            if hasattr(os, "symlink"):
+                target = Path(temp) / "target.json"
+                link = Path(temp) / "link.json"
+                target.write_text("", encoding="utf-8")
+                os.symlink(target, link)
+                with self.assertRaisesRegex(ValueError, "symlink"):
+                    write_private_file(link, "{}\n")
 
     def test_run_diagnostics_stay_readable_in_one_512_kib_file_read(self) -> None:
         from datetime import datetime, timezone

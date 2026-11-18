@@ -54,8 +54,8 @@ python3 scripts/sync_install_skill.py --check
 git diff --check
 ```
 
-`check_bundle.sh` covers Python imports, strict type checks, unit tests, replay
-fixtures, and YAML. It does not prove deployment routing, GitHub organization
+`check_bundle.sh` covers Python imports, strict type checks, unit tests, and
+YAML. It does not prove deployment routing, GitHub organization
 token approval, provider OAuth state, or repository rules.
 
 Python inventory generation requires Python with pip on the build host. A

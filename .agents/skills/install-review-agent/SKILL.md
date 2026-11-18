@@ -345,8 +345,7 @@ review-agent-memory quality --days 30 --repo <owner/name>
 Explain each signal beside its reported denominator and keep the current triage
 backlog separate from the activity window. Do not calculate an accuracy score
 from missing feedback. Do not classify feedback for the operator. Do not
-promote a coach proposal or change the reviewer profile without an operator
-decision. If the operator
+change the reviewer profile without an operator decision. If the operator
 requests triage, the operator must handle the private repository export and
 supply the selected feedback ID and evidence. Never read, quote, or summarize
 the raw export. Present the allowed states, wait for the operator to choose the

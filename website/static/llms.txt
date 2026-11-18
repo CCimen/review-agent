@@ -36,7 +36,7 @@ When Review Agent is already deployed and the target repository is covered by an
 
 Source checkout prerequisite: create `.venv` and install `requirements.txt` with `.venv/bin/python`. Run `.venv/bin/python tools/review_agent_admin.py capabilities` and `.venv/bin/python tools/review_agent_admin.py preflight`. Validate an optional repository package with `.venv/bin/python tools/review_agent_admin.py repository-context validate <repository-root>`; this command is offline and prints hashes, paths, and status rather than file bodies. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.
 
-Quality reporting: run `review-agent-memory quality --days 30` globally or add `--repo owner/repository`. It reports explicit signals beside their denominators and keeps the current triage backlog visible. Missed-issue coach input requires explicit operator triage; a coding agent must not choose the status or target owner.
+Quality reporting: run `review-agent-memory quality --days 30` globally or add `--repo owner/repository`. It reports explicit signals beside their denominators and keeps the current triage backlog visible. A missed issue requires explicit operator triage; a coding agent must not choose the status or target owner.
 
 Full public documentation: https://ccimen.github.io/review-agent/llms-full.txt
 Source: https://github.com/CCimen/review-agent

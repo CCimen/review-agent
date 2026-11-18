@@ -15,17 +15,6 @@ fi
 pyright -p "$ROOT"
 python3 "$ROOT/scripts/check_app_only_candidate.py"
 PYTHONPATH="$ROOT/bootstrap/plugins" python3 -m unittest discover -s "$ROOT/tests" -v
-replay_fixture=""
-for candidate in "$ROOT"/review-learning/replay/*.json; do
-    [ -e "$candidate" ] || continue
-    replay_fixture=$candidate
-    break
-done
-if [ -n "$replay_fixture" ]; then
-    python3 "$ROOT/tools/review_agent_memory.py" validate-replay "$ROOT/review-learning/replay"
-else
-    printf '%s\n' "Replay validation skipped: no historical fixtures are tracked."
-fi
 
 python3 - "$ROOT" <<'PY'
 from pathlib import Path

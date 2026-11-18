@@ -43,7 +43,6 @@ from .team_access import ReadScope, repository_source
 
 
 EXPORT_SCHEMA_VERSION = 17
-VERIFICATION_SOURCE_SCHEMA_VERSION = 1
 
 
 class ReportingError(ValueError):
@@ -56,10 +55,6 @@ class RepositoryNotFound(ReportingError):
 
 class FindingNotFound(ReportingError):
     """The requested finding is not registered in the repository."""
-
-
-class VerificationExportUnavailable(ReportingError):
-    """A run lacks the complete publication evidence required for export."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1530,112 +1525,6 @@ def coverage_report(
     )
 
 
-def verification_export_source(
-    connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId
-) -> JsonObject:
-    """Build the existing bounded private-verifier input from normalized rows."""
-    _require_transaction(connection)
-    run = connection.execute(
-        """
-        SELECT run.id, repository.full_name, pull_request.number,
-               subject.base_sha, subject.head_sha, run.status, run.phase,
-               run.started_at, run.completed_at
-        FROM review_agent.review_runs AS run
-        JOIN review_agent.pull_requests AS pull_request
-          ON pull_request.id = run.pull_request_id
-        JOIN review_agent.repositories AS repository
-          ON repository.id = pull_request.repository_id
-        JOIN review_agent.review_subjects AS subject
-          ON subject.id = run.review_subject_id
-        WHERE run.id = %s
-        """,
-        (run_id,),
-    ).fetchone()
-    if run is None:
-        raise VerificationExportUnavailable("review run was not found")
-    publication = connection.execute(
-        """
-        SELECT id, review_run_id, review_number, status, rendered_hash, generated_at
-        FROM review_agent.publications WHERE review_run_id = %s
-        """,
-        (run_id,),
-    ).fetchone()
-    if publication is None:
-        raise VerificationExportUnavailable("review run has no recorded publication")
-    findings = connection.execute(
-        """
-        SELECT reference.local_reference, occurrence.id, identity.fingerprint,
-               identity.rule_id, occurrence.severity, occurrence.category,
-               occurrence.publication_score, occurrence.confidence,
-               identity.path, occurrence.line, identity.symbol, identity.anchor,
-               occurrence.title, occurrence.evidence, occurrence.disproof_checks,
-               occurrence.impact, occurrence.smallest_fix,
-               occurrence.context_hash
-        FROM review_agent.publication_findings AS published
-        JOIN review_agent.finding_identities AS identity
-          ON identity.id = published.finding_id
-        JOIN review_agent.finding_occurrences AS occurrence
-          ON occurrence.id = published.source_finding_occurrence_id
-        JOIN review_agent.pull_request_finding_references AS reference
-          ON reference.pull_request_id = published.pull_request_id
-         AND reference.finding_id = published.finding_id
-        WHERE published.publication_id = %s AND published.outcome = 'current'
-        ORDER BY substring(reference.local_reference FROM 2)::integer
-        """,
-        (publication[0],),
-    ).fetchall()
-    return {
-        "source_schema_version": VERIFICATION_SOURCE_SCHEMA_VERSION,
-        "run": {
-            "id": int(run[0]),
-            "repository": str(run[1]),
-            "pr_number": int(run[2]),
-            "base_sha": str(run[3]),
-            "head_sha": str(run[4]),
-            "status": "generated" if str(run[5]) == "completed" else str(run[5]),
-            "phase": str(run[6]),
-            "started_at": _iso(run[7]),
-            "completed_at": _iso(run[8]),
-        },
-        "publication": {
-            "id": int(publication[0]),
-            "review_run_id": int(publication[1]),
-            "review_number": int(publication[2]),
-            "delivery_status": str(publication[3]),
-            "rendered_hash": str(publication[4]),
-            "generated_at": _iso(publication[5]),
-        },
-        "current_findings": [
-            {
-                "local_reference": str(row[0]),
-                "observation_id": int(row[1]),
-                "fingerprint": str(row[2]),
-                "rule_id": str(row[3]),
-                "severity": str(row[4]),
-                "category": str(row[5]),
-                "publication_score": int(row[6]),
-                "confidence": float(cast(Decimal, row[7])),
-                "path": str(row[8]),
-                "line": int(row[9]),
-                "symbol": str(row[10] or ""),
-                "anchor": str(row[11]),
-                "title": str(row[12]),
-                "evidence": str(row[13]),
-                "disproof_checks": str(row[14]),
-                "impact": str(row[15]),
-                "smallest_fix": str(row[16]),
-                "introduced_by_diff": 1,
-                "context_hash": str(row[17]),
-            }
-            for row in findings
-        ],
-    }
-
-
-def _iso(value: object) -> str:
-    return value.isoformat() if isinstance(value, datetime) else ""
-
-
 def _json_value(value: object) -> JsonValue:
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
@@ -1870,31 +1759,6 @@ _EXPORT_QUERIES: tuple[tuple[str, str], ...] = (
            JOIN review_agent.repositories AS repository
              ON repository.id = pull_request.repository_id
            WHERE repository.id = %s ORDER BY publication.id LIMIT %s""",
-    ),
-    (
-        "coach_runs",
-        """SELECT run.id, repository.full_name AS repository,
-                  run.source_event_set_id, run.source_snapshot_id,
-                  run.proposal_set_id, run.events_considered,
-                  run.artifact_dir, run.recorded_at
-           FROM review_agent.coach_runs AS run
-           JOIN review_agent.repositories AS repository
-             ON repository.id = run.repository_id
-           WHERE run.repository_id = %s ORDER BY run.id LIMIT %s""",
-    ),
-    (
-        "coach_candidates",
-        """SELECT candidate.id, candidate.coach_run_id,
-                  candidate.candidate_key, candidate.target_owner,
-                  candidate.suggested_route, candidate.event_type,
-                  candidate.independent_episode_count,
-                  candidate.evidence_event_ids,
-                  candidate.evidence_events_total
-           FROM review_agent.coach_candidates AS candidate
-           JOIN review_agent.coach_runs AS run
-             ON run.id = candidate.coach_run_id
-           WHERE run.repository_id = %s
-           ORDER BY candidate.id LIMIT %s""",
     ),
 )
 

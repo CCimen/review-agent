@@ -84,7 +84,7 @@ the code context has changed, request a fresh review and use its F reference.
 
 | Command | Immediate effect | Later use |
 | --- | --- | --- |
-| `false-positive` | Suppresses the finding in later reviews while its code-context hash still matches. | Points at evidence rules or replay cases that need work. |
+| `false-positive` | Suppresses the finding in later reviews while its code-context hash still matches. | Points at evidence rules that need work. |
 | `intentional` | Suppresses the finding while both the code context and the accepted ADR's metadata still match. Accepted only when the ADR was `accepted` in the finding's stored base snapshot and its index entry covers the finding's path. | Keeps a repository decision; exposes weak ADR path mapping. |
 | `feedback scope` | Records scope confusion. The finding is not suppressed. | Shows where pull request structure or repository context misled the review. |
 | `feedback missed` | Records a concrete missed issue. | Shows gaps in coverage, tools, or review rules. |
@@ -116,7 +116,7 @@ review-agent-memory decide <fingerprint> intentional_by_design \
 
 Operators run these in the `hermes-review` container.
 [Operations](./OPERATIONS.md) lists the other `review-agent-memory` commands,
-private exports, and their error codes.
+the private export, and their error codes.
 
 1. **Weekly quality report.** `review-agent-memory quality --days 30`, with
    `--repo <org>/<repo>` for one repository and `--json` for a reporting job.
@@ -150,12 +150,10 @@ private exports, and their error codes.
    `--target-owner`: `source_tool`, `coverage`, `review_rule`, `profile`,
    `repository_decision`, or `documentation`. Triage is append-only; the latest
    state counts, and a later `resolved`, `duplicate`, or `insufficient` removes
-   the item from coaching without deleting its history.
-3. **Coach.** `review-agent-memory coach-run --repo <org>/<repo> --output-dir
-   /opt/data/private-review/coach-run`. `no_change` means stop. A proposal needs
-   repeated independent episodes for the same finding identity; review it, add a
-   focused replay, and change the owner (profile, rule, tool, or repository
-   context) through a normal pull request. Never run Hermes `/learn` in the live reviewer profile.
+   the item from the report's actionable count without deleting its history.
+3. **Change the owner.** For an actionable item, change its target owner
+   (profile, rule, tool, or repository context) through a normal pull request.
+   Never run Hermes `/learn` in the live reviewer profile.
 
 ## Repository decision contract
 

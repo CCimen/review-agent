@@ -138,7 +138,7 @@ def generate(*, revision: str = REVISION) -> tuple[str, str]:
         "",
         "Source checkout prerequisite: create `.venv` and install `requirements.txt` with `.venv/bin/python`. Run `.venv/bin/python tools/review_agent_admin.py capabilities` and `.venv/bin/python tools/review_agent_admin.py preflight`. Validate an optional repository package with `.venv/bin/python tools/review_agent_admin.py repository-context validate <repository-root>`; this command is offline and prints hashes, paths, and status rather than file bodies. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.",
         "",
-        "Quality reporting: run `review-agent-memory quality --days 30` globally or add `--repo owner/repository`. It reports explicit signals beside their denominators and keeps the current triage backlog visible. Missed-issue coach input requires explicit operator triage; a coding agent must not choose the status or target owner.",
+        "Quality reporting: run `review-agent-memory quality --days 30` globally or add `--repo owner/repository`. It reports explicit signals beside their denominators and keeps the current triage backlog visible. A missed issue requires explicit operator triage; a coding agent must not choose the status or target owner.",
         "",
         f"Full public documentation: {BASE_URL}/llms-full.txt",
         "Source: https://github.com/CCimen/review-agent",
@@ -148,7 +148,7 @@ def generate(*, revision: str = REVISION) -> tuple[str, str]:
     full = [
         "# Review Agent: full public documentation",
         "",
-        "Generated from the live documentation sources listed in `website/public-documents.json`. Internal review notes and private learning data are excluded.",
+        "Generated from the live documentation sources listed in `website/public-documents.json`. Internal review notes are excluded.",
         f"Runtime release selected by `llms.txt`: {revision}",
         "",
     ]

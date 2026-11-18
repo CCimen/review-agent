@@ -44,7 +44,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Reference',
       collapsed: false,
-      items: ['docs/ROADMAP', 'benchmarks/production-scale'],
+      items: ['docs/ROADMAP'],
     },
   ],
 };

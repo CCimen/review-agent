@@ -26,8 +26,9 @@ class AppOnlyCandidateTests(unittest.TestCase):
         gate = _candidate_gate()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            # Assembled here so this file holds no key marker of its own.
             (root / "compose.yaml").write_text(
-                "GITHUB_READ_TOKEN: still-live\n", encoding="utf-8"
+                "key: -----BEGIN " + "PRIVATE KEY-----\n", encoding="utf-8"
             )
 
             findings = gate.scan_residual_paths(root, (Path("compose.yaml"),))
@@ -35,7 +36,7 @@ class AppOnlyCandidateTests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].path, "compose.yaml")
         self.assertEqual(findings[0].line, 1)
-        self.assertEqual(findings[0].rule, "legacy GitHub credential")
+        self.assertEqual(findings[0].rule, "embedded credential")
 
     def test_topology_rejects_list_form_key_outside_gateway(self) -> None:
         gate = _candidate_gate()

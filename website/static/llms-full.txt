@@ -37,6 +37,7 @@ stored state, and every GitHub write are handled by code.
 | Operate and recover the service | [Operations](./OPERATIONS.md) |
 | Assess the trust model | [Security](./SECURITY.md) |
 | See what is and is not supported | [Capabilities](./ROADMAP.md) |
+| Change the code | [CONTRIBUTING.md](https://github.com/CCimen/review-agent/blob/main/CONTRIBUTING.md) |
 
 ---
 

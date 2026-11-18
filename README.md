@@ -121,21 +121,12 @@ The runtime, admin API, and console live in this repository so API and schema
 changes ship together:
 
 ```text
-src/review_agent/                       the application package; start reading here
-  __init__.py                           Hermes plugin entry: register() wires the model tools
-  domain/                               pure values and rules
-  postgres/                             PostgreSQL stores and migrations
-  github/  hermes/                      everything that talks to GitHub; everything specific to Hermes
-  repository_context/  code_graph/      a repository's .review-agent/ package; the optional code graph
-  review/  documentation/               code-review and documentation-review use cases
-  publication/  operations/             publishing a finished review; operator use cases
-  tools/  console/                      the tools the review model calls; the admin console backend
-  cli/                                  one module per installed command, with its loop or server
-hermes/                                 what the image installs into Hermes: installer, managed configuration, patches
-profiles/                               reviewer profiles
-console/                                admin console frontend
-tests/  scripts/                        tests, CI checks and release tooling
-docs/  website/  examples/              documentation, its site, deployment templates
+src/review_agent/             the application package; start reading here
+hermes/                       what the image installs into Hermes: installer, managed configuration, patches
+profiles/                     reviewer profiles
+console/                      admin console frontend
+tests/  scripts/              tests, CI checks and release tooling
+docs/  website/  examples/    documentation, its site, deployment templates
 ```
 
 [CONTRIBUTING.md](CONTRIBUTING.md#where-the-code-lives) describes each package

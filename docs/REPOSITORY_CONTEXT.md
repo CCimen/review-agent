@@ -142,8 +142,9 @@ gives the format and limits.
 
 ## Get architecture-aware reviews
 
-Every code review checks whether the pull request introduces or worsens an
-architecture problem in the changed code: a rule implemented outside its owner,
+The review procedure instructs the reviewer to check, in every code review,
+whether the pull request introduces or worsens an architecture problem in the
+changed code: a rule implemented outside its owner,
 duplicated policy, hidden coupling, a misleading abstraction, or complexity that
 causes a concrete defect or change cost. Without context, the reviewer infers
 the intended structure from the diff and the files it reads. Two files make
@@ -169,9 +170,10 @@ First, describe the structure in a context file and list it in `config.toml`:
 ```
 
 Second, record each invariant that must not change without a decision as an
-accepted ADR whose `applies_to` covers the paths it protects. A pull request
-that breaks it gets a `design.adr-conflict` finding when the reviewer traces a
-real consequence in the changed code.
+accepted ADR whose `applies_to` covers the paths it protects. The reviewer is
+instructed to report a pull request that breaks it as a `design.adr-conflict`
+finding when it traces a real consequence in the changed code. That depends on
+the model; code does not detect an ADR conflict by itself.
 
 The reviewer treats both as evidence. It does not assess the whole repository's
 architecture, report structure the pull request did not change, or propose
@@ -211,7 +213,10 @@ Format rules:
   and `?` within a path segment and `**` as a whole segment.
 - Listed documents must exist, and a document cannot be both listed and ignored.
   The validator also rejects unknown fields, duplicates, paths that escape the
-  repository, unsupported glob syntax, and symlinks.
+  repository, and unsupported glob syntax. It rejects a listed document whose
+  path is itself a symlink, is not a regular file, or resolves outside the
+  repository; a symlinked directory earlier in the path passes when it resolves
+  inside the repository.
 - `ignore_changes` applies only to changes no area maps; an area mapping wins.
   `ignore_documents` says why a document need not match the current version; it
   does not exempt policy files or other checks.
@@ -284,5 +289,6 @@ CODEOWNERS.
 
 The validator accepts more than a live review can use, so keep instructions and
 context below the live figure. These limits apply only to the package: guidance
-that is too large is left out with a recorded reason, and the pull request is
-still reviewed in full.
+that is too large is left out with a recorded reason, and the review continues
+without it. How much of the pull request is read is set by the
+[review limits](./OPERATIONS.md#review-limits), not by the package.

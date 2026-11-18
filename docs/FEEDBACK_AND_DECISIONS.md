@@ -21,8 +21,10 @@ first. Security findings and every Medium or higher finding stay expanded. Low
 (P3) maintainability improvements are collapsed under **Code quality and
 readability**, and when a review also has High or Medium findings, its other
 Low findings are collapsed under **Low-priority findings**. Every finding keeps
-its F reference, explanation, feedback commands, and entry in the copyable fix
-brief. See the [example review](../examples/comments/example-review.md).
+its F reference, explanation, and entry in the copyable fix brief. The copyable
+feedback commands appear once, at the end of the review, and only when the
+operator has enabled them (`REVIEW_AGENT_FEEDBACK_ENABLED`, off by default).
+See the [example review](../examples/comments/example-review.md).
 
 Publication limits:
 
@@ -68,9 +70,17 @@ Rules the parser applies:
   reverse.
 - `/review docs intentional` is rejected: an accepted decision can explain a
   behavior change, but it does not make contradictory documentation correct.
-- `accepted-risk` is rejected in comments. Record accepted risk with
-  `review-agent-memory decide <fingerprint> accepted_risk` or on the finding's
-  page in the console.
+- `accepted-risk` is rejected in comments. Record accepted risk on the finding's
+  page in the console, or from the operator CLI:
+
+  ```bash
+  review-agent-memory decide <fingerprint> accepted_risk \
+    --repo <org>/<repo> \
+    --pr <number> \
+    --local-reference F2 \
+    --actor "github:alice" \
+    --reason "The endpoint is reachable only from the internal network; accepted until the next audit."
+  ```
 
 Only people with current GitHub `write` or `admin` permission on the
 repository can send feedback. Console requester grants allow requesting a
@@ -84,10 +94,20 @@ the code context has changed, request a fresh review and use its F reference.
 
 | Command | Immediate effect | Later use |
 | --- | --- | --- |
-| `false-positive` | Suppresses the finding in later reviews while its code-context hash still matches. | Points at evidence rules that need work. |
-| `intentional` | Suppresses the finding while both the code context and the accepted ADR's metadata still match. Accepted only when the ADR was `accepted` in the finding's stored base snapshot and its index entry covers the finding's path. | Keeps a repository decision; exposes weak ADR path mapping. |
+| `false-positive` | Suppresses the finding in later reviews while its code-context hash still matches and the decision has not expired. | Points at evidence rules that need work. |
+| `intentional` | Suppresses the finding while the code context and the accepted ADR's metadata both still match and the decision has not expired. Accepted only when the ADR was `accepted` in the finding's stored base snapshot and its index entry covers the finding's path. | Keeps a repository decision; exposes weak ADR path mapping. |
 | `feedback scope` | Records scope confusion. The finding is not suppressed. | Shows where pull request structure or repository context misled the review. |
 | `feedback missed` | Records a concrete missed issue. | Shows gaps in coverage, tools, or review rules. |
+
+Every suppressing decision expires, whether it is a false positive, an
+intentional decision, an accepted risk, or a duplicate. A decision made with a
+comment or on the console's finding page expires after 180 days. The CLI
+(`--expires-days`) and the console API (`expires_days`) accept 1 to 3,650 days
+and use 180 when none is given. A later review suppresses the finding only
+while the decision has not expired, the stored code-context hash still
+matches, and, for an intentional decision, the current base still has the same
+accepted ADR metadata. After expiry the finding is evaluated again even if the
+code did not change, and suppressing it again needs a new decision.
 
 No command changes prompts, skills, or policy. Changes to the reviewer happen
 only through a normal pull request to the profile or code.
@@ -127,11 +147,15 @@ the private export, and their error codes.
    cohorts, do not read missing feedback as accuracy, and do not rank developers
    or repositories from the counts.
 2. **Triage missed issues.** Only an operator classifies one; a coding agent may
-   prepare the evidence but must not choose the status or owner. Find the
-   feedback ID with `review-agent-memory export --repo <org>/<repo> --row-limit
-   <per-table-row-limit> --output /opt/data/private-review/export.json` (table
-   `review_quality_feedback`). The export is private: do not give it to a coding
-   agent or paste it into model context, and delete it after triage. Then:
+   prepare the evidence but must not choose the status or owner. With the admin
+   console, a team maintainer or platform admin classifies pending feedback on
+   **Review quality**, which lists the backlog within their scope
+   ([review history and run actions](ADMIN_PANEL.md#review-history-and-run-actions)).
+   Without the console, find the feedback ID with `review-agent-memory export
+   --repo <org>/<repo> --row-limit <per-table-row-limit> --output
+   /opt/data/private-review/export.json` (table `review_quality_feedback`). The
+   export is private: do not give it to a coding agent or paste it into model
+   context, and delete it after triage. Then:
 
    ```console
    review-agent-memory triage-feedback <feedback-id> \

@@ -128,9 +128,15 @@ docker compose exec review-github-gateway \
 
 The command re-reads the live installation, requires Contents read, Issues
 write, and Pull requests write, and records who approved it and why. It does
-not list or enable repositories. A repository is enabled the first time an
-authorized user posts `/review` in it: the gateway requests a token restricted
-to that one repository, verifies its identity, and records it.
+not list or enable repositories. A repository is enabled when its first signed
+`/review` or feedback command is processed: the gateway requests a token restricted to that
+one repository, verifies its identity, and records it as enabled. Only then
+does the gateway check the sender
+([who can request a review](#who-can-request-a-review)). A command from someone
+who may not request reviews is rejected and starts no review, but the
+repository stays enabled. Anyone who can comment on a pull request in a
+repository the installation reaches can therefore cause it to be enabled. In
+explicit mode a comment never enables a repository.
 
 Platform administrators can do the same in the console under
 **Repositories → Access management**.
@@ -204,7 +210,7 @@ docker compose exec hermes-review \
 
 ## Share the App with other organizations
 
-One deployment can serve installations from any number of GitHub accounts.
+One deployment can serve installations from multiple GitHub accounts.
 Nothing in Review Agent restricts which account installs the App; the approval
 in step 4 is the gate.
 
@@ -263,9 +269,11 @@ again; automatic activation does not override it.
 
 Suspending or uninstalling the App on GitHub blocks every repository of that
 installation. Removing one repository from a selected-repositories installation
-blocks that repository. When GitHub access returns, an automatic installation
-resumes on the next authorized `/review`; in explicit mode, run
-`github-app onboard` again.
+blocks that repository. When GitHub access returns, a repository of an
+automatic installation is enabled again by the next `/review` or feedback
+command processed for it, before the sender is checked, as described under
+[automatic activation](#automatic-approve-once); a repository an operator
+disabled stays disabled. In explicit mode, run `github-app onboard` again.
 
 ## Troubleshooting
 

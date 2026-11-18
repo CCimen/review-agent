@@ -23,7 +23,7 @@ The deployment uses two named volumes:
 
 | Volume | Mounted in | Purpose |
 | --- | --- | --- |
-| `hermes_review_data` | Profile installer (write); Hermes and workers (read) | Hermes config, provider credentials, sessions, managed skills, plugins, and the installed reviewer receipt. Admission derives the same contract from immutable image files and cannot read this volume. |
+| `hermes_review_data` | Profile installer and Hermes (read and write); workers (read-only) | Hermes config, provider credentials, sessions, managed skills, plugins, and the installed reviewer receipt. Admission derives the same contract from immutable image files and cannot read this volume. |
 | `review_postgres_data` | `review-postgres` at `/var/lib/postgresql/data` | PostgreSQL review state. |
 
 Do not run two Hermes gateways against the same `hermes_review_data` volume.
@@ -153,16 +153,18 @@ and `installation_repositories` events to `/webhooks/github-app`.
 `check_run` drive automatic documentation review and its re-runs; the
 installation events keep the repository inventory current. Admission persists
 the signed delivery before any provider read. The App worker then checks, through
-the private gateway, the sender's current access and the repository's enabled
-state before creating a run; see
+the private gateway, the repository's enabled state and then the sender's
+current access before creating a run; see
 [who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review).
 Feedback commands follow the same durable path, and the gateway rechecks the
 sender's write or admin permission and the open pull request before anything is
 recorded.
 
-Webhooks and inventory sync record repositories but never enable one. A
-repository is enabled by `github-app onboard`, or, under an installation
-approved for automatic activation, by the first authorized `/review` in it. See
+Installation webhooks and inventory sync record repositories but never enable
+one. A repository is enabled by `github-app onboard`, or, under an installation
+approved for automatic activation, when the gateway processes its first signed
+`/review` command. The gateway enables the repository before it checks the
+sender, so a rejected sender leaves the repository enabled and no run. See
 [Approve the installation](./GITHUB_APP_PILOT.md#4-approve-the-installation).
 
 Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` to show the copyable feedback commands
@@ -179,7 +181,8 @@ On an open pull request, including a draft, an authorized user comments:
 Each `/review` after the previous run reaches a terminal state starts a new
 round (`Review 2`, ...), including a rerun of the same base and head. A second
 `/review` on the same pull request while a run is active is a duplicate.
-Different pull requests run concurrently. Applying a native suggestion does not
+Pull requests in different repositories run concurrently; one repository runs
+one review at a time. Applying a native suggestion does not
 mark its finding resolved; run CI and post a new `/review`. Review mechanics are
 in [How reviews work](./HOW_REVIEWS_WORK.md).
 
@@ -248,10 +251,10 @@ A healthy run moves through `accepted`, `fetching_pr`, `collecting_diff`,
 ### Diagnose a review run
 
 ```bash
-review-agent-memory runs --run-id <id> > /opt/data/review-memory/run-<id>.json
+review-agent-memory runs --run-id <id>
 ```
 
-The JSON report covers one run:
+The JSON report is printed on standard output and covers one run:
 
 - status, `failure_code` and `failure_detail`;
 - the requested provider, model and reasoning effort;
@@ -261,7 +264,10 @@ The JSON report covers one run:
   truncated paths.
 
 It contains no review text, comment bodies or requester identities, and stays
-under 512 KiB so a tool that can only read container files can open it.
+under 512 KiB so a tool that can only read container files can open it. For
+such a tool, redirect the output to a file; no report directory exists until you
+create one, for example with `mkdir -p /opt/data/review-memory` in
+`hermes-review`.
 
 `failure_detail` is at most 300 characters: one of the reviewer's own messages
 or Hermes error text, which Hermes redacts. Treat it as untrusted text. When
@@ -368,8 +374,10 @@ Scaling procedures and examples are in
 
 ### Queue rules
 
-- Total review slots = `review-worker` replicas × `REVIEW_AGENT_WORKER_CONCURRENCY`.
-  A worker claims only when a slot is free.
+- Worker slots = `review-worker` replicas × `REVIEW_AGENT_WORKER_CONCURRENCY`.
+  Each slot runs one review job; a split review uses one per running part. A
+  worker claims only when a slot is free and the job's model connection, team
+  and repository [limits](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits) allow it.
 - `REVIEW_AGENT_ACTIVE_JOB_LIMIT` bounds queued, leased and
   publication-waiting reviews. At the limit, the App worker keeps the accepted
   request and retries admission without using processing attempts. Each retry
@@ -449,7 +457,7 @@ reports incomplete coverage when one of these boundaries stops it:
 | Boundary | Limit |
 | --- | --- |
 | Changed files | GitHub lists at most 3,000 files per pull request. If even a one-file page exceeds the response budget, registration stays incomplete. |
-| Source files | Read in line pages at the exact revision. Files above 1 MB use the raw Contents response up to a 2 MB per-request memory guard; larger or binary files are unavailable and keep coverage incomplete. A source page carries at most 400 lines. |
+| Source files | Read in line pages at the exact revision. Files above 1 MB use the raw Contents response up to a 2 MB per-request memory guard; larger or binary files cannot be read as source. A failed source read does not change diff coverage, which counts only the diffs returned. A source page carries at most 400 lines. |
 | Patches GitHub omits | For an added UTF-8 file up to 1 MB, the gateway builds the patch from head content, up to 200,000 characters. Otherwise the file's diff stays incomplete. |
 | Tool results | `plugins.entries.review-agent-tools.settings.result_max_chars` (default 160,000), further held to the Hermes per-result and per-response limits for the session's model (100,000 and 200,000 characters for windows of 166,667 tokens or more). A single-path diff or source page holds at most a seventh of the per-result limit. A batched diff result holds at most a fifth of the smaller of `result_max_chars` and the per-response limit (32,000 by default); one diff call accepts up to 50 paths, and the review procedure allows at most four batch calls in one model response. |
 | Historical context | 200 paths per call. |
@@ -469,18 +477,19 @@ context-file allowance from the model's window. See the upstream
 
 ### Split reviews
 
-A code review whose diff exceeds one session's largest part is reviewed in
-parts; [Large pull requests](./HOW_REVIEWS_WORK.md#5-large-pull-requests)
+A code review is reviewed in parts when its changed files, not counting any
+file whose own diff exceeds the largest part, together exceed the largest part;
+[Large pull requests](./HOW_REVIEWS_WORK.md#5-large-pull-requests)
 describes how. Documentation reviews are never split.
 
 | Rule | Value |
 | --- | --- |
-| A review is split above | the largest part |
+| A review is split when | the diffs that each fit the largest part together exceed it |
 | Preferred part | about half the context window: about 372,000 diff characters at 500,000 tokens, 192,000 at 272,000 |
 | Largest part | below the compression threshold: about 608,000 diff characters at 500,000 tokens, 321,000 at 272,000 |
-| Parts in one review | 12 |
-| Jobs of one review that run at once | 3, and at most the model connection's concurrency minus one |
-| Report one part hands in | 12,307 serialized characters by default (a thirteenth of the smaller of `result_max_chars` and the per-response limit) |
+| Parts in one review | at most 12 |
+| Jobs of one review that run at once | at most 3, and at most the model connection's concurrency minus one, but never fewer than 1 |
+| Report one part hands in | the smaller of `result_max_chars` and the per-response limit, divided by the review's number of parts plus one, and at most the per-result limit. By default, with 160,000 as that smaller value: 40,000 serialized characters in a three-part review, 12,307 in a twelve-part one |
 | Changed file without a GitHub patch | counted as 48 characters per changed line |
 
 Cost and accounting:
@@ -495,9 +504,11 @@ Cost and accounting:
   parts. `review-agent-admin jobs list` names each job's `part`; `0` is the main
   job. Queue health does not count a main job waiting for its parts as waiting
   or due work.
-- A file whose own diff exceeds a part, and files after the twelfth part, are
-  not read and appear in the coverage details. The gateway log records each
-  session's window and each split's part sizes.
+- In a split review, a file whose own diff exceeds the largest part, and files
+  after the twelfth part, are assigned to no part; left unread, they appear in
+  the coverage details. When the other files fit one part, the review is not
+  split and its single session reads such a file as far as it gets. The gateway
+  log records each session's window and each split's part sizes.
 
 ## Documentation review operation
 
@@ -557,7 +568,8 @@ Durable history is kept unless this table says otherwise:
 | `publications`, `publication_parts`, `publication_findings` | Repository owner | Preserve exact publication and recovery evidence. |
 | `admin_users`, `admin_sessions` | Deployment owner | Preserve console accounts and revocable sessions; treat backups as credential-bearing data. |
 | `admin_registration_policy`, `admin_email_settings` | Deployment owner | Preserve the registration policy and email delivery settings. The SMTP password is stored encrypted with `REVIEW_AGENT_EMAIL_SECRET_KEY`. |
-| `admin_registration_requests`, `admin_oidc_requests` | Deployment owner | Short-lived: pending registrations and sign-in requests hold only token digests and are deleted on use or expiry. |
+| `admin_registration_requests` | Deployment owner | Short-lived: a pending email registration holds the email address, a digest of the emailed token and a 30-minute expiry. Completing the registration deletes it; an expired row stays until a later accepted registration request removes expired rows. |
+| `admin_oidc_requests` | Deployment owner | Short-lived and credential-bearing: an organization sign-in in progress holds digests of its state and browser values, the nonce and the PKCE code verifier in clear, a five-minute expiry and, while a signed-in user links an account, that user's session token. The callback deletes it; an abandoned row stays until a later sign-in that is started successfully removes expired rows, or until the linked user or session is deleted. |
 | `teams`, `team_members`, `team_repositories`, `repository_requests`, `repository_review_requesters` | Deployment owner | Preserve team access, repository ownership, request decisions and requester grants. A removed requester grant is deleted. |
 | `model_connections`, `model_accounts`, `team_model_policies`, `model_login_sessions` | Deployment owner | Preserve model connection registrations, the account bound to each, team routing and the record of console sign-in attempts. Provider credentials are not stored here; they live on the Hermes volume. |
 | `integrations`, `integration_teams` | Deployment owner | Preserve application integrations and their team scope, including revoked ones. Only a digest of each credential is stored. |
@@ -565,8 +577,8 @@ Durable history is kept unless this table says otherwise:
 | `admin_run_actions` | Deployment owner | Preserve who retried, cancelled or marked a run stalled, and why. |
 | `admin_audit_events` | Deployment owner | Preserve access changes and human audit evidence. Successful application read receipts can be pruned only with the bounded integration command below. |
 | `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage and idempotency receipts. |
-| `coach_runs`, `coach_candidates`, `coach_intervention_outcomes` | None | No longer read or written. Kept for one release so the previous release still runs after a rollback; a later migration drops them. |
-| `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | None | Empty and no longer read or written. Kept for one release so the previous release still runs after a rollback; a later migration drops them. |
+| `coach_runs`, `coach_candidates`, `coach_intervention_outcomes` | None | No longer read or written. This release keeps the tables and their rows. Whether an earlier release can run against the current schema is decided as the [rollback boundary](./DEPLOYMENT.md#rollback-boundary) describes. |
+| `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | None | Empty and no longer read or written. This release keeps the tables; the same [rollback boundary](./DEPLOYMENT.md#rollback-boundary) applies. |
 
 Raw webhook bodies are not stored. Terminal documentation deliveries keep their
 bounded normalized event envelope until the pruning command removes the
@@ -612,31 +624,114 @@ schedule repeated runs through existing maintenance tooling.
 ## Backup and recovery
 
 PostgreSQL may contain unpublished findings and human-entered reasons; store
-backups securely. Create a logical backup from the Compose host:
+backups securely. Back up the database the application uses: the commands in
+this section are for the bundled `review-postgres` service and its
+`review_agent` database. When `REVIEW_AGENT_DATABASE_URL` names another host or
+database, run `pg_dump` and `pg_restore` with the same options against that
+database from a host with the PostgreSQL client tools; a dump of an unused
+local volume is not a backup.
+
+Create a logical backup from the Compose host. Each backup gets its own file,
+and the shell refuses to write over an existing one, so neither a failed dump
+nor a second backup started in the same second replaces an archive:
 
 ```bash
-docker compose exec -T review-postgres \
-  pg_dump --username=review_agent --dbname=review_agent --format=custom \
-  > review-agent.dump
+dump="review-agent-$(date -u +%Y%m%dT%H%M%SZ).dump"
+( umask 077; set -o noclobber
+  docker compose exec -T review-postgres \
+    pg_dump --username=review_agent --dbname=review_agent --format=custom \
+    > "$dump" ) && echo "Backup written: $dump"
 ```
 
-Test recovery in a fresh database before relying on a backup. Stop the services
-that read or write Review Agent state:
+Without the last line's message the dump failed; a file it left is incomplete.
+Keep the previous verified archive until the new one has passed the restore
+test below.
 
-```bash
-docker compose stop review-admission review-github-app-worker review-worker \
-  review-publisher review-github-gateway hermes-review
-```
+Test recovery in a fresh database before relying on a backup. The archive
+records the grants to the runtime role, including its default privileges, but
+not the role: PostgreSQL roles belong to the cluster, not to a database. In a
+cluster without that role, `pg_restore --exit-on-error` alone stops at the
+first grant. Restore without ownership and grants, connected as the migration
+owner, and let `database prepare` create the runtime role and its grants.
 
-- **Restore test on the production cluster:** use
-  `pg_restore --no-owner --no-privileges --exit-on-error`, then drop the
-  temporary database after verification. Copying grants would give the runtime
-  role access to another database, which `database prepare` rejects.
-- **Production recovery into a separate cluster:** restore with
-  `pg_restore --exit-on-error`, set the restored database's owner and runtime
-  URLs, run `review-agent-admin database prepare` and
-  `review-agent-admin database ready`, then point the environment at the
-  restored database and redeploy.
+- **Restore test on the production cluster:** no service has to stop. Restore
+  into a new temporary database, check it, and drop it. `$dump` is the archive
+  to test. Each step runs only if the one before it succeeded:
+
+  ```bash
+  target="review_agent_restore_test_$(date -u +%Y%m%d%H%M%S)"
+  docker compose exec -T review-postgres \
+    createdb --username=review_agent "$target" &&
+  docker compose exec -T review-postgres \
+    pg_restore --username=review_agent --dbname="$target" \
+    --no-owner --no-privileges --exit-on-error < "$dump" &&
+  docker compose exec -T review-postgres \
+    psql --username=review_agent --dbname="$target" --set ON_ERROR_STOP=1 \
+    --command "SELECT (SELECT max(version) FROM review_agent.schema_migrations) AS schema_version, (SELECT max(id) FROM review_agent.review_runs) AS latest_run" &&
+  docker compose exec -T review-postgres \
+    dropdb --username=review_agent "$target" &&
+  echo "Restore test passed: $dump"
+  ```
+
+  Without the final message a step failed. The temporary database, if it was
+  created, is left for inspection; drop it by its name afterwards. Compare
+  `latest_run` with a review you know was the most recent when the backup was
+  taken, for example from **Review history** or `review-agent-admin jobs list`:
+  a restore of the wrong or an empty database passes every other step. Copying
+  grants would give the runtime role access to another database, which
+  `database prepare` rejects.
+- **Production recovery into a separate cluster:** stop every service that
+  reads or writes Review Agent state. Run the commands with every Compose file
+  the deployment uses, so that `review-admin` and the other overlay services
+  are included. The second command lists every container of the project with
+  its state; every service other than `review-postgres` must show `exited`. A
+  container that is `restarting` has not stopped. Stop anything outside this
+  project that uses the same database as well:
+
+  ```bash
+  docker compose stop $(docker compose config --services | grep -vx review-postgres)
+  docker compose ps --all --format '{{.Service}} {{.State}}'
+  ```
+
+  In the new cluster, create the migration-owner role and an empty database it
+  owns. The bundled `review-postgres` creates both when it first starts on an
+  empty volume; start only that service, because the restore needs the database
+  as it is before `review-db-migrate` has run. Restore as the migration owner,
+  then set `REVIEW_AGENT_DATABASE_URL` and `REVIEW_AGENT_RUNTIME_DATABASE_URL`
+  to the restored database and run the one-shot database job, the only
+  container with both URLs. It runs `database prepare`, which applies pending
+  migrations, creates the runtime role and its grants, and connects once as
+  the runtime login:
+
+  Run these in the Compose project of the new cluster, with `$dump` naming a
+  verified archive. The migration job runs only if the restore succeeded:
+
+  ```bash
+  docker compose up -d --wait review-postgres &&
+  docker compose exec -T review-postgres \
+    pg_restore --username=review_agent --dbname=review_agent \
+    --no-owner --no-privileges --exit-on-error < "$dump" &&
+  docker compose run --rm --no-deps review-db-migrate &&
+  echo "Restored and prepared"
+  ```
+
+  For an external database, run the same `pg_restore` options from a host with
+  the PostgreSQL client tools. A successful `database prepare` proves the
+  schema and the runtime login, not that the data came back: it also succeeds
+  on an empty database. Check the data before any other service starts,
+  because a restored publisher or worker continues pending work as soon as it
+  runs:
+
+  ```bash
+  docker compose exec -T review-postgres \
+    psql --username=review_agent --dbname=review_agent --set ON_ERROR_STOP=1 \
+    --command "SELECT id, status, started_at FROM review_agent.review_runs ORDER BY id DESC LIMIT 5"
+  ```
+
+  The rows must include the reviews you know existed before the backup. Only
+  then redeploy, and run `review-agent-admin database ready` and
+  `review-agent-admin doctor` in `hermes-review`, where the database URL is the
+  runtime login.
 
 Some migrations change the schema in ways older images cannot read (for
 example 016, 029 and 037); older images must not run against the migrated
@@ -672,8 +767,11 @@ The report shows explicit signal counts, denominators, the current triage
 backlog (regardless of the activity window), coverage, and review-contract
 cohorts. It does not infer accuracy from missing feedback.
 
-Only an operator classifies a missed issue. Find the feedback row in an
-[export](#offline-operator-tools), then append a triage state:
+Only an operator classifies a missed issue. The console's **Review quality**
+page lists the backlog and records the classification
+([triage](./FEEDBACK_AND_DECISIONS.md#use-feedback-to-improve-the-reviewer)). Without the console,
+find the feedback row in an [export](#offline-operator-tools), then append a
+triage state:
 
 ```bash
 review-agent-memory triage-feedback <feedback-id> \
@@ -797,7 +895,7 @@ Services read these values at startup.
 | `REVIEW_AGENT_PUBLICATION_POLL_SECONDS` | `2` | `review-publisher`, `review-admin` | Wait between checks of an idle publication queue. |
 | `REVIEW_AGENT_FEEDBACK_ENABLED` | `false` | `hermes-review`, `review-admin` | Show copyable feedback commands in the review comment. |
 | **Operator commands** | | | |
-| `REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS` | `100` | `hermes-review`, `review-github-gateway` | Items per JSON inventory or job page; use `--after-id` for the next page. |
+| `REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS` | `100` | `hermes-review`, `review-github-gateway` | Largest `--limit` an operator list or prune command accepts. `installations list` and `repositories list` continue with `--after-id`; `jobs list` returns one bounded snapshot, oldest first, narrowed with `--status`. |
 | `REVIEW_AGENT_OPERATOR_EXPORT_MAX_ROWS` | `10000` | `hermes-review`, `review-github-gateway` | Rows per table in one private export. |
 | **Admin console** (`compose.admin.yaml`) | | | |
 | `REVIEW_AGENT_ADMIN_PUBLIC_URL` | required with the overlay | `review-admin` | Public console origin. |

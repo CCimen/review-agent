@@ -29,8 +29,7 @@ is available, and always when database or durable workflow behavior changes:
 ```
 
 While working on one database-backed area, name its test modules to run only
-those against a disposable database. It takes seconds instead of minutes and
-skips the backup and restore check:
+those against a disposable database. This skips the backup and restore check:
 
 ```bash
 ./scripts/check_postgres_schema.sh tests.test_admin_api tests.test_postgres_jobs
@@ -44,7 +43,8 @@ then builds the frontend. After an intentional API change, regenerate them with
 PostgreSQL environment in `check_postgres_schema.sh`.
 
 Repository rulesets should require the stable `CI / required` check. That check
-passes only after the Python, PostgreSQL, and container-image jobs succeed.
+passes only after four jobs succeed: `Python fast`, `PostgreSQL contract`,
+`Image smoke` and `Dependency vulnerabilities`.
 
 ## Run the console locally
 
@@ -56,14 +56,20 @@ docker run --detach --name review-agent-dev-db --publish 127.0.0.1:55432:5432 \
   --env POSTGRES_PASSWORD=postgres postgres:17
 
 export PYTHONPATH=src
-export REVIEW_AGENT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres
 export REVIEW_AGENT_ADMIN_PUBLIC_URL=http://127.0.0.1:5173
+export REVIEW_AGENT_RUNTIME_DATABASE_URL=postgresql://review_agent_runtime:local-runtime-password@127.0.0.1:55432/postgres
 
-REVIEW_AGENT_RUNTIME_DATABASE_URL=postgresql://review_agent_runtime:local-runtime-password@127.0.0.1:55432/postgres \
+REVIEW_AGENT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres \
   python3 -m review_agent.cli.admin database prepare
+
+export REVIEW_AGENT_DATABASE_URL=$REVIEW_AGENT_RUNTIME_DATABASE_URL
 python3 -m review_agent.console.auth --email admin@example.com
 uvicorn review_agent.console.app:app_from_environment --factory --port 8090
 ```
+
+Only `database prepare` receives the owner URL. The account command and the API
+connect as the restricted runtime role, as `review-admin` does in
+`compose.admin.yaml`, so a missing grant fails here as it would in a deployment.
 
 In a second terminal:
 

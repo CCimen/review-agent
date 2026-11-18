@@ -35,9 +35,11 @@ A rejected request never reaches the model.
 ## 2. The reviewed snapshot
 
 A review covers exactly one base commit and one head commit. File content is
-read at those commits. Every tool call re-checks the pull request: if the head
-or base moved, the run ends as superseded; if the pull request closed, the run
-stops. A new `/review` starts a fresh run on the new commits.
+read at those commits. The tools that read the pull request's files and diffs,
+record findings, and deliver the review compare the live pull request with
+those commits: if the head or base moved, the run ends as superseded; if the
+pull request closed, the run stops. Reading a stored part report checks only
+the worker's lease. A new `/review` starts a fresh run on the new commits.
 
 If the repository has a `.review-agent/` package, code reads its instructions,
 indexed context files, and accepted design decisions from the base commit and
@@ -98,8 +100,11 @@ recorded finding:
 - the model's publication score is at least 8 for Critical and High, and at
   least 7 for Medium and Low;
 - a finding the team has marked false positive or intentional is suppressed
-  while the same code context remains;
-- two findings that make the same claim cannot both be published.
+  while the same code context remains and the decision has not expired;
+- two findings with identical path, evidence, impact, and fix text cannot both
+  be published, and a finding the reviewer grouped under another as the same
+  root cause is not published separately. Code does not recognize one defect
+  described in different words; grouping those is the reviewer's task.
 
 ### Context and retrieval
 
@@ -118,21 +123,27 @@ in Review Agent reranks findings or context.
 
 ## 5. Large pull requests
 
-Diffs are paged, so a single large file does not block the review. When the
-whole diff is too large for one session, code splits the review:
+Diffs are paged, so a single large file does not block the review. Code splits
+the review when the changed files, not counting any file whose own diff is
+larger than the largest part, are together larger than that part
+([sizes](./OPERATIONS.md#split-reviews)):
 
 1. Changed files are packed in path order into at most twelve parts, sized from
    the model's context window.
-2. Each part runs as its own job and session. A part cannot report until it has
-   read every diff assigned to it.
+2. Each part runs as its own job and session. A part cannot report while a diff
+   assigned to it is unread or only partly read; a diff GitHub cannot provide
+   is recorded as unavailable.
 3. A final session reads every part report, checks the candidates against the
    code, removes duplicates, and delivers one review. It cannot deliver before
    it has read all reports.
 
 A split review costs the first session that registers the files and splits the
 review, one session per part, and the final one, and takes correspondingly
-longer. A file whose own diff exceeds one part, and files beyond
-the twelfth part, are not read and are listed under **Coverage details**.
+longer. In a split review, a file whose own diff exceeds the largest part, and
+files beyond the twelfth part, are assigned to no part; left unread, they are
+listed under **Coverage details**. When the other files fit in one part, the
+review is not split: its one session pages through the large file as far as it
+gets, and a diff it does not finish counts as incomplete coverage.
 
 ## 6. Coverage
 
@@ -146,8 +157,11 @@ clean result. Coverage describes what was read, not how well it was understood.
 `review_agent_deliver` freezes the review as rows in PostgreSQL. A separate
 publisher process writes it to GitHub:
 
-- It first confirms that the pull request still has the reviewed head commit.
-  A review of an outdated commit is never posted.
+- Before it writes each part of the review, it confirms that the pull request
+  is still open with the reviewed base and head commits; otherwise it stops and
+  marks the publication stale. A push that lands between that check and the
+  write is not seen, and a comment GitHub already accepted stays visible; see
+  [failure codes](./OPERATIONS.md#failure-codes).
 - Stored findings are rendered into a summary comment, split into continuation
   comments when long.
 - Up to twelve small, self-contained fixes are posted as native GitHub
@@ -172,8 +186,9 @@ comment:
 ```
 
 `false-positive` and `intentional` suppress that finding while the same code
-context remains; `intentional` also requires the named decision to be accepted
-in the repository. The two `feedback` commands record evidence for operators.
+context remains and the decision has not expired (180 days for a comment);
+`intentional` also requires the named decision to be accepted in the
+repository. The two `feedback` commands record evidence for operators.
 No command changes prompts or policy on its own. See
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md).
 
@@ -181,8 +196,12 @@ No command changes prompts or policy on its own. See
 
 Jobs, runs, findings, and publications live in PostgreSQL. Workers and
 publishers hold leases with a generation number; a process that loses its lease
-cannot write. Both can run in several replicas, and an interrupted review or
-publication resumes from stored state. See [Operations](./OPERATIONS.md).
+cannot write. Both can run in several replicas. An interrupted review does not
+continue its model session: its job is claimed again under a new lease and
+starts a new session, until the job's attempt budget
+(`REVIEW_AGENT_JOB_MAX_ATTEMPTS`) is used up; parts of a split review that
+already reported are kept. An interrupted publication continues from its
+stored parts. See [Operations](./OPERATIONS.md).
 
 ## Limits
 

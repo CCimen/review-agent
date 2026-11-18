@@ -9,8 +9,9 @@ with deterministic controls.
 
 Deploy Review Agent once, approve a GitHub App installation, and maintainers
 request reviews by commenting `/review` on a pull request. Repositories need no
-workflow, secret, or local setup. Reviews are advisory: the model has read-only
-tools, no shell, and no way to write to the repository or merge.
+workflow, secret, or local setup. Reviews are advisory: the model's tools read
+the pull request and record findings in the service's database, and it has no
+shell and no tool that writes to GitHub or merges.
 
 For each request the service records the pull request's base and head commits,
 lets the model read the diff and the files it asks for, checks every recorded
@@ -111,7 +112,8 @@ and `REVIEW_AGENT_REASONING_EFFORT`. `REVIEW_AGENT_MODEL` is required and has no
 default. Two providers are supported. The default, `openai-codex`, uses a
 ChatGPT device-code login through Hermes and needs no API key; `anthropic` uses
 Hermes' [Anthropic route](https://hermes-agent.nousresearch.com/docs/integrations/providers). `.env.example` lists the required values, and
-[Operations](docs/OPERATIONS.md#configuration-reference) lists every variable.
+[Operations](docs/OPERATIONS.md#configuration-reference) lists every variable
+the Compose files read.
 
 ## Development
 
@@ -119,21 +121,12 @@ The runtime, admin API, and console live in this repository so API and schema
 changes ship together:
 
 ```text
-src/review_agent/                       the application package; start reading here
-  __init__.py                           Hermes plugin entry: register() wires the model tools
-  domain/                               pure values and rules
-  postgres/                             PostgreSQL stores and migrations
-  github/  hermes/                      everything that talks to GitHub; everything specific to Hermes
-  repository_context/  code_graph/      a repository's .review-agent/ package; the optional code graph
-  review/  documentation/               code-review and documentation-review use cases
-  publication/  operations/             publishing a finished review; operator use cases
-  tools/  console/                      the tools the review model calls; the admin console backend
-  cli/                                  one module per installed command, with its loop or server
-hermes/                                 what the image installs into Hermes: installer, managed configuration, patches
-profiles/                               reviewer profiles
-console/                                admin console frontend
-tests/  scripts/                        tests, CI checks and release tooling
-docs/  website/  examples/              documentation, its site, deployment templates
+src/review_agent/             the application package; start reading here
+hermes/                       what the image installs into Hermes: installer, managed configuration, patches
+profiles/                     reviewer profiles
+console/                      admin console frontend
+tests/  scripts/              tests, CI checks and release tooling
+docs/  website/  examples/    documentation, its site, deployment templates
 ```
 
 [CONTRIBUTING.md](CONTRIBUTING.md#where-the-code-lives) describes each package
@@ -143,7 +136,9 @@ inside the application and which way its imports point.
 ./scripts/check_bundle.sh
 ```
 
-runs the Python checks and tests that CI runs. See
+is the fast local bundle, which includes Ruff, Pyright and the unit tests. CI
+runs it and also checks the installed package, the admin frontend, the
+PostgreSQL contract, the images and dependency vulnerabilities. See
 [CONTRIBUTING.md](CONTRIBUTING.md), and [RELEASING.md](RELEASING.md) for how
 images are built, scanned, and published.
 

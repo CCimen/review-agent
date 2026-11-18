@@ -349,7 +349,7 @@ into that request. Other values load when their service starts:
 | Values | Service to restart |
 | --- | --- |
 | Active job limit, capacity retry delay, admission age, review attempt budget, default priority | `review-github-app-worker` |
-| Concurrency, lease, heartbeat, retries, polling, recovery, priority aging, Hermes timeout | `review-worker` |
+| Concurrency, lease, heartbeat, retries, polling, recovery, priority aging, Hermes timeout; publication size and attempt budget for documentation results decided without a model call | `review-worker` |
 | Publication size, publication attempt budget, feedback instructions | `hermes-review` |
 | Publication size, lease, heartbeat, retries, polling | `review-publisher` |
 | Webhook payload bound, request concurrency, timeout | `review-admission` |
@@ -365,6 +365,8 @@ revisions that contain newer fields, so roll back images and database together.
 Environment values are bootstrap defaults. After the first save, the saved
 revision overrides these variables for every service that reads policy; a
 revision saved before a control existed keeps the environment default for it.
+Documentation review is the exception: a revision that does not mention it
+leaves it off.
 
 | Managed in Settings | Variables |
 | --- | --- |
@@ -372,7 +374,7 @@ revision saved before a control existed keeps the environment default for it.
 | Admission | `REVIEW_AGENT_ACTIVE_JOB_LIMIT`, `REVIEW_AGENT_GITHUB_APP_CAPACITY_RETRY_SECONDS`, `REVIEW_AGENT_GITHUB_APP_ADMISSION_MAX_AGE_SECONDS`, `REVIEW_AGENT_JOB_MAX_ATTEMPTS`, `REVIEW_AGENT_JOB_PRIORITY` |
 | Review worker | `REVIEW_AGENT_WORKER_CONCURRENCY`, `REVIEW_AGENT_JOB_LEASE_SECONDS`, `REVIEW_AGENT_JOB_HEARTBEAT_SECONDS`, `REVIEW_AGENT_HERMES_TIMEOUT_SECONDS`, `REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS`, `REVIEW_AGENT_JOB_RETRY_SECONDS`, `REVIEW_AGENT_JOB_POLL_SECONDS`, `REVIEW_AGENT_JOB_RECOVERY_SECONDS`, `REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE` |
 | Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES`, `REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS`, `REVIEW_AGENT_PUBLICATION_LEASE_SECONDS`, `REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS`, `REVIEW_AGENT_PUBLICATION_RETRY_SECONDS`, `REVIEW_AGENT_PUBLICATION_POLL_SECONDS` |
-| Features | `REVIEW_AGENT_FEEDBACK_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS`, documentation review (Settings only) |
+| Features | `REVIEW_AGENT_FEEDBACK_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS`, documentation review (Settings only in the supplied Compose files, which do not pass `REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED`; a service given that variable reads it only until the first save) |
 | Request bounds | `REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES` (at most 2,097,152), `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS`, `REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS`, `REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS` |
 
 Code graph options also need the graph overlay, and OpenAI embeddings the
@@ -394,8 +396,11 @@ itself reads these deployment-only values:
 | `REVIEW_AGENT_HERMES_CONTROL_TOKEN` | Provider control, from `compose.providers.yaml` ([managed model connections](#managed-model-connections)). |
 | `REVIEW_AGENT_CONNECTIONS_FILE` | Catalog of additional model runtimes ([provision another connection](#provision-another-connection)). |
 
-Every variable, its default and the service that reads it are listed in the
-[configuration reference](OPERATIONS.md#configuration-reference).
+Every variable the Compose files interpolate, its default and the service that
+reads it are listed in the
+[configuration reference](OPERATIONS.md#configuration-reference). The variables
+of an additional model runtime are under
+[Provision another connection](#provision-another-connection).
 
 ## Managed model connections
 
@@ -485,11 +490,11 @@ queue without using an attempt and all queued work on that account waits for one
 shared deadline, shown in history and in Operations' delayed totals. After the
 deadline, a fresh quota check decides; only a fresh allowance clears the wait.
 
-**Maximum concurrent reviews** applies per connection and per team (across
-connections); both default to four. Lowering a cap lets active work finish and
-limits new claims. Worker capacity is an additional bound, and one repository
-runs one review at a time. Eligible teams take turns, with priority aging within
-a team. Unfinished remote executions keep their capacity until Hermes reports
+**Maximum concurrent reviews** is set per connection and per team.
+[Limits](TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits) defines what the two caps
+count, their defaults, and the repository and fairness rules that apply beside
+them. Lowering a cap lets active work finish and limits new claims. Unfinished
+remote executions keep their capacity until Hermes reports
 completion; lease expiry or cancellation does not release them. If the
 unfinished count persists after reviews stop, an owner pauses the connection,
 restarts its complete runtime, and chooses **Recover after a runtime restart**.
@@ -601,7 +606,10 @@ curl --fail-with-body --get \
 The console uses the same authenticated API it documents. Open **API reference**
 in the console, or `/api/docs`, for Swagger UI under the current session; the
 schema is at `/api/openapi.json`. The frontend contract is `console/openapi.json`
-and the generated `console/src/api.generated.ts`.
+and the generated `console/src/api.generated.ts`. The schema lists the
+application's endpoints and parameters. It states who may call an endpoint for
+only some of them, so the table below collects the access rule for the main
+ones.
 
 | Endpoint | Access | Data |
 | --- | --- | --- |

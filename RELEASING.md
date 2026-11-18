@@ -104,17 +104,20 @@ are recorded before tool installation and checked against the generated inventor
    reports; `VULNERABILITY-POLICY.json`;
    `VULNERABILITY-SUMMARY.md`; `IMAGE-DIGESTS.txt`; `SOURCE-SHA.txt`; and
    `SBOM-SHA256SUMS.txt`. Confirm
-   each of `ghcr.io/ccimen/review-agent:<tag>` and
-   `ghcr.io/ccimen/review-agent-admin:<tag>` resolves to its recorded workflow
-   digest. `IMAGE-DIGESTS.txt` has six entries: a manifest and two platform
+   each of `ghcr.io/<owner>/<repository>:<tag>` and
+   `ghcr.io/<owner>/<repository>-admin:<tag>` resolves to its recorded workflow
+   digest. The workflow publishes under the lowercase name of the repository it
+   runs in: `ghcr.io/ccimen/review-agent` upstream, the fork's own name in a
+   fork. `IMAGE-DIGESTS.txt` has six entries: a manifest and two platform
    digests per image. Make each package public in GitHub Package settings if anonymous pulls are
    part of the release. Keep `IMAGE-DIGESTS.txt` and `SOURCE-SHA.txt` with the
    deployment record: registry attestation proves an image's origin, and
    workflow success establishes that the release passed qualification.
-5. Verify downloaded inventory files before using them:
+5. Verify downloaded inventory files before using them, naming the repository
+   whose workflow produced them (`CCimen/review-agent` upstream):
 
    ```bash
-   gh attestation verify ./SBOM-SHA256SUMS.txt --repo CCimen/review-agent
+   gh attestation verify ./SBOM-SHA256SUMS.txt --repo <owner>/<repository>
    sha256sum --check SBOM-SHA256SUMS.txt
    ```
 

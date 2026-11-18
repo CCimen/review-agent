@@ -18,13 +18,17 @@ repository, and each repository can add its own `.review-agent/` package.
 | To change | Edit | Scope |
 | --- | --- | --- |
 | The reviewer's identity, tone, and stance when explaining risk | `SOUL.md` in the deployment profile | Every repository served by the deployment |
-| Review rules: scope, severity, coverage, finding and suggestion format, feedback rules | `workspace/AGENTS.md` in the deployment profile | Every repository served by the deployment |
+| Review rules the model follows: scope, severity, coverage, and how it words findings and suggestions | `workspace/AGENTS.md` in the deployment profile | Every repository served by the deployment |
 | The review procedure and tool sequence | `skills/review-agent-pr/SKILL.md` (code) and `skills/review-agent-docs/SKILL.md` (documentation) in the deployment profile | Every repository served by the deployment |
 | Repository instructions, ordered technical context, accepted design decisions, documentation mappings | `.review-agent/` in the repository ([Repository context](./REPOSITORY_CONTEXT.md)) | One repository, from the pull request's base commit |
 | Provider, model, and reasoning effort | `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, `REVIEW_AGENT_REASONING_EFFORT`, or the console **Settings**; teams can use separate model connections ([Admin panel](./ADMIN_PANEL.md)) | The deployment, or one team |
 
-The console records the model route of each admitted request with that
-request. A saved route change applies to new requests only.
+The first three rows are instructions to the model. They do not change what
+code enforces, which the next section lists.
+
+When a request is admitted, the App worker stores its provider, model, and
+reasoning effort with the run, whether or not the console is deployed. A saved
+route change applies to new requests only.
 
 ## What no configuration can change
 
@@ -49,7 +53,11 @@ profile means building your own image from this repository.
    - `workspace/AGENTS.md`;
    - `profile.json` with exactly `schema_version` (`1`) and `skills`, a list
      of skill keys without duplicates;
-   - `skills/<key>/SKILL.md` for each listed skill.
+   - `skills/<key>/SKILL.md` for each listed skill;
+   - `skills/review-agent-pr/JAVA.md`, the Java companion that the
+     `review_agent_java_guidance` tool returns when Java code is in scope.
+     Keep it from the copied profile: the installer does not check for it, and
+     without it that tool returns an error instead of the guidance.
 3. Keep `review-agent-pr` and `review-agent-docs` in `skills`. The installer
    rejects a profile missing either one.
 4. Build the image and set `REVIEW_AGENT_PROFILE=<key>`. Compose passes it to
@@ -65,8 +73,9 @@ reuses the receipt's profile when `REVIEW_AGENT_PROFILE` is not set.
 ## Changing `SOUL.md` and `AGENTS.md`
 
 A change to `SOUL.md` or `AGENTS.md` affects every repository the deployment
-serves, so review it as a policy change. Put stable review rules and the
-visible comment contract in `AGENTS.md`, and procedure in the skill. A team
+serves, so review it as a policy change. Put stable review rules, including
+how the model words a finding, in `AGENTS.md`, and procedure in the skill.
+Neither changes the layout of the published comment, which code renders. A team
 that wants different wording or focus for its own repository uses
 `.review-agent/instructions.md` instead.
 

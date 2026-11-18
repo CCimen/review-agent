@@ -106,9 +106,11 @@ PostgreSQL major-version change with a Review Agent upgrade.
 <Tabs groupId="deployment-platform">
 <TabItem value="compose" label="Compose / Dokploy" default>
 
-1. Copy `.env.example` to the platform secret store and replace each
-   `replace-with...` placeholder: the GitHub App values, service secrets, and
-   both PostgreSQL credentials and URLs. The file holds the required values and
+1. Copy `.env.example` to the platform secret store. Replace each
+   `replace-with...` placeholder: the webhook secret, `API_SERVER_KEY`, the
+   PostgreSQL password and both database URLs. Set `REVIEW_AGENT_GITHUB_APP_ID`
+   in place of the example `123456`, and `REVIEW_AGENT_MODEL`, which the file
+   leaves empty. The file holds the required values and
    the optional integrations. Tuning variables keep their Compose defaults and
    are listed in the
    [configuration reference](./OPERATIONS.md#configuration-reference).
@@ -125,9 +127,10 @@ PostgreSQL major-version change with a Review Agent upgrade.
 
    `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
    `REVIEW_AGENT_REASONING_EFFORT` select inference behavior for new reviews.
-   `REVIEW_AGENT_MODEL` is required and has no default; compose, the installer,
-   admission readiness, and operator preflight stop with "REVIEW_AGENT_MODEL must
-   name the review model" when it is missing. Set it to a model the provider
+   `REVIEW_AGENT_MODEL` is required and has no default. Without it, Compose
+   stops with "Set REVIEW_AGENT_MODEL to the review model", the installer and
+   operator preflight report "REVIEW_AGENT_MODEL must name the review model",
+   and admission answers `/ready` with `503`. Set it to a model the provider
    account can use; after the account is connected, the console suggests the
    models Hermes lists for it. Once the console saves settings, their model
    governs new reviews instead of this variable. The provider defaults to
@@ -220,7 +223,11 @@ PostgreSQL major-version change with a Review Agent upgrade.
    `review-admission` and an explicitly enabled `review-admin` from
    `dokploy-network`. Leave **Enable Isolated
    Deployment** off; Dokploy deprecated that option, and `compose.yaml` already
-   declares the private database, runtime, egress, and GitHub-control networks.
+   declares the networks. `review-database`, `review-runtime` and
+   `review-github-control` are internal and have no outbound access.
+   `review-egress` and `review-github-egress` are ordinary bridges: Hermes
+   reaches the model provider through the first, and the gateway reaches
+   GitHub through the second. Keep their outbound access.
 5. Connect the selected provider and restart Hermes:
 
    ```bash
@@ -266,9 +273,12 @@ the host.
 </TabItem>
 <TabItem value="kubernetes" label="Kubernetes (Helm)">
 
-The chart in `examples/helm/review-agent` deploys Review Agent on any
-Kubernetes cluster. It expects an existing PostgreSQL database, three secrets,
-an ingress controller, and a TLS certificate for the webhook host. It uses
+The chart in `examples/helm/review-agent` deploys the main runtime on a
+Kubernetes cluster that provides the rest. It expects an existing PostgreSQL
+database, three secrets, an ingress controller, a TLS certificate for the
+webhook host, and a storage class that can provision the 5 Gi volume Hermes
+and the review workers share. With the default `ReadWriteOnce` access mode,
+one node must have room for Hermes and every review worker. It uses
 fixed resource names, so install one release per namespace.
 
 Create the secrets in the target namespace. Set the webhook variable to the
@@ -394,8 +404,9 @@ from one qualified release's `IMAGE-DIGESTS.txt`; their release tag and source
 revision must match. Preserve `compose.admin.yaml` in Compose commands, stop
 `review-admin` before migration, and start it with the matching worker services.
 Follow the [admin service procedure](ADMIN_PANEL.md#add-the-service) for the
-overlay, hostname, and post-upgrade version check. The platform examples below
-cover the main services.
+overlay, hostname, and post-upgrade version check. The Compose and Dokploy
+procedures below cover every installed service, including `review-admin` and
+the other overlay services; the Helm chart deploys the main runtime only.
 
 The review worker requires the private GitHub gateway at startup, even when
 documentation review is disabled. In Compose, its `REVIEW_AGENT_GITHUB_GATEWAY_URL`
@@ -416,50 +427,80 @@ those reviews again afterwards, as
 <TabItem value="compose-upgrade" label="Compose">
 
 Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to the recorded digest references,
-then run:
+and `REVIEW_AGENT_ADMIN_IMAGE` when the admin panel is installed. When the
+deployment uses overlay files, export `COMPOSE_FILE` with every installed file
+in order, for example
+`COMPOSE_FILE=compose.yaml:compose.admin.yaml:compose.providers.yaml`, so that
+every command covers the same services.
+
+Record the capacity the deployment runs with, because the script starts every
+service from the Compose configuration and the deployment environment alone:
+the replica count of each service (`docker compose ps`), and
+`REVIEW_AGENT_WORKER_CONCURRENCY` and `REVIEW_AGENT_ACTIVE_JOB_LIMIT`. A value
+passed only on an earlier command line, and a replica count given only with
+`--scale`, are not kept. Put the two variables in the deployment environment,
+or in saved **Settings** once a revision exists, and the replica counts in an
+overlay file named in `COMPOSE_FILE` (`deploy.replicas`). Then run:
 
 ```bash
 bash -euo pipefail <<'COMPOSE_UPGRADE'
-APP_SERVICES='hermes-review review-admission review-github-gateway review-github-app-worker review-worker review-publisher'
+APP_SERVICES="$(docker compose config --services |
+  grep -vxE 'review-postgres|review-profile-install|review-db-migrate')"
 
 docker compose pull
 docker compose stop $APP_SERVICES
 
-running="$(docker compose ps --status running --services)"
-for service in $APP_SERVICES; do
-  if printf '%s\n' "$running" | grep -qx "$service"; then
-    echo "$service is still running; do not migrate." >&2
-    exit 1
-  fi
-done
+remaining="$(docker compose ps --all --format '{{.Service}} {{.State}}' |
+  awk '$1 != "review-postgres" && $2 != "exited" && $2 != "created"')"
+if [ -n "$remaining" ]; then
+  echo "Not stopped; do not migrate:" >&2
+  echo "$remaining" >&2
+  exit 1
+fi
 
-docker compose run --rm --no-deps --no-build review-profile-install
-docker compose run --rm --no-deps --no-build review-db-migrate
+docker compose run --rm --no-deps review-profile-install </dev/null
+docker compose run --rm --no-deps review-db-migrate </dev/null
 
 docker compose up -d --no-deps --no-build --force-recreate \
-  --wait --wait-timeout 300 \
-  hermes-review review-admission review-github-gateway \
-  review-github-app-worker review-worker review-publisher
-docker compose exec hermes-review review-agent-admin doctor
+  --wait --wait-timeout 300 $APP_SERVICES
+docker compose exec -T hermes-review review-agent-admin doctor </dev/null
 docker compose ps
 COMPOSE_UPGRADE
 ```
 
-PostgreSQL remains available while the application is stopped. The two
-one-shot commands must exit with status `0` before new application containers
-start.
+The script stops and recreates every service of those files except
+`review-postgres` and the two one-shot jobs. It does not migrate unless every
+other container of the Compose project has exited; a container that is
+running, restarting or paused stops it, as does a failure to list the
+containers. This also catches an overlay left out of `COMPOSE_FILE`. PostgreSQL remains available while the application is
+stopped. The two one-shot commands must exit with status `0` before new
+application containers start. They and the `doctor` call read from
+`/dev/null`: the script reaches `bash` on standard input, and a container
+command that inherited it would consume the remaining lines, ending the script
+early without an error.
+
+The script sees only this Compose project. Stop anything else that uses the
+same database first, such as a model runtime
+[provisioned separately](./ADMIN_PANEL.md#provision-another-connection), and
+upgrade it to the same release.
+
+Afterwards compare the replica counts, the worker concurrency and the active
+job limit with the values recorded before the upgrade.
 
 </TabItem>
 <TabItem value="dokploy-upgrade" label="Dokploy">
 
 1. Pause **AutoDeploy** for the maintenance window and take the database backup.
 2. Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to exact digest references in
-   **Environment**.
+   **Environment**, and `REVIEW_AGENT_ADMIN_IMAGE` to the same release's admin
+   digest when the admin panel is installed.
 3. In **Advanced > Run Command**, keep the project name, Compose path, and
    `--remove-orphans`, but replace `--build` with
    `--no-build --pull always`. Save the pull-only command.
-4. Select **Stop** and wait until the six long-running application containers
-   are stopped. The two initialization containers may already show `Exited (0)`.
+4. Select **Stop** and wait until every long-running application container is
+   stopped, including `review-admin` and the other overlay services when they
+   are installed. The two initialization containers may already show
+   `Exited (0)`.
 5. Select **Deploy**. Confirm the intended source commit and image digest. Do not
    continue if the previous application containers are still running.
 6. Verify that `review-profile-install` and `review-db-migrate` exited with
@@ -576,11 +617,13 @@ custom profile now goes in `profiles/<key>/`, and the console image builds from
 `console/Dockerfile`. This release's `compose.admin.yaml` names that file; a
 direct build, from the repository root, is
 `docker build -f console/Dockerfile -t review-agent-admin:local .`. The
-package's optional dependency group for the console API is `console`; it was
-`admin` on `main` and in no release.
+package's optional dependency group for the console API is `console`. No
+release used another name; only a source checkout of `main` from before this
+change called it `admin`.
 
-An existing checkout keeps what it built in the old directory. After pulling,
-`admin/node_modules/`, `admin/dist/`, `admin/dist-preview/` and
+The next step applies only to a source checkout that built the console in the
+old directory; a deployment of the released images has nothing to remove. After
+pulling, `admin/node_modules/`, `admin/dist/`, `admin/dist-preview/` and
 `admin/tsconfig.tsbuildinfo` are no longer ignored by git; delete them.
 
 Logger names follow the module path. In every service except `hermes-review`
@@ -671,18 +714,37 @@ digest has been retired as a rollback target.
 
 ## Scale and operate the queue
 
-Each worker process runs up to `REVIEW_AGENT_WORKER_CONCURRENCY` model reviews at
+Each worker process runs up to `REVIEW_AGENT_WORKER_CONCURRENCY` review jobs at
 once (`4` by default) and claims work only when a slot is free. PostgreSQL
-prevents two live leases for the same repository, while priority aging lets
-older ready jobs advance. Increase the per-process value while CPU, memory, and
-provider capacity remain healthy; add replicas when you need more capacity or
-failure isolation:
+lets one review run per repository at a time (the part jobs of one split review
+may overlap), while priority aging lets older ready jobs advance. Increase the
+per-process value while CPU, memory, and provider capacity remain healthy; add
+replicas when you need more capacity or failure isolation:
 
 ```bash
-# 100 cross-repository slots, plus room for 20 queued reviews.
-REVIEW_AGENT_ACTIVE_JOB_LIMIT=120 REVIEW_AGENT_WORKER_CONCURRENCY=10 \
-  docker compose up -d --scale review-worker=10
+# In the deployment environment (.env or the platform's secret store):
+#   REVIEW_AGENT_ACTIVE_JOB_LIMIT=120
+#   REVIEW_AGENT_WORKER_CONCURRENCY=10
+# 100 worker slots, and up to 120 reviews queued or running.
+docker compose up -d --scale review-worker=10
 ```
+
+Keep the two variables in the deployment environment, not on one command line,
+so that a later `up` or upgrade starts the services with the same values. They
+take effect only while no settings revision has been saved in the admin
+console. After the first save, change both values in **Settings** and restart
+the services that read them
+([environment defaults and admin controls](./ADMIN_PANEL.md#environment-defaults-and-admin-controls)).
+A replica count given with `--scale` lasts until the service is next recreated
+without it; the [upgrade procedure](#upgrade-and-roll-back-production) says how
+to keep it.
+
+Worker slots are an upper bound on running jobs, not a count of running
+reviews. Each model connection and each team also runs at most four jobs at
+once by default, and these workers all serve the shared connection. This
+example therefore runs at most four jobs at a time until an owner raises that
+connection's **Maximum concurrent reviews** in the console; see
+[Limits](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits).
 
 Set `REVIEW_AGENT_ACTIVE_JOB_LIMIT` at or above the number of active and queued
 reviews you intend to accept. The bundled Compose database allows 200

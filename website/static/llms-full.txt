@@ -14,8 +14,9 @@ Last verified: 2026-11-17
 
 Review Agent is a self-hosted service that reviews GitHub pull requests on
 request. A maintainer comments `/review`; the service reviews the pull request's
-current commits with a language model that has read-only tools, and publishes
-advisory findings as pull request comments.
+current commits with a language model whose tools read the pull request and
+record findings in the service's database but cannot write to GitHub, and
+publishes advisory findings as pull request comments.
 
 It runs as one deployment per environment: a GitHub App for access, PostgreSQL
 for state, and [Hermes](https://hermes-agent.nousresearch.com/) as the model
@@ -36,6 +37,7 @@ stored state, and every GitHub write are handled by code.
 | Operate and recover the service | [Operations](./OPERATIONS.md) |
 | Assess the trust model | [Security](./SECURITY.md) |
 | See what is and is not supported | [Capabilities](./ROADMAP.md) |
+| Change the code | [CONTRIBUTING.md](https://github.com/CCimen/review-agent/blob/main/CONTRIBUTING.md) |
 
 ---
 
@@ -77,9 +79,11 @@ In an open pull request, add a new top-level comment:
 /review
 ```
 
-The published review names the base and head commits it covers, its coverage,
-and its findings. After fixing findings, push a commit and comment `/review`
-again. If no comment appears, follow the
+The published review links the head commit it reviewed and reports its coverage
+and findings. The base commit is stored with the run; the
+[admin console](./ADMIN_PANEL.md) shows it in the request's execution details.
+After fixing findings, push a commit and comment `/review` again. If no comment
+appears, follow the
 [runbook](./OPERATIONS.md#runbook).
 
 ## 4. Add repository context (optional)
@@ -103,8 +107,11 @@ See [Repository context](./REPOSITORY_CONTEXT.md).
 
 ## Serve many repositories
 
-One approved installation covers its current and future repositories. Each
-repository is enabled the first time an authorized user posts `/review` in it.
+One approved installation covers the repositories GitHub lets the App reach:
+all current and future ones, or only the selected ones. Each repository is
+enabled by the first `/review` command posted in it; a review starts only if
+the commenter
+[may request one](./GITHUB_APP_PILOT.md#who-can-request-a-review).
 All repositories share one queue and one PostgreSQL database; reviews of the
 same repository run one at a time, so
 [add review workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when wait
@@ -214,9 +221,11 @@ PostgreSQL major-version change with a Review Agent upgrade.
 
 ### Compose / Dokploy
 
-1. Copy `.env.example` to the platform secret store and replace each
-   `replace-with...` placeholder: the GitHub App values, service secrets, and
-   both PostgreSQL credentials and URLs. The file holds the required values and
+1. Copy `.env.example` to the platform secret store. Replace each
+   `replace-with...` placeholder: the webhook secret, `API_SERVER_KEY`, the
+   PostgreSQL password and both database URLs. Set `REVIEW_AGENT_GITHUB_APP_ID`
+   in place of the example `123456`, and `REVIEW_AGENT_MODEL`, which the file
+   leaves empty. The file holds the required values and
    the optional integrations. Tuning variables keep their Compose defaults and
    are listed in the
    [configuration reference](./OPERATIONS.md#configuration-reference).
@@ -233,9 +242,10 @@ PostgreSQL major-version change with a Review Agent upgrade.
 
    `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
    `REVIEW_AGENT_REASONING_EFFORT` select inference behavior for new reviews.
-   `REVIEW_AGENT_MODEL` is required and has no default; compose, the installer,
-   admission readiness, and operator preflight stop with "REVIEW_AGENT_MODEL must
-   name the review model" when it is missing. Set it to a model the provider
+   `REVIEW_AGENT_MODEL` is required and has no default. Without it, Compose
+   stops with "Set REVIEW_AGENT_MODEL to the review model", the installer and
+   operator preflight report "REVIEW_AGENT_MODEL must name the review model",
+   and admission answers `/ready` with `503`. Set it to a model the provider
    account can use; after the account is connected, the console suggests the
    models Hermes lists for it. Once the console saves settings, their model
    governs new reviews instead of this variable. The provider defaults to
@@ -327,7 +337,11 @@ PostgreSQL major-version change with a Review Agent upgrade.
    `review-admission` and an explicitly enabled `review-admin` from
    `dokploy-network`. Leave **Enable Isolated
    Deployment** off; Dokploy deprecated that option, and `compose.yaml` already
-   declares the private database, runtime, egress, and GitHub-control networks.
+   declares the networks. `review-database`, `review-runtime` and
+   `review-github-control` are internal and have no outbound access.
+   `review-egress` and `review-github-egress` are ordinary bridges: Hermes
+   reaches the model provider through the first, and the gateway reaches
+   GitHub through the second. Keep their outbound access.
 5. Connect the selected provider and restart Hermes:
 
    ```bash
@@ -371,9 +385,12 @@ the host.
 
 ### Kubernetes (Helm)
 
-The chart in `examples/helm/review-agent` deploys Review Agent on any
-Kubernetes cluster. It expects an existing PostgreSQL database, three secrets,
-an ingress controller, and a TLS certificate for the webhook host. It uses
+The chart in `examples/helm/review-agent` deploys the main runtime on a
+Kubernetes cluster that provides the rest. It expects an existing PostgreSQL
+database, three secrets, an ingress controller, a TLS certificate for the
+webhook host, and a storage class that can provision the 5 Gi volume Hermes
+and the review workers share. With the default `ReadWriteOnce` access mode,
+one node must have room for Hermes and every review worker. It uses
 fixed resource names, so install one release per namespace.
 
 Create the secrets in the target namespace. Set the webhook variable to the
@@ -497,8 +514,9 @@ from one qualified release's `IMAGE-DIGESTS.txt`; their release tag and source
 revision must match. Preserve `compose.admin.yaml` in Compose commands, stop
 `review-admin` before migration, and start it with the matching worker services.
 Follow the [admin service procedure](ADMIN_PANEL.md#add-the-service) for the
-overlay, hostname, and post-upgrade version check. The platform examples below
-cover the main services.
+overlay, hostname, and post-upgrade version check. The Compose and Dokploy
+procedures below cover every installed service, including `review-admin` and
+the other overlay services; the Helm chart deploys the main runtime only.
 
 The review worker requires the private GitHub gateway at startup, even when
 documentation review is disabled. In Compose, its `REVIEW_AGENT_GITHUB_GATEWAY_URL`
@@ -518,49 +536,79 @@ those reviews again afterwards, as
 ### Compose
 
 Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to the recorded digest references,
-then run:
+and `REVIEW_AGENT_ADMIN_IMAGE` when the admin panel is installed. When the
+deployment uses overlay files, export `COMPOSE_FILE` with every installed file
+in order, for example
+`COMPOSE_FILE=compose.yaml:compose.admin.yaml:compose.providers.yaml`, so that
+every command covers the same services.
+
+Record the capacity the deployment runs with, because the script starts every
+service from the Compose configuration and the deployment environment alone:
+the replica count of each service (`docker compose ps`), and
+`REVIEW_AGENT_WORKER_CONCURRENCY` and `REVIEW_AGENT_ACTIVE_JOB_LIMIT`. A value
+passed only on an earlier command line, and a replica count given only with
+`--scale`, are not kept. Put the two variables in the deployment environment,
+or in saved **Settings** once a revision exists, and the replica counts in an
+overlay file named in `COMPOSE_FILE` (`deploy.replicas`). Then run:
 
 ```bash
 bash -euo pipefail <<'COMPOSE_UPGRADE'
-APP_SERVICES='hermes-review review-admission review-github-gateway review-github-app-worker review-worker review-publisher'
+APP_SERVICES="$(docker compose config --services |
+  grep -vxE 'review-postgres|review-profile-install|review-db-migrate')"
 
 docker compose pull
 docker compose stop $APP_SERVICES
 
-running="$(docker compose ps --status running --services)"
-for service in $APP_SERVICES; do
-  if printf '%s\n' "$running" | grep -qx "$service"; then
-    echo "$service is still running; do not migrate." >&2
-    exit 1
-  fi
-done
+remaining="$(docker compose ps --all --format '{{.Service}} {{.State}}' |
+  awk '$1 != "review-postgres" && $2 != "exited" && $2 != "created"')"
+if [ -n "$remaining" ]; then
+  echo "Not stopped; do not migrate:" >&2
+  echo "$remaining" >&2
+  exit 1
+fi
 
-docker compose run --rm --no-deps --no-build review-profile-install
-docker compose run --rm --no-deps --no-build review-db-migrate
+docker compose run --rm --no-deps review-profile-install </dev/null
+docker compose run --rm --no-deps review-db-migrate </dev/null
 
 docker compose up -d --no-deps --no-build --force-recreate \
-  --wait --wait-timeout 300 \
-  hermes-review review-admission review-github-gateway \
-  review-github-app-worker review-worker review-publisher
-docker compose exec hermes-review review-agent-admin doctor
+  --wait --wait-timeout 300 $APP_SERVICES
+docker compose exec -T hermes-review review-agent-admin doctor </dev/null
 docker compose ps
 COMPOSE_UPGRADE
 ```
 
-PostgreSQL remains available while the application is stopped. The two
-one-shot commands must exit with status `0` before new application containers
-start.
+The script stops and recreates every service of those files except
+`review-postgres` and the two one-shot jobs. It does not migrate unless every
+other container of the Compose project has exited; a container that is
+running, restarting or paused stops it, as does a failure to list the
+containers. This also catches an overlay left out of `COMPOSE_FILE`. PostgreSQL remains available while the application is
+stopped. The two one-shot commands must exit with status `0` before new
+application containers start. They and the `doctor` call read from
+`/dev/null`: the script reaches `bash` on standard input, and a container
+command that inherited it would consume the remaining lines, ending the script
+early without an error.
+
+The script sees only this Compose project. Stop anything else that uses the
+same database first, such as a model runtime
+[provisioned separately](./ADMIN_PANEL.md#provision-another-connection), and
+upgrade it to the same release.
+
+Afterwards compare the replica counts, the worker concurrency and the active
+job limit with the values recorded before the upgrade.
 
 ### Dokploy
 
 1. Pause **AutoDeploy** for the maintenance window and take the database backup.
 2. Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to exact digest references in
-   **Environment**.
+   **Environment**, and `REVIEW_AGENT_ADMIN_IMAGE` to the same release's admin
+   digest when the admin panel is installed.
 3. In **Advanced > Run Command**, keep the project name, Compose path, and
    `--remove-orphans`, but replace `--build` with
    `--no-build --pull always`. Save the pull-only command.
-4. Select **Stop** and wait until the six long-running application containers
-   are stopped. The two initialization containers may already show `Exited (0)`.
+4. Select **Stop** and wait until every long-running application container is
+   stopped, including `review-admin` and the other overlay services when they
+   are installed. The two initialization containers may already show
+   `Exited (0)`.
 5. Select **Deploy**. Confirm the intended source commit and image digest. Do not
    continue if the previous application containers are still running.
 6. Verify that `review-profile-install` and `review-db-migrate` exited with
@@ -674,11 +722,13 @@ custom profile now goes in `profiles/<key>/`, and the console image builds from
 `console/Dockerfile`. This release's `compose.admin.yaml` names that file; a
 direct build, from the repository root, is
 `docker build -f console/Dockerfile -t review-agent-admin:local .`. The
-package's optional dependency group for the console API is `console`; it was
-`admin` on `main` and in no release.
+package's optional dependency group for the console API is `console`. No
+release used another name; only a source checkout of `main` from before this
+change called it `admin`.
 
-An existing checkout keeps what it built in the old directory. After pulling,
-`admin/node_modules/`, `admin/dist/`, `admin/dist-preview/` and
+The next step applies only to a source checkout that built the console in the
+old directory; a deployment of the released images has nothing to remove. After
+pulling, `admin/node_modules/`, `admin/dist/`, `admin/dist-preview/` and
 `admin/tsconfig.tsbuildinfo` are no longer ignored by git; delete them.
 
 Logger names follow the module path. In every service except `hermes-review`
@@ -769,18 +819,37 @@ digest has been retired as a rollback target.
 
 ## Scale and operate the queue
 
-Each worker process runs up to `REVIEW_AGENT_WORKER_CONCURRENCY` model reviews at
+Each worker process runs up to `REVIEW_AGENT_WORKER_CONCURRENCY` review jobs at
 once (`4` by default) and claims work only when a slot is free. PostgreSQL
-prevents two live leases for the same repository, while priority aging lets
-older ready jobs advance. Increase the per-process value while CPU, memory, and
-provider capacity remain healthy; add replicas when you need more capacity or
-failure isolation:
+lets one review run per repository at a time (the part jobs of one split review
+may overlap), while priority aging lets older ready jobs advance. Increase the
+per-process value while CPU, memory, and provider capacity remain healthy; add
+replicas when you need more capacity or failure isolation:
 
 ```bash
-# 100 cross-repository slots, plus room for 20 queued reviews.
-REVIEW_AGENT_ACTIVE_JOB_LIMIT=120 REVIEW_AGENT_WORKER_CONCURRENCY=10 \
-  docker compose up -d --scale review-worker=10
+# In the deployment environment (.env or the platform's secret store):
+#   REVIEW_AGENT_ACTIVE_JOB_LIMIT=120
+#   REVIEW_AGENT_WORKER_CONCURRENCY=10
+# 100 worker slots, and up to 120 reviews queued or running.
+docker compose up -d --scale review-worker=10
 ```
+
+Keep the two variables in the deployment environment, not on one command line,
+so that a later `up` or upgrade starts the services with the same values. They
+take effect only while no settings revision has been saved in the admin
+console. After the first save, change both values in **Settings** and restart
+the services that read them
+([environment defaults and admin controls](./ADMIN_PANEL.md#environment-defaults-and-admin-controls)).
+A replica count given with `--scale` lasts until the service is next recreated
+without it; the [upgrade procedure](#upgrade-and-roll-back-production) says how
+to keep it.
+
+Worker slots are an upper bound on running jobs, not a count of running
+reviews. Each model connection and each team also runs at most four jobs at
+once by default, and these workers all serve the shared connection. This
+example therefore runs at most four jobs at a time until an owner raises that
+connection's **Maximum concurrent reviews** in the console; see
+[Limits](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits).
 
 Set `REVIEW_AGENT_ACTIVE_JOB_LIMIT` at or above the number of active and queued
 reviews you intend to accept. The bundled Compose database allows 200
@@ -926,9 +995,15 @@ docker compose exec review-github-gateway \
 
 The command re-reads the live installation, requires Contents read, Issues
 write, and Pull requests write, and records who approved it and why. It does
-not list or enable repositories. A repository is enabled the first time an
-authorized user posts `/review` in it: the gateway requests a token restricted
-to that one repository, verifies its identity, and records it.
+not list or enable repositories. A repository is enabled when its first signed
+`/review` or feedback command is processed: the gateway requests a token restricted to that
+one repository, verifies its identity, and records it as enabled. Only then
+does the gateway check the sender
+([who can request a review](#who-can-request-a-review)). A command from someone
+who may not request reviews is rejected and starts no review, but the
+repository stays enabled. Anyone who can comment on a pull request in a
+repository the installation reaches can therefore cause it to be enabled. In
+explicit mode a comment never enables a repository.
 
 Platform administrators can do the same in the console under
 **Repositories → Access management**.
@@ -1002,7 +1077,7 @@ docker compose exec hermes-review \
 
 ## Share the App with other organizations
 
-One deployment can serve installations from any number of GitHub accounts.
+One deployment can serve installations from multiple GitHub accounts.
 Nothing in Review Agent restricts which account installs the App; the approval
 in step 4 is the gate.
 
@@ -1061,9 +1136,11 @@ again; automatic activation does not override it.
 
 Suspending or uninstalling the App on GitHub blocks every repository of that
 installation. Removing one repository from a selected-repositories installation
-blocks that repository. When GitHub access returns, an automatic installation
-resumes on the next authorized `/review`; in explicit mode, run
-`github-app onboard` again.
+blocks that repository. When GitHub access returns, a repository of an
+automatic installation is enabled again by the next `/review` or feedback
+command processed for it, before the sender is checked, as described under
+[automatic activation](#automatic-approve-once); a repository an operator
+disabled stays disabled. In explicit mode, run `github-app onboard` again.
 
 ## Troubleshooting
 
@@ -1122,6 +1199,10 @@ policy files. Mark unknowns as incomplete instead of guessing.
 Add the target platform, public hostname, GitHub owner, installation scope,
 any explicit repositories, and the deployment tools the agent may use. The agent
 records the remaining non-secret choices in a validated installation plan.
+
+The assisted path covers Compose-based installations, including Dokploy: the
+installation plan accepts only the `compose` platform. For Kubernetes, follow
+the manual Helm procedure in [Deploy Review Agent](./DEPLOYMENT.md#deploy).
 
 For the optional [admin panel](ADMIN_PANEL.md), ask for it in the assignment.
 The agent can prepare the Compose service and hostname from the same release as
@@ -1199,8 +1280,12 @@ your decision.
    gives you the exact container command and waits until you confirm.
 5. **Approve DNS and the production deployment.**
 6. **Post the first `/review`** as a new top-level comment on a test pull
-   request after the agent's dry run passes. Test feedback commands only if you
-   want to validate that path.
+   request. The agent's dry run needs a repository that is already enabled. If
+   it is, for example after `github-app onboard`, post once the dry run has
+   passed. On a fresh automatic installation no repository is enabled yet:
+   post the first `/review` when the agent asks, and the agent runs the dry run
+   after that review has enabled the repository. Test feedback commands only if
+   you want to validate that path.
 
 ## What you receive
 
@@ -1245,9 +1330,11 @@ A rejected request never reaches the model.
 ## 2. The reviewed snapshot
 
 A review covers exactly one base commit and one head commit. File content is
-read at those commits. Every tool call re-checks the pull request: if the head
-or base moved, the run ends as superseded; if the pull request closed, the run
-stops. A new `/review` starts a fresh run on the new commits.
+read at those commits. The tools that read the pull request's files and diffs,
+record findings, and deliver the review compare the live pull request with
+those commits: if the head or base moved, the run ends as superseded; if the
+pull request closed, the run stops. Reading a stored part report checks only
+the worker's lease. A new `/review` starts a fresh run on the new commits.
 
 If the repository has a `.review-agent/` package, code reads its instructions,
 indexed context files, and accepted design decisions from the base commit and
@@ -1308,8 +1395,11 @@ recorded finding:
 - the model's publication score is at least 8 for Critical and High, and at
   least 7 for Medium and Low;
 - a finding the team has marked false positive or intentional is suppressed
-  while the same code context remains;
-- two findings that make the same claim cannot both be published.
+  while the same code context remains and the decision has not expired;
+- two findings with identical path, evidence, impact, and fix text cannot both
+  be published, and a finding the reviewer grouped under another as the same
+  root cause is not published separately. Code does not recognize one defect
+  described in different words; grouping those is the reviewer's task.
 
 ### Context and retrieval
 
@@ -1328,21 +1418,27 @@ in Review Agent reranks findings or context.
 
 ## 5. Large pull requests
 
-Diffs are paged, so a single large file does not block the review. When the
-whole diff is too large for one session, code splits the review:
+Diffs are paged, so a single large file does not block the review. Code splits
+the review when the changed files, not counting any file whose own diff is
+larger than the largest part, are together larger than that part
+([sizes](./OPERATIONS.md#split-reviews)):
 
 1. Changed files are packed in path order into at most twelve parts, sized from
    the model's context window.
-2. Each part runs as its own job and session. A part cannot report until it has
-   read every diff assigned to it.
+2. Each part runs as its own job and session. A part cannot report while a diff
+   assigned to it is unread or only partly read; a diff GitHub cannot provide
+   is recorded as unavailable.
 3. A final session reads every part report, checks the candidates against the
    code, removes duplicates, and delivers one review. It cannot deliver before
    it has read all reports.
 
 A split review costs the first session that registers the files and splits the
 review, one session per part, and the final one, and takes correspondingly
-longer. A file whose own diff exceeds one part, and files beyond
-the twelfth part, are not read and are listed under **Coverage details**.
+longer. In a split review, a file whose own diff exceeds the largest part, and
+files beyond the twelfth part, are assigned to no part; left unread, they are
+listed under **Coverage details**. When the other files fit in one part, the
+review is not split: its one session pages through the large file as far as it
+gets, and a diff it does not finish counts as incomplete coverage.
 
 ## 6. Coverage
 
@@ -1356,8 +1452,11 @@ clean result. Coverage describes what was read, not how well it was understood.
 `review_agent_deliver` freezes the review as rows in PostgreSQL. A separate
 publisher process writes it to GitHub:
 
-- It first confirms that the pull request still has the reviewed head commit.
-  A review of an outdated commit is never posted.
+- Before it writes each part of the review, it confirms that the pull request
+  is still open with the reviewed base and head commits; otherwise it stops and
+  marks the publication stale. A push that lands between that check and the
+  write is not seen, and a comment GitHub already accepted stays visible; see
+  [failure codes](./OPERATIONS.md#failure-codes).
 - Stored findings are rendered into a summary comment, split into continuation
   comments when long.
 - Up to twelve small, self-contained fixes are posted as native GitHub
@@ -1382,8 +1481,9 @@ comment:
 ```
 
 `false-positive` and `intentional` suppress that finding while the same code
-context remains; `intentional` also requires the named decision to be accepted
-in the repository. The two `feedback` commands record evidence for operators.
+context remains and the decision has not expired (180 days for a comment);
+`intentional` also requires the named decision to be accepted in the
+repository. The two `feedback` commands record evidence for operators.
 No command changes prompts or policy on its own. See
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md).
 
@@ -1391,8 +1491,12 @@ No command changes prompts or policy on its own. See
 
 Jobs, runs, findings, and publications live in PostgreSQL. Workers and
 publishers hold leases with a generation number; a process that loses its lease
-cannot write. Both can run in several replicas, and an interrupted review or
-publication resumes from stored state. See [Operations](./OPERATIONS.md).
+cannot write. Both can run in several replicas. An interrupted review does not
+continue its model session: its job is claimed again under a new lease and
+starts a new session, until the job's attempt budget
+(`REVIEW_AGENT_JOB_MAX_ATTEMPTS`) is used up; parts of a split review that
+already reported are kept. An interrupted publication continues from its
+stored parts. See [Operations](./OPERATIONS.md).
 
 ## Limits
 
@@ -1423,13 +1527,17 @@ repository, and each repository can add its own `.review-agent/` package.
 | To change | Edit | Scope |
 | --- | --- | --- |
 | The reviewer's identity, tone, and stance when explaining risk | `SOUL.md` in the deployment profile | Every repository served by the deployment |
-| Review rules: scope, severity, coverage, finding and suggestion format, feedback rules | `workspace/AGENTS.md` in the deployment profile | Every repository served by the deployment |
+| Review rules the model follows: scope, severity, coverage, and how it words findings and suggestions | `workspace/AGENTS.md` in the deployment profile | Every repository served by the deployment |
 | The review procedure and tool sequence | `skills/review-agent-pr/SKILL.md` (code) and `skills/review-agent-docs/SKILL.md` (documentation) in the deployment profile | Every repository served by the deployment |
 | Repository instructions, ordered technical context, accepted design decisions, documentation mappings | `.review-agent/` in the repository ([Repository context](./REPOSITORY_CONTEXT.md)) | One repository, from the pull request's base commit |
 | Provider, model, and reasoning effort | `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, `REVIEW_AGENT_REASONING_EFFORT`, or the console **Settings**; teams can use separate model connections ([Admin panel](./ADMIN_PANEL.md)) | The deployment, or one team |
 
-The console records the model route of each admitted request with that
-request. A saved route change applies to new requests only.
+The first three rows are instructions to the model. They do not change what
+code enforces, which the next section lists.
+
+When a request is admitted, the App worker stores its provider, model, and
+reasoning effort with the run, whether or not the console is deployed. A saved
+route change applies to new requests only.
 
 ## What no configuration can change
 
@@ -1454,7 +1562,11 @@ profile means building your own image from this repository.
    - `workspace/AGENTS.md`;
    - `profile.json` with exactly `schema_version` (`1`) and `skills`, a list
      of skill keys without duplicates;
-   - `skills/<key>/SKILL.md` for each listed skill.
+   - `skills/<key>/SKILL.md` for each listed skill;
+   - `skills/review-agent-pr/JAVA.md`, the Java companion that the
+     `review_agent_java_guidance` tool returns when Java code is in scope.
+     Keep it from the copied profile: the installer does not check for it, and
+     without it that tool returns an error instead of the guidance.
 3. Keep `review-agent-pr` and `review-agent-docs` in `skills`. The installer
    rejects a profile missing either one.
 4. Build the image and set `REVIEW_AGENT_PROFILE=<key>`. Compose passes it to
@@ -1470,8 +1582,9 @@ reuses the receipt's profile when `REVIEW_AGENT_PROFILE` is not set.
 ## Changing `SOUL.md` and `AGENTS.md`
 
 A change to `SOUL.md` or `AGENTS.md` affects every repository the deployment
-serves, so review it as a policy change. Put stable review rules and the
-visible comment contract in `AGENTS.md`, and procedure in the skill. A team
+serves, so review it as a policy change. Put stable review rules, including
+how the model words a finding, in `AGENTS.md`, and procedure in the skill.
+Neither changes the layout of the published comment, which code renders. A team
 that wants different wording or focus for its own repository uses
 `.review-agent/instructions.md` instead.
 
@@ -1625,8 +1738,9 @@ gives the format and limits.
 
 ## Get architecture-aware reviews
 
-Every code review checks whether the pull request introduces or worsens an
-architecture problem in the changed code: a rule implemented outside its owner,
+The review procedure instructs the reviewer to check, in every code review,
+whether the pull request introduces or worsens an architecture problem in the
+changed code: a rule implemented outside its owner,
 duplicated policy, hidden coupling, a misleading abstraction, or complexity that
 causes a concrete defect or change cost. Without context, the reviewer infers
 the intended structure from the diff and the files it reads. Two files make
@@ -1652,9 +1766,10 @@ First, describe the structure in a context file and list it in `config.toml`:
 ```
 
 Second, record each invariant that must not change without a decision as an
-accepted ADR whose `applies_to` covers the paths it protects. A pull request
-that breaks it gets a `design.adr-conflict` finding when the reviewer traces a
-real consequence in the changed code.
+accepted ADR whose `applies_to` covers the paths it protects. The reviewer is
+instructed to report a pull request that breaks it as a `design.adr-conflict`
+finding when it traces a real consequence in the changed code. That depends on
+the model; code does not detect an ADR conflict by itself.
 
 The reviewer treats both as evidence. It does not assess the whole repository's
 architecture, report structure the pull request did not change, or propose
@@ -1694,7 +1809,10 @@ Format rules:
   and `?` within a path segment and `**` as a whole segment.
 - Listed documents must exist, and a document cannot be both listed and ignored.
   The validator also rejects unknown fields, duplicates, paths that escape the
-  repository, unsupported glob syntax, and symlinks.
+  repository, and unsupported glob syntax. It rejects a listed document whose
+  path is itself a symlink, is not a regular file, or resolves outside the
+  repository; a symlinked directory earlier in the path passes when it resolves
+  inside the repository.
 - `ignore_changes` applies only to changes no area maps; an area mapping wins.
   `ignore_documents` says why a document need not match the current version; it
   does not exempt policy files or other checks.
@@ -1767,8 +1885,9 @@ CODEOWNERS.
 
 The validator accepts more than a live review can use, so keep instructions and
 context below the live figure. These limits apply only to the package: guidance
-that is too large is left out with a recorded reason, and the pull request is
-still reviewed in full.
+that is too large is left out with a recorded reason, and the review continues
+without it. How much of the pull request is read is set by the
+[review limits](./OPERATIONS.md#review-limits), not by the package.
 
 ---
 
@@ -1800,8 +1919,11 @@ automatic reviews for a team.
    installation's owner may need to accept the new permission. No console
    setting can grant GitHub access.
 3. An owner switches documentation review on in the admin console under
-   **Settings**. It is off by default, and the console is the only place to turn
-   it on. A team maintainer then sets the team default in **Teams →
+   **Settings**. It is off by default. The supplied Compose files do not pass
+   `REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED`, so there the console is the only
+   place to turn it on. A deployment that sets the variable on its services has
+   it read only until the first settings revision is saved; after that only the
+   saved value applies. A team maintainer then sets the team default in **Teams →
    Documentation**, or a repository override in **Repositories →
    Documentation**.
 4. Add `.review-agent/documentation.toml` through a normal pull request. Adapt
@@ -1841,9 +1963,12 @@ pull request before it runs. An explicit `/review docs` skips the wait.
 Switching to Automatic does not review existing open pull requests.
 
 A deterministic scope check runs before any model call. Missing or invalid
-configuration, unavailable inputs, and changes covered entirely by explicit
-exclusions get their result without a model call. Unmapped changes are
-assessed: an unknown path is not evidence that documentation is unaffected.
+configuration, an unavailable comparison base, and changes covered entirely by
+explicit exclusions get their result without a model call. An incomplete list
+of changed files does not end the review by itself: with valid configuration
+and a comparison base it is still assessed, and the report lists the gap as a
+limitation. Unmapped changes are assessed: an unknown path is not evidence
+that documentation is unaffected.
 
 ## Understand the result
 
@@ -1868,7 +1993,10 @@ posted as a pull request comment when the open findings change: the first time
 changes are recommended, and when a later review resolves a finding, finds a new
 one, changes a severity, or can no longer check one. A review that finds the
 same open findings updates only the check. A report too large for the check is
-always posted as linked comments.
+posted as linked comments. The exception is a report with one block that
+exceeds GitHub's comment limit by itself: no comment is posted, the check is
+neutral and states the delivery limitation, and the complete report and
+findings are kept in the review history.
 
 When a pull request edits `.review-agent/documentation.toml`, the report says
 it used the target branch's rules. When unmapped paths leave a review
@@ -1909,7 +2037,8 @@ untrusted evidence: it cannot change tools, publication, scope completeness, or
 authorization. When a mapped document is renamed, update its path in the same
 pull request; the base rules still govern that pull request's review. The
 [Review Agent starter](https://github.com/CCimen/review-agent/blob/main/examples/documentation-review/review-agent.toml)
-shows the mappings this project uses for itself.
+shows mappings proposed for this project's own repository; they are not active
+there until the file is copied to `.review-agent/documentation.toml`.
 
 ## Inspect configuration and usage in the console
 
@@ -1975,20 +2104,29 @@ symbols that the reviewer can query to narrow the target.
 
 ## See whether reviews use it
 
-Every query writes one INFO line from the reviewer process, logger
-`hermes_plugins.review_agent_tools.tools.related_code`:
+A query that the graph service answers writes one INFO line from the reviewer
+process, logger `hermes_plugins.review_agent_tools.tools.related_code`:
 
 ```text
 Code graph query run_id=412 pattern=callers_of status=ready results=3
 ```
 
-`status` is what the reviewer was told (`ready`, `building`, `queued`, `busy`,
+`status` is the service's answer (`ready`, `building`, `queued`, `busy`,
 `disabled`, `embeddings_unavailable` or `unavailable`) and `results` the number of
 locations returned. The query target is written by the model and is not
-logged. Counting these lines per `run_id` in the `hermes-review` logs shows how
-often reviews ask the graph and how often it answers; a deployment where the
-line rarely appears, or mostly reports zero results, gains little from the
-service.
+logged. When the service cannot be reached, its answer is invalid or for
+another commit, or the result is larger than a tool result may be, the line is
+`Code graph query run_id=412 status=unavailable results=0`, without `pattern`.
+
+These lines do not count every attempt. Nothing is written when `hermes-review`
+has no graph URL because the overlay is not loaded (the tool answers
+`disabled`), when the tool rejects the pattern or target, when the review has
+ended or lost its worker lease, or when reading the pull request through the
+GitHub gateway fails. Counting the lines with a `pattern` per `run_id` in the
+`hermes-review` logs shows how many queries gave the reviewer a reply from the
+service, and with what status. A line without `pattern` records an attempt
+that gave it none: the service may not have been reached, or its reply was
+discarded.
 
 ## Enable the graph
 
@@ -2006,16 +2144,29 @@ volume. Normal review services do not depend on its health or startup.
    REVIEW_AGENT_CODE_GRAPH_CACHE_BYTES=10737418240
    ```
 
+   `review-github-gateway` reads the first two values when it starts. Once any
+   settings revision has been saved in the admin console, even one saved to
+   change another setting, the gateway takes both from that revision and
+   ignores the two variables
+   ([environment defaults and admin controls](ADMIN_PANEL.md#environment-defaults-and-admin-controls)).
+   From then on, change **Include repository code relationships** and **Code
+   graph embeddings** in **Settings** and restart `review-github-gateway`.
+
    This applies to every repository authorized by the GitHub App and enabled
    for Review Agent, including repositories enabled later. Repository
    disablement, installation revocation, profile, and worker-lease checks still
    apply to graph access.
 
-2. For semantic queries, set `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS=openai`
-   and add `REVIEW_AGENT_OPENAI_API_KEY` in Dokploy's Environment settings (or
-   the deployment's private `.env` file). The overlay passes the key only to the
+2. For semantic queries, select `openai` embeddings where the gateway reads
+   the setting (step 1): `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS=openai` before any
+   settings revision is saved, **Code graph embeddings** in **Settings**
+   afterwards. The key is always an environment value: add
+   `REVIEW_AGENT_OPENAI_API_KEY` in Dokploy's Environment settings (or the
+   deployment's private `.env` file). The overlay passes the key only to the
    GitHub gateway. Keep the value out of tracked files, chat, and logs. Leave it
-   empty with `none`.
+   empty with `none`. With `openai`, symbol metadata is sent to OpenAI whenever
+   a graph is prepared, not only when a semantic query runs
+   ([Freshness and reuse](#freshness-and-reuse)).
 
 3. Include the overlay when applying your normal deployment procedure:
 
@@ -2040,7 +2191,8 @@ volume. Normal review services do not depend on its health or startup.
    Save that template in the raw Compose editor, preserving the deployment's
    existing ingress, mounts, networks, and volumes. Environment references remain
    references; supply their values through Dokploy Environment. Later on/off
-   changes need only the environment switch and normal service recreation.
+   changes need no new template: change the setting that applies (step 1) and
+   start `review-github-gateway` again.
 
 4. Request an authorized `/review` on an enabled repository. Its begin response
    starts preparation in the background. The first review can finish before the
@@ -2067,9 +2219,16 @@ With OpenAI enabled, each code symbol receives its own 1,536-dimension vector.
 The embedding text holds the symbol name, signature, parent context, and short
 docstring (not the body), cut to 2,048 characters, so a body-only edit needs no
 new embedding. CRG keeps unchanged vectors and removes orphaned ones; changing
-the embedding configuration or losing the cache requires fresh vectors. Only
-semantic queries call the embedding API; vectors are stored and searched
-locally.
+the embedding configuration or losing the cache requires fresh vectors.
+
+The embedding API is called on two occasions, both through the GitHub gateway.
+Preparing a graph sends the embedding text of every symbol that has no current
+vector: all of them the first time a repository is indexed, new and changed
+ones afterwards. This happens whether or not a review later asks a semantic
+query. A `semantic` query sends its query text when it reaches the embedding
+step; one answered `busy`, `unavailable` or `embeddings_unavailable` before
+that sends nothing. The other patterns send nothing, and vectors are stored
+and searched locally.
 
 The structural graph is saved before embeddings start, and each embedding batch
 is committed as it completes. If the review ends, authorization is revoked, or
@@ -2119,9 +2278,32 @@ the pull requests the reviewer can review.
 
 ## Disable the graph
 
-Set `REVIEW_AGENT_CODE_GRAPH_ENABLED=false` and recreate the affected services
-through the normal deployment procedure. Removing the overlay also stops the
-graph service. Keep the cache volume if reuse is useful. It contains derived
+`review-github-gateway` reads the setting only when it starts, so turn it off
+where the gateway reads it:
+
+- If a settings revision has been saved in the admin console, clear **Include
+  repository code relationships** in **Settings**, save, and restart
+  `review-github-gateway`. The saved revision overrides
+  `REVIEW_AGENT_CODE_GRAPH_ENABLED`, so changing only the variable leaves the
+  graph on.
+- Otherwise set `REVIEW_AGENT_CODE_GRAPH_ENABLED=false` and recreate
+  `review-github-gateway` so the container receives the new value.
+
+From then on the gateway tells the graph service that the graph is disabled and
+refuses its archive and embedding requests. Queries answer `disabled`, and no
+source is downloaded and no metadata is sent to OpenAI.
+
+The `review-code-graph` container keeps running until it is stopped. Leaving
+the overlay out of a later `docker compose up` does not stop a container that
+already exists unless the command includes `--remove-orphans`. To retire the
+service, stop it with the overlay still named:
+
+```bash
+docker compose -f compose.yaml -f compose.code-graph.yaml stop review-code-graph
+```
+
+Then deploy without the overlay, which also removes the graph URL from
+`hermes-review`. Keep the cache volume if reuse is useful. It contains derived
 repository metadata and vectors; removing it does not remove reviews, findings,
 or feedback.
 
@@ -2474,7 +2656,7 @@ into that request. Other values load when their service starts:
 | Values | Service to restart |
 | --- | --- |
 | Active job limit, capacity retry delay, admission age, review attempt budget, default priority | `review-github-app-worker` |
-| Concurrency, lease, heartbeat, retries, polling, recovery, priority aging, Hermes timeout | `review-worker` |
+| Concurrency, lease, heartbeat, retries, polling, recovery, priority aging, Hermes timeout; publication size and attempt budget for documentation results decided without a model call | `review-worker` |
 | Publication size, publication attempt budget, feedback instructions | `hermes-review` |
 | Publication size, lease, heartbeat, retries, polling | `review-publisher` |
 | Webhook payload bound, request concurrency, timeout | `review-admission` |
@@ -2490,6 +2672,8 @@ revisions that contain newer fields, so roll back images and database together.
 Environment values are bootstrap defaults. After the first save, the saved
 revision overrides these variables for every service that reads policy; a
 revision saved before a control existed keeps the environment default for it.
+Documentation review is the exception: a revision that does not mention it
+leaves it off.
 
 | Managed in Settings | Variables |
 | --- | --- |
@@ -2497,7 +2681,7 @@ revision saved before a control existed keeps the environment default for it.
 | Admission | `REVIEW_AGENT_ACTIVE_JOB_LIMIT`, `REVIEW_AGENT_GITHUB_APP_CAPACITY_RETRY_SECONDS`, `REVIEW_AGENT_GITHUB_APP_ADMISSION_MAX_AGE_SECONDS`, `REVIEW_AGENT_JOB_MAX_ATTEMPTS`, `REVIEW_AGENT_JOB_PRIORITY` |
 | Review worker | `REVIEW_AGENT_WORKER_CONCURRENCY`, `REVIEW_AGENT_JOB_LEASE_SECONDS`, `REVIEW_AGENT_JOB_HEARTBEAT_SECONDS`, `REVIEW_AGENT_HERMES_TIMEOUT_SECONDS`, `REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS`, `REVIEW_AGENT_JOB_RETRY_SECONDS`, `REVIEW_AGENT_JOB_POLL_SECONDS`, `REVIEW_AGENT_JOB_RECOVERY_SECONDS`, `REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE` |
 | Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES`, `REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS`, `REVIEW_AGENT_PUBLICATION_LEASE_SECONDS`, `REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS`, `REVIEW_AGENT_PUBLICATION_RETRY_SECONDS`, `REVIEW_AGENT_PUBLICATION_POLL_SECONDS` |
-| Features | `REVIEW_AGENT_FEEDBACK_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS`, documentation review (Settings only) |
+| Features | `REVIEW_AGENT_FEEDBACK_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS`, documentation review (Settings only in the supplied Compose files, which do not pass `REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED`; a service given that variable reads it only until the first save) |
 | Request bounds | `REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES` (at most 2,097,152), `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS`, `REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS`, `REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS` |
 
 Code graph options also need the graph overlay, and OpenAI embeddings the
@@ -2519,8 +2703,11 @@ itself reads these deployment-only values:
 | `REVIEW_AGENT_HERMES_CONTROL_TOKEN` | Provider control, from `compose.providers.yaml` ([managed model connections](#managed-model-connections)). |
 | `REVIEW_AGENT_CONNECTIONS_FILE` | Catalog of additional model runtimes ([provision another connection](#provision-another-connection)). |
 
-Every variable, its default and the service that reads it are listed in the
-[configuration reference](OPERATIONS.md#configuration-reference).
+Every variable the Compose files interpolate, its default and the service that
+reads it are listed in the
+[configuration reference](OPERATIONS.md#configuration-reference). The variables
+of an additional model runtime are under
+[Provision another connection](#provision-another-connection).
 
 ## Managed model connections
 
@@ -2610,11 +2797,11 @@ queue without using an attempt and all queued work on that account waits for one
 shared deadline, shown in history and in Operations' delayed totals. After the
 deadline, a fresh quota check decides; only a fresh allowance clears the wait.
 
-**Maximum concurrent reviews** applies per connection and per team (across
-connections); both default to four. Lowering a cap lets active work finish and
-limits new claims. Worker capacity is an additional bound, and one repository
-runs one review at a time. Eligible teams take turns, with priority aging within
-a team. Unfinished remote executions keep their capacity until Hermes reports
+**Maximum concurrent reviews** is set per connection and per team.
+[Limits](TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits) defines what the two caps
+count, their defaults, and the repository and fairness rules that apply beside
+them. Lowering a cap lets active work finish and limits new claims. Unfinished
+remote executions keep their capacity until Hermes reports
 completion; lease expiry or cancellation does not release them. If the
 unfinished count persists after reviews stop, an owner pauses the connection,
 restarts its complete runtime, and chooses **Recover after a runtime restart**.
@@ -2726,7 +2913,10 @@ curl --fail-with-body --get \
 The console uses the same authenticated API it documents. Open **API reference**
 in the console, or `/api/docs`, for Swagger UI under the current session; the
 schema is at `/api/openapi.json`. The frontend contract is `console/openapi.json`
-and the generated `console/src/api.generated.ts`.
+and the generated `console/src/api.generated.ts`. The schema lists the
+application's endpoints and parameters. It states who may call an endpoint for
+only some of them, so the table below collects the access rule for the main
+ones.
 
 | Endpoint | Access | Data |
 | --- | --- | --- |
@@ -3031,7 +3221,8 @@ connection. See
 ## How do I serve many repositories or a whole organization?
 
 Deploy once, install the App on the organization, and approve the installation
-once. Repositories then activate on their first authorized `/review`. See
+once. Each repository the installation reaches is then enabled by its first
+`/review` command; a review starts only if the commenter may request one. See
 [Set up and share the GitHub App](./GITHUB_APP_PILOT.md), and
 [scale workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when queue wait
 time grows.
@@ -3055,9 +3246,11 @@ locations per query. Nothing reranks findings or context. See
 
 ## Does it find security problems?
 
-Yes, within the pull request. Every code review applies security-audit guidance
-to the changed code and reports vulnerabilities and flawed security logic the
-pull request introduces or worsens. It does not run exploits, query a CVE
+Yes, within the pull request. The review procedure instructs the reviewer to
+apply security-audit guidance to the changed code and to report vulnerabilities
+and flawed security logic the pull request introduces or worsens. Those are
+instructions to the model: code checks each finding it records, not that every
+path was traced. It does not run exploits, query a CVE
 database, audit unchanged code, or certify a repository as secure; keep
 deterministic scanners in CI. See [How reviews work](./HOW_REVIEWS_WORK.md).
 
@@ -3072,7 +3265,8 @@ against it. It does not assess the whole repository.
 ## Does feedback affect later reviews?
 
 `/review false-positive` and `/review intentional` suppress the same finding in
-later rounds while the code and ADR still match. `/review feedback scope` and
+later rounds while the code and ADR still match and the decision has not
+expired (180 days for a comment). `/review feedback scope` and
 `/review feedback missed` record evidence only. See
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md).
 
@@ -3081,8 +3275,9 @@ later rounds while the code and ADR still match. `/review feedback scope` and
 Each repository can add review focus, communication preferences, technical
 context, and accepted ADRs through its [`.review-agent/`
 package](./REPOSITORY_CONTEXT.md), read from the pull request's base commit. The
-deployment profile owns identity, procedure, evidence gates, severity, tools,
-authorization, and publication; see
+deployment profile owns the reviewer's identity, procedure, and review rules
+such as severity. Tools, authorization, the finding gates, and publication are
+fixed in code, and neither a profile nor a repository can change them; see
 [Behavior ownership](./BEHAVIOR_OWNERSHIP.md).
 
 ## What is stored in PostgreSQL?
@@ -3093,9 +3288,12 @@ so back it up and treat exports as sensitive. See [Security](./SECURITY.md).
 
 ## Why did a review fail or stop?
 
-Common causes are an unauthorized requester, a disabled repository, a stale head
-SHA, or a GitHub permission failure. Check the run's failure code in the
-[Operations runbook](./OPERATIONS.md#runbook).
+A request from an unauthorized requester or in a disabled repository is
+rejected before a run exists: look for the delivery's `status=` and `reason=`
+in the `review-github-app-worker` log
+([failure codes](./OPERATIONS.md#failure-codes)). Once a run exists, common
+causes are a stale head SHA or a GitHub permission failure; check the run's
+failure code in the [Operations runbook](./OPERATIONS.md#runbook).
 
 ## Can we follow reviews in Slack or Microsoft Teams?
 
@@ -3126,19 +3324,21 @@ Last verified: 2026-11-17
 | Capability | Summary | Details |
 | --- | --- | --- |
 | Code review on request | `/review` reviews the pull request's current base and head commits and publishes advisory findings | [How reviews work](./HOW_REVIEWS_WORK.md) |
-| Security review | Every code review traces untrusted input across trust boundaries in the changed code | [How reviews work](./HOW_REVIEWS_WORK.md#4-the-review) |
-| Large pull requests | A diff too large for one session is reviewed in up to twelve parts and merged into one review | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
+| Security review | The review procedure instructs the reviewer to trace untrusted input across trust boundaries in the changed code; code checks the findings it records, not the model's reasoning | [How reviews work](./HOW_REVIEWS_WORK.md#4-the-review) |
+| Large pull requests | A pull request too large for one session can be reviewed in up to twelve parts that are merged into one review; files left unread are reported as incomplete coverage | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
 | Re-review and feedback | Earlier findings are re-checked; maintainers can mark a finding false positive or intentional | [Feedback and decisions](./FEEDBACK_AND_DECISIONS.md) |
 | Repository context | A `.review-agent/` package adds instructions, platform context, and accepted design decisions | [Repository context](./REPOSITORY_CONTEXT.md) |
 | Documentation review | `/review docs`, or an automatic mode, checks whether a pull request leaves mapped documents inaccurate | [Documentation review](./DOCUMENTATION_REVIEW.md) |
 | Code graph (optional) | Structural and semantic lookups of related code | [Code graph](./CODE_GRAPH.md) |
 | Admin console (optional) | Teams, roles, repository access, model connections, usage, audit, OIDC and SCIM | [Admin panel](./ADMIN_PANEL.md) |
-| Many organizations | One deployment serves any number of approved GitHub App installations | [GitHub App setup](./GITHUB_APP_PILOT.md#share-the-app-with-other-organizations) |
+| Many organizations | One deployment serves multiple approved GitHub App installations | [GitHub App setup](./GITHUB_APP_PILOT.md#share-the-app-with-other-organizations) |
 | Deployment | One Compose stack for Docker, Dokploy, Coolify, and Portainer, and a Helm chart for Kubernetes | [Deployment](./DEPLOYMENT.md) |
 
 State lives in one PostgreSQL database per environment. Jobs and publication
-are lease-based, so workers and publishers can run in several replicas and an
-interrupted review resumes from stored state.
+are lease-based, so workers and publishers can run in several replicas. An
+interrupted review is retried from its stored job with a new model session,
+within its attempt budget; an interrupted publication continues from its stored
+parts ([durability](./HOW_REVIEWS_WORK.md#9-durability)).
 
 ## What it does not do
 
@@ -3230,12 +3430,18 @@ connection or provider. A paused connection stops new dispatch.
 
 ## Limits
 
-- **Team capacity:** at most four of a team's reviews run at once, across all
-  its connections. Admins can change the cap. The team recorded at admission is
-  counted.
-- **Connection capacity:** at most four reviews per connection by default.
+The team and connection caps count review jobs. A review is one job, except a
+[split review](OPERATIONS.md#split-reviews), where each running part is one.
+
+- **Team capacity:** at most four of a team's review jobs run at once by
+  default, across all its connections. Admins can change the cap. The team
+  recorded at admission is counted.
+- **Connection capacity:** at most four review jobs per connection by default.
   Owners set it for the shared connection; owners and admins for a team-owned one.
-- **Repository:** one review runs per repository at a time.
+- **Repository:** one review runs per repository at a time; the parts of that
+  review may overlap.
+- **Workers:** a job also needs a free worker slot
+  ([queue rules](OPERATIONS.md#queue-rules)).
 - **Fairness:** eligible teams take turns claiming work, with priority aging
   within each team.
 - **Quota:** teams that share a connection share its Codex account quota, which
@@ -3277,7 +3483,7 @@ The deployment uses two named volumes:
 
 | Volume | Mounted in | Purpose |
 | --- | --- | --- |
-| `hermes_review_data` | Profile installer (write); Hermes and workers (read) | Hermes config, provider credentials, sessions, managed skills, plugins, and the installed reviewer receipt. Admission derives the same contract from immutable image files and cannot read this volume. |
+| `hermes_review_data` | Profile installer and Hermes (read and write); workers (read-only) | Hermes config, provider credentials, sessions, managed skills, plugins, and the installed reviewer receipt. Admission derives the same contract from immutable image files and cannot read this volume. |
 | `review_postgres_data` | `review-postgres` at `/var/lib/postgresql/data` | PostgreSQL review state. |
 
 Do not run two Hermes gateways against the same `hermes_review_data` volume.
@@ -3407,16 +3613,18 @@ and `installation_repositories` events to `/webhooks/github-app`.
 `check_run` drive automatic documentation review and its re-runs; the
 installation events keep the repository inventory current. Admission persists
 the signed delivery before any provider read. The App worker then checks, through
-the private gateway, the sender's current access and the repository's enabled
-state before creating a run; see
+the private gateway, the repository's enabled state and then the sender's
+current access before creating a run; see
 [who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review).
 Feedback commands follow the same durable path, and the gateway rechecks the
 sender's write or admin permission and the open pull request before anything is
 recorded.
 
-Webhooks and inventory sync record repositories but never enable one. A
-repository is enabled by `github-app onboard`, or, under an installation
-approved for automatic activation, by the first authorized `/review` in it. See
+Installation webhooks and inventory sync record repositories but never enable
+one. A repository is enabled by `github-app onboard`, or, under an installation
+approved for automatic activation, when the gateway processes its first signed
+`/review` command. The gateway enables the repository before it checks the
+sender, so a rejected sender leaves the repository enabled and no run. See
 [Approve the installation](./GITHUB_APP_PILOT.md#4-approve-the-installation).
 
 Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` to show the copyable feedback commands
@@ -3433,7 +3641,8 @@ On an open pull request, including a draft, an authorized user comments:
 Each `/review` after the previous run reaches a terminal state starts a new
 round (`Review 2`, ...), including a rerun of the same base and head. A second
 `/review` on the same pull request while a run is active is a duplicate.
-Different pull requests run concurrently. Applying a native suggestion does not
+Pull requests in different repositories run concurrently; one repository runs
+one review at a time. Applying a native suggestion does not
 mark its finding resolved; run CI and post a new `/review`. Review mechanics are
 in [How reviews work](./HOW_REVIEWS_WORK.md).
 
@@ -3502,10 +3711,10 @@ A healthy run moves through `accepted`, `fetching_pr`, `collecting_diff`,
 ### Diagnose a review run
 
 ```bash
-review-agent-memory runs --run-id <id> > /opt/data/review-memory/run-<id>.json
+review-agent-memory runs --run-id <id>
 ```
 
-The JSON report covers one run:
+The JSON report is printed on standard output and covers one run:
 
 - status, `failure_code` and `failure_detail`;
 - the requested provider, model and reasoning effort;
@@ -3515,7 +3724,10 @@ The JSON report covers one run:
   truncated paths.
 
 It contains no review text, comment bodies or requester identities, and stays
-under 512 KiB so a tool that can only read container files can open it.
+under 512 KiB so a tool that can only read container files can open it. For
+such a tool, redirect the output to a file; no report directory exists until you
+create one, for example with `mkdir -p /opt/data/review-memory` in
+`hermes-review`.
 
 `failure_detail` is at most 300 characters: one of the reviewer's own messages
 or Hermes error text, which Hermes redacts. Treat it as untrusted text. When
@@ -3622,8 +3834,10 @@ Scaling procedures and examples are in
 
 ### Queue rules
 
-- Total review slots = `review-worker` replicas × `REVIEW_AGENT_WORKER_CONCURRENCY`.
-  A worker claims only when a slot is free.
+- Worker slots = `review-worker` replicas × `REVIEW_AGENT_WORKER_CONCURRENCY`.
+  Each slot runs one review job; a split review uses one per running part. A
+  worker claims only when a slot is free and the job's model connection, team
+  and repository [limits](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits) allow it.
 - `REVIEW_AGENT_ACTIVE_JOB_LIMIT` bounds queued, leased and
   publication-waiting reviews. At the limit, the App worker keeps the accepted
   request and retries admission without using processing attempts. Each retry
@@ -3703,7 +3917,7 @@ reports incomplete coverage when one of these boundaries stops it:
 | Boundary | Limit |
 | --- | --- |
 | Changed files | GitHub lists at most 3,000 files per pull request. If even a one-file page exceeds the response budget, registration stays incomplete. |
-| Source files | Read in line pages at the exact revision. Files above 1 MB use the raw Contents response up to a 2 MB per-request memory guard; larger or binary files are unavailable and keep coverage incomplete. A source page carries at most 400 lines. |
+| Source files | Read in line pages at the exact revision. Files above 1 MB use the raw Contents response up to a 2 MB per-request memory guard; larger or binary files cannot be read as source. A failed source read does not change diff coverage, which counts only the diffs returned. A source page carries at most 400 lines. |
 | Patches GitHub omits | For an added UTF-8 file up to 1 MB, the gateway builds the patch from head content, up to 200,000 characters. Otherwise the file's diff stays incomplete. |
 | Tool results | `plugins.entries.review-agent-tools.settings.result_max_chars` (default 160,000), further held to the Hermes per-result and per-response limits for the session's model (100,000 and 200,000 characters for windows of 166,667 tokens or more). A single-path diff or source page holds at most a seventh of the per-result limit. A batched diff result holds at most a fifth of the smaller of `result_max_chars` and the per-response limit (32,000 by default); one diff call accepts up to 50 paths, and the review procedure allows at most four batch calls in one model response. |
 | Historical context | 200 paths per call. |
@@ -3723,18 +3937,19 @@ context-file allowance from the model's window. See the upstream
 
 ### Split reviews
 
-A code review whose diff exceeds one session's largest part is reviewed in
-parts; [Large pull requests](./HOW_REVIEWS_WORK.md#5-large-pull-requests)
+A code review is reviewed in parts when its changed files, not counting any
+file whose own diff exceeds the largest part, together exceed the largest part;
+[Large pull requests](./HOW_REVIEWS_WORK.md#5-large-pull-requests)
 describes how. Documentation reviews are never split.
 
 | Rule | Value |
 | --- | --- |
-| A review is split above | the largest part |
+| A review is split when | the diffs that each fit the largest part together exceed it |
 | Preferred part | about half the context window: about 372,000 diff characters at 500,000 tokens, 192,000 at 272,000 |
 | Largest part | below the compression threshold: about 608,000 diff characters at 500,000 tokens, 321,000 at 272,000 |
-| Parts in one review | 12 |
-| Jobs of one review that run at once | 3, and at most the model connection's concurrency minus one |
-| Report one part hands in | 12,307 serialized characters by default (a thirteenth of the smaller of `result_max_chars` and the per-response limit) |
+| Parts in one review | at most 12 |
+| Jobs of one review that run at once | at most 3, and at most the model connection's concurrency minus one, but never fewer than 1 |
+| Report one part hands in | the smaller of `result_max_chars` and the per-response limit, divided by the review's number of parts plus one, and at most the per-result limit. By default, with 160,000 as that smaller value: 40,000 serialized characters in a three-part review, 12,307 in a twelve-part one |
 | Changed file without a GitHub patch | counted as 48 characters per changed line |
 
 Cost and accounting:
@@ -3749,9 +3964,11 @@ Cost and accounting:
   parts. `review-agent-admin jobs list` names each job's `part`; `0` is the main
   job. Queue health does not count a main job waiting for its parts as waiting
   or due work.
-- A file whose own diff exceeds a part, and files after the twelfth part, are
-  not read and appear in the coverage details. The gateway log records each
-  session's window and each split's part sizes.
+- In a split review, a file whose own diff exceeds the largest part, and files
+  after the twelfth part, are assigned to no part; left unread, they appear in
+  the coverage details. When the other files fit one part, the review is not
+  split and its single session reads such a file as far as it gets. The gateway
+  log records each session's window and each split's part sizes.
 
 ## Documentation review operation
 
@@ -3811,7 +4028,8 @@ Durable history is kept unless this table says otherwise:
 | `publications`, `publication_parts`, `publication_findings` | Repository owner | Preserve exact publication and recovery evidence. |
 | `admin_users`, `admin_sessions` | Deployment owner | Preserve console accounts and revocable sessions; treat backups as credential-bearing data. |
 | `admin_registration_policy`, `admin_email_settings` | Deployment owner | Preserve the registration policy and email delivery settings. The SMTP password is stored encrypted with `REVIEW_AGENT_EMAIL_SECRET_KEY`. |
-| `admin_registration_requests`, `admin_oidc_requests` | Deployment owner | Short-lived: pending registrations and sign-in requests hold only token digests and are deleted on use or expiry. |
+| `admin_registration_requests` | Deployment owner | Short-lived: a pending email registration holds the email address, a digest of the emailed token and a 30-minute expiry. Completing the registration deletes it; an expired row stays until a later accepted registration request removes expired rows. |
+| `admin_oidc_requests` | Deployment owner | Short-lived and credential-bearing: an organization sign-in in progress holds digests of its state and browser values, the nonce and the PKCE code verifier in clear, a five-minute expiry and, while a signed-in user links an account, that user's session token. The callback deletes it; an abandoned row stays until a later sign-in that is started successfully removes expired rows, or until the linked user or session is deleted. |
 | `teams`, `team_members`, `team_repositories`, `repository_requests`, `repository_review_requesters` | Deployment owner | Preserve team access, repository ownership, request decisions and requester grants. A removed requester grant is deleted. |
 | `model_connections`, `model_accounts`, `team_model_policies`, `model_login_sessions` | Deployment owner | Preserve model connection registrations, the account bound to each, team routing and the record of console sign-in attempts. Provider credentials are not stored here; they live on the Hermes volume. |
 | `integrations`, `integration_teams` | Deployment owner | Preserve application integrations and their team scope, including revoked ones. Only a digest of each credential is stored. |
@@ -3819,8 +4037,8 @@ Durable history is kept unless this table says otherwise:
 | `admin_run_actions` | Deployment owner | Preserve who retried, cancelled or marked a run stalled, and why. |
 | `admin_audit_events` | Deployment owner | Preserve access changes and human audit evidence. Successful application read receipts can be pruned only with the bounded integration command below. |
 | `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage and idempotency receipts. |
-| `coach_runs`, `coach_candidates`, `coach_intervention_outcomes` | None | No longer read or written. Kept for one release so the previous release still runs after a rollback; a later migration drops them. |
-| `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | None | Empty and no longer read or written. Kept for one release so the previous release still runs after a rollback; a later migration drops them. |
+| `coach_runs`, `coach_candidates`, `coach_intervention_outcomes` | None | No longer read or written. This release keeps the tables and their rows. Whether an earlier release can run against the current schema is decided as the [rollback boundary](./DEPLOYMENT.md#rollback-boundary) describes. |
+| `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | None | Empty and no longer read or written. This release keeps the tables; the same [rollback boundary](./DEPLOYMENT.md#rollback-boundary) applies. |
 
 Raw webhook bodies are not stored. Terminal documentation deliveries keep their
 bounded normalized event envelope until the pruning command removes the
@@ -3866,31 +4084,114 @@ schedule repeated runs through existing maintenance tooling.
 ## Backup and recovery
 
 PostgreSQL may contain unpublished findings and human-entered reasons; store
-backups securely. Create a logical backup from the Compose host:
+backups securely. Back up the database the application uses: the commands in
+this section are for the bundled `review-postgres` service and its
+`review_agent` database. When `REVIEW_AGENT_DATABASE_URL` names another host or
+database, run `pg_dump` and `pg_restore` with the same options against that
+database from a host with the PostgreSQL client tools; a dump of an unused
+local volume is not a backup.
+
+Create a logical backup from the Compose host. Each backup gets its own file,
+and the shell refuses to write over an existing one, so neither a failed dump
+nor a second backup started in the same second replaces an archive:
 
 ```bash
-docker compose exec -T review-postgres \
-  pg_dump --username=review_agent --dbname=review_agent --format=custom \
-  > review-agent.dump
+dump="review-agent-$(date -u +%Y%m%dT%H%M%SZ).dump"
+( umask 077; set -o noclobber
+  docker compose exec -T review-postgres \
+    pg_dump --username=review_agent --dbname=review_agent --format=custom \
+    > "$dump" ) && echo "Backup written: $dump"
 ```
 
-Test recovery in a fresh database before relying on a backup. Stop the services
-that read or write Review Agent state:
+Without the last line's message the dump failed; a file it left is incomplete.
+Keep the previous verified archive until the new one has passed the restore
+test below.
 
-```bash
-docker compose stop review-admission review-github-app-worker review-worker \
-  review-publisher review-github-gateway hermes-review
-```
+Test recovery in a fresh database before relying on a backup. The archive
+records the grants to the runtime role, including its default privileges, but
+not the role: PostgreSQL roles belong to the cluster, not to a database. In a
+cluster without that role, `pg_restore --exit-on-error` alone stops at the
+first grant. Restore without ownership and grants, connected as the migration
+owner, and let `database prepare` create the runtime role and its grants.
 
-- **Restore test on the production cluster:** use
-  `pg_restore --no-owner --no-privileges --exit-on-error`, then drop the
-  temporary database after verification. Copying grants would give the runtime
-  role access to another database, which `database prepare` rejects.
-- **Production recovery into a separate cluster:** restore with
-  `pg_restore --exit-on-error`, set the restored database's owner and runtime
-  URLs, run `review-agent-admin database prepare` and
-  `review-agent-admin database ready`, then point the environment at the
-  restored database and redeploy.
+- **Restore test on the production cluster:** no service has to stop. Restore
+  into a new temporary database, check it, and drop it. `$dump` is the archive
+  to test. Each step runs only if the one before it succeeded:
+
+  ```bash
+  target="review_agent_restore_test_$(date -u +%Y%m%d%H%M%S)"
+  docker compose exec -T review-postgres \
+    createdb --username=review_agent "$target" &&
+  docker compose exec -T review-postgres \
+    pg_restore --username=review_agent --dbname="$target" \
+    --no-owner --no-privileges --exit-on-error < "$dump" &&
+  docker compose exec -T review-postgres \
+    psql --username=review_agent --dbname="$target" --set ON_ERROR_STOP=1 \
+    --command "SELECT (SELECT max(version) FROM review_agent.schema_migrations) AS schema_version, (SELECT max(id) FROM review_agent.review_runs) AS latest_run" &&
+  docker compose exec -T review-postgres \
+    dropdb --username=review_agent "$target" &&
+  echo "Restore test passed: $dump"
+  ```
+
+  Without the final message a step failed. The temporary database, if it was
+  created, is left for inspection; drop it by its name afterwards. Compare
+  `latest_run` with a review you know was the most recent when the backup was
+  taken, for example from **Review history** or `review-agent-admin jobs list`:
+  a restore of the wrong or an empty database passes every other step. Copying
+  grants would give the runtime role access to another database, which
+  `database prepare` rejects.
+- **Production recovery into a separate cluster:** stop every service that
+  reads or writes Review Agent state. Run the commands with every Compose file
+  the deployment uses, so that `review-admin` and the other overlay services
+  are included. The second command lists every container of the project with
+  its state; every service other than `review-postgres` must show `exited`. A
+  container that is `restarting` has not stopped. Stop anything outside this
+  project that uses the same database as well:
+
+  ```bash
+  docker compose stop $(docker compose config --services | grep -vx review-postgres)
+  docker compose ps --all --format '{{.Service}} {{.State}}'
+  ```
+
+  In the new cluster, create the migration-owner role and an empty database it
+  owns. The bundled `review-postgres` creates both when it first starts on an
+  empty volume; start only that service, because the restore needs the database
+  as it is before `review-db-migrate` has run. Restore as the migration owner,
+  then set `REVIEW_AGENT_DATABASE_URL` and `REVIEW_AGENT_RUNTIME_DATABASE_URL`
+  to the restored database and run the one-shot database job, the only
+  container with both URLs. It runs `database prepare`, which applies pending
+  migrations, creates the runtime role and its grants, and connects once as
+  the runtime login:
+
+  Run these in the Compose project of the new cluster, with `$dump` naming a
+  verified archive. The migration job runs only if the restore succeeded:
+
+  ```bash
+  docker compose up -d --wait review-postgres &&
+  docker compose exec -T review-postgres \
+    pg_restore --username=review_agent --dbname=review_agent \
+    --no-owner --no-privileges --exit-on-error < "$dump" &&
+  docker compose run --rm --no-deps review-db-migrate &&
+  echo "Restored and prepared"
+  ```
+
+  For an external database, run the same `pg_restore` options from a host with
+  the PostgreSQL client tools. A successful `database prepare` proves the
+  schema and the runtime login, not that the data came back: it also succeeds
+  on an empty database. Check the data before any other service starts,
+  because a restored publisher or worker continues pending work as soon as it
+  runs:
+
+  ```bash
+  docker compose exec -T review-postgres \
+    psql --username=review_agent --dbname=review_agent --set ON_ERROR_STOP=1 \
+    --command "SELECT id, status, started_at FROM review_agent.review_runs ORDER BY id DESC LIMIT 5"
+  ```
+
+  The rows must include the reviews you know existed before the backup. Only
+  then redeploy, and run `review-agent-admin database ready` and
+  `review-agent-admin doctor` in `hermes-review`, where the database URL is the
+  runtime login.
 
 Some migrations change the schema in ways older images cannot read (for
 example 016, 029 and 037); older images must not run against the migrated
@@ -3926,8 +4227,11 @@ The report shows explicit signal counts, denominators, the current triage
 backlog (regardless of the activity window), coverage, and review-contract
 cohorts. It does not infer accuracy from missing feedback.
 
-Only an operator classifies a missed issue. Find the feedback row in an
-[export](#offline-operator-tools), then append a triage state:
+Only an operator classifies a missed issue. The console's **Review quality**
+page lists the backlog and records the classification
+([triage](./FEEDBACK_AND_DECISIONS.md#use-feedback-to-improve-the-reviewer)). Without the console,
+find the feedback row in an [export](#offline-operator-tools), then append a
+triage state:
 
 ```bash
 review-agent-memory triage-feedback <feedback-id> \
@@ -4051,7 +4355,7 @@ Services read these values at startup.
 | `REVIEW_AGENT_PUBLICATION_POLL_SECONDS` | `2` | `review-publisher`, `review-admin` | Wait between checks of an idle publication queue. |
 | `REVIEW_AGENT_FEEDBACK_ENABLED` | `false` | `hermes-review`, `review-admin` | Show copyable feedback commands in the review comment. |
 | **Operator commands** | | | |
-| `REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS` | `100` | `hermes-review`, `review-github-gateway` | Items per JSON inventory or job page; use `--after-id` for the next page. |
+| `REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS` | `100` | `hermes-review`, `review-github-gateway` | Largest `--limit` an operator list or prune command accepts. `installations list` and `repositories list` continue with `--after-id`; `jobs list` returns one bounded snapshot, oldest first, narrowed with `--status`. |
 | `REVIEW_AGENT_OPERATOR_EXPORT_MAX_ROWS` | `10000` | `hermes-review`, `review-github-gateway` | Rows per table in one private export. |
 | **Admin console** (`compose.admin.yaml`) | | | |
 | `REVIEW_AGENT_ADMIN_PUBLIC_URL` | required with the overlay | `review-admin` | Public console origin. |
@@ -4087,8 +4391,10 @@ first. Security findings and every Medium or higher finding stay expanded. Low
 (P3) maintainability improvements are collapsed under **Code quality and
 readability**, and when a review also has High or Medium findings, its other
 Low findings are collapsed under **Low-priority findings**. Every finding keeps
-its F reference, explanation, feedback commands, and entry in the copyable fix
-brief. See the [example review](../examples/comments/example-review.md).
+its F reference, explanation, and entry in the copyable fix brief. The copyable
+feedback commands appear once, at the end of the review, and only when the
+operator has enabled them (`REVIEW_AGENT_FEEDBACK_ENABLED`, off by default).
+See the [example review](../examples/comments/example-review.md).
 
 Publication limits:
 
@@ -4134,9 +4440,17 @@ Rules the parser applies:
   reverse.
 - `/review docs intentional` is rejected: an accepted decision can explain a
   behavior change, but it does not make contradictory documentation correct.
-- `accepted-risk` is rejected in comments. Record accepted risk with
-  `review-agent-memory decide <fingerprint> accepted_risk` or on the finding's
-  page in the console.
+- `accepted-risk` is rejected in comments. Record accepted risk on the finding's
+  page in the console, or from the operator CLI:
+
+  ```bash
+  review-agent-memory decide <fingerprint> accepted_risk \
+    --repo <org>/<repo> \
+    --pr <number> \
+    --local-reference F2 \
+    --actor "github:alice" \
+    --reason "The endpoint is reachable only from the internal network; accepted until the next audit."
+  ```
 
 Only people with current GitHub `write` or `admin` permission on the
 repository can send feedback. Console requester grants allow requesting a
@@ -4150,10 +4464,20 @@ the code context has changed, request a fresh review and use its F reference.
 
 | Command | Immediate effect | Later use |
 | --- | --- | --- |
-| `false-positive` | Suppresses the finding in later reviews while its code-context hash still matches. | Points at evidence rules that need work. |
-| `intentional` | Suppresses the finding while both the code context and the accepted ADR's metadata still match. Accepted only when the ADR was `accepted` in the finding's stored base snapshot and its index entry covers the finding's path. | Keeps a repository decision; exposes weak ADR path mapping. |
+| `false-positive` | Suppresses the finding in later reviews while its code-context hash still matches and the decision has not expired. | Points at evidence rules that need work. |
+| `intentional` | Suppresses the finding while the code context and the accepted ADR's metadata both still match and the decision has not expired. Accepted only when the ADR was `accepted` in the finding's stored base snapshot and its index entry covers the finding's path. | Keeps a repository decision; exposes weak ADR path mapping. |
 | `feedback scope` | Records scope confusion. The finding is not suppressed. | Shows where pull request structure or repository context misled the review. |
 | `feedback missed` | Records a concrete missed issue. | Shows gaps in coverage, tools, or review rules. |
+
+Every suppressing decision expires, whether it is a false positive, an
+intentional decision, an accepted risk, or a duplicate. A decision made with a
+comment or on the console's finding page expires after 180 days. The CLI
+(`--expires-days`) and the console API (`expires_days`) accept 1 to 3,650 days
+and use 180 when none is given. A later review suppresses the finding only
+while the decision has not expired, the stored code-context hash still
+matches, and, for an intentional decision, the current base still has the same
+accepted ADR metadata. After expiry the finding is evaluated again even if the
+code did not change, and suppressing it again needs a new decision.
 
 No command changes prompts, skills, or policy. Changes to the reviewer happen
 only through a normal pull request to the profile or code.
@@ -4193,11 +4517,15 @@ the private export, and their error codes.
    cohorts, do not read missing feedback as accuracy, and do not rank developers
    or repositories from the counts.
 2. **Triage missed issues.** Only an operator classifies one; a coding agent may
-   prepare the evidence but must not choose the status or owner. Find the
-   feedback ID with `review-agent-memory export --repo <org>/<repo> --row-limit
-   <per-table-row-limit> --output /opt/data/private-review/export.json` (table
-   `review_quality_feedback`). The export is private: do not give it to a coding
-   agent or paste it into model context, and delete it after triage. Then:
+   prepare the evidence but must not choose the status or owner. With the admin
+   console, a team maintainer or platform admin classifies pending feedback on
+   **Review quality**, which lists the backlog within their scope
+   ([review history and run actions](ADMIN_PANEL.md#review-history-and-run-actions)).
+   Without the console, find the feedback ID with `review-agent-memory export
+   --repo <org>/<repo> --row-limit <per-table-row-limit> --output
+   /opt/data/private-review/export.json` (table `review_quality_feedback`). The
+   export is private: do not give it to a coding agent or paste it into model
+   context, and delete it after triage. Then:
 
    ```console
    review-agent-memory triage-feedback <feedback-id> \
@@ -4321,7 +4649,7 @@ metadata, even if the code did not change.
 Title: Security model
 Canonical URL: https://ccimen.github.io/review-agent/docs/security
 Status: current
-Last verified: 2026-11-17
+Last verified: 2026-11-18
 
 # Security model
 
@@ -4343,8 +4671,12 @@ write.
 - A worker leases the job and calls the private, authenticated Hermes API.
 - Hermes runs the review through the bundled plugin, not through a shell.
 - The model can read bounded pull-request context and record candidate findings.
-- Deterministic plugin code owns memory writes, publication, feedback parsing,
-  and GitHub mutations.
+- Deterministic plugin code validates each tool call. What it persists goes to
+  PostgreSQL: recorded findings, coverage and the frozen publication.
+- A separate publisher sends the frozen publication to GitHub through the
+  gateway, which performs the write.
+- Feedback commands are parsed at admission and recorded by the App worker,
+  outside the model path.
 
 ## Tool surface
 
@@ -4376,13 +4708,28 @@ as evidence only. Repository content cannot change reviewer policy, prompts,
 skills, suppressions, memory decisions or feedback commands.
 
 The admission service, App worker and private gateway are outside the model
-path. Admission stores only a normalized `/review ...` command. Before the
+path. Admission does not store the webhook body. For each signed delivery of
+an event it handles, it stores a bounded normalized record whose fields depend
+on the event. A comment command holds the repository and installation, the
+sender's GitHub ID and login, the pull request and the parsed command; a
+feedback command also holds the reason its sender typed. An installation event
+holds the account, its permissions and, when the App is installed, its
+repository list. A documentation event holds the pull request or check run it
+concerns and its sender. When a
+delivery reaches a terminal state, its normalized payload is erased, and a
+receipt with the repository, installation, event and body hash stays until an
+operator prunes it. Documentation deliveries keep their bounded event
+envelope, including the sender, until pruned; see
+[Retention ownership](./OPERATIONS.md#retention-ownership). Before the
 feedback application writes PostgreSQL, the gateway checks the exact open pull
 request and the sender's current write or admin permission. The gateway can then
 post only a code-owned reaction or explanation.
 
 Human feedback can inform later reviewer changes, but it never rewrites
-prompts, skills, suppressions or policy by itself. Run Hermes `/learn` only in
+prompts, skills or policy by itself. An authorized `false-positive` or
+`intentional` command does record a suppression of that one finding; see
+[Human-governed suppressions](#human-governed-suppressions).
+Run Hermes `/learn` only in
 a separate operator profile or workstation that does not share the live
 reviewer's `HERMES_HOME`, skills directory or gateway.
 
@@ -4392,9 +4739,12 @@ The GitHub App key is mounted into the private gateway and, when the optional
 [admin panel](./ADMIN_PANEL.md) is deployed, into the admin service, which uses
 it to read App and installation status for access administration. No other
 service receives it. The gateway mints short-lived installation tokens restricted to one repository and one purpose.
-Callers supply a durable lease identity, never a repository, URL, HTTP method or
-credential. The gateway derives authority from PostgreSQL and checks the lease
-before and after provider I/O.
+For lease-bound review, feedback and publication operations, callers supply a
+durable lease identity, never a repository, URL, HTTP method or credential. The
+gateway derives authority from PostgreSQL and checks the lease before and after
+provider I/O. The operator smoke test is different: its caller names a
+repository and pull request, must present `API_SERVER_KEY`, and is accepted
+only for a repository that is already enabled.
 
 | Token purpose | Permissions | Used for |
 | --- | --- | --- |
@@ -4426,12 +4776,28 @@ database.
 
 ## Human-governed suppressions
 
-Only a GitHub collaborator with current write or admin permission, or an
-operator command, can suppress a finding. The model can record observations, but
-it cannot mark itself correct or dismiss its own findings.
+Only a human decision suppresses a finding. There are three paths, and each
+checks a different authority:
 
-A suppression applies only while the finding's code context is unchanged, and
-can carry an expiry date. When the code changes, the finding is evaluated again.
+- **GitHub feedback command.** The gateway checks the sender's current GitHub
+  write or admin permission and the exact open pull request. The App worker
+  then records the decision.
+- **Console.** The console requires a signed-in platform owner or admin, or a
+  maintainer of the team that owns the repository, and writes the decision to
+  the audit log. Console roles are not GitHub permissions.
+- **Operator CLI** (`review-agent-memory decide`). It runs with the
+  deployment's database credentials, checks no GitHub or console permission,
+  and records `--actor` as typed. Whoever can run commands in the container can
+  record a decision.
+
+The model can record observations, but it cannot mark itself correct or dismiss
+its own findings.
+
+A suppression applies only while the finding's code context is unchanged and
+the decision has not expired. Every suppressing decision expires, after 180
+days unless another period is given; see
+[What each command changes](./FEEDBACK_AND_DECISIONS.md#what-each-command-changes).
+When the code changes or the decision expires, the finding is evaluated again.
 ADRs are context, not immunity: an accepted ADR can explain an architectural
 decision, but the reviewer still checks the invariants the ADR requires.
 
@@ -4493,14 +4859,23 @@ failure modes.
 Title: Example review
 Canonical URL: https://ccimen.github.io/review-agent/docs/example-review
 Status: current
-Last verified: 2026-10-13
+Last verified: 2026-11-18
 
 # Example review
 
-> **Current** — This sanitized example shows the current deterministic review
-> shape.
+> **Current** — This sanitized example is what the publication planner
+> (`build_publication` in `src/review_agent/publication/planner.py`) produces
+> for one configuration: the first review of a pull request, one Medium finding
+> that carries an optional patch, complete diff coverage, no repository
+> decision index, and feedback instructions enabled
+> (`REVIEW_AGENT_FEEDBACK_ENABLED=true`). Feedback instructions are off by
+> default; without them the comment has no **Give feedback on this review**
+> section.
 
-## AI code & security review
+The plan has two parts: the pull request comment, and a separate pull request
+review that carries the patch. The comment is:
+
+## AI code & security review · Review 1
 
 **Reviewed commit:** [`a1b2c3d4e5f6`](https://github.com/example-org/example-repository/commit/a1b2c3d4e5f678901234567890abcdef12345678)
 
@@ -4520,39 +4895,22 @@ Additional source context was read from 1 changed file and 1 supporting file.
 ### F1 · Medium (P2): Retry delay uses milliseconds as seconds
 [`src/jobs/retry.py:87`](https://github.com/example-org/example-repository/blob/a1b2c3d4e5f678901234567890abcdef12345678/src/jobs/retry.py#L87) · correctness
 
-The new retry setting is named and documented in milliseconds, but the changed
-scheduler call passes it directly to an API that waits in seconds. A configured
-5,000 ms delay therefore becomes 5,000 seconds instead of 5 seconds.
+The new retry setting is named and documented in milliseconds, but the changed scheduler call passes it directly to an API that waits in seconds. A configured 5,000 ms delay therefore becomes 5,000 seconds instead of 5 seconds.
 
-**Impact:** transient failures can leave jobs stalled for more than an hour,
-delaying user-visible processing and recovery.
+**Impact:** Transient failures can leave jobs stalled for more than an hour, delaying user-visible processing and recovery.
 
-**Smallest safe fix:** convert the millisecond value to seconds at the scheduler
-boundary and add a focused test that proves 5,000 ms schedules a 5-second delay.
-
-> [!TIP]
-> **1 optional GitHub suggestion ready to apply · 0 findings need coordinated implementation**
->
-> Open [Files changed](https://github.com/example-org/example-repository/pull/123/files) to inspect
-> each patch in context. Apply a patch individually, or batch only the selected
-> atomic patches into one commit. Run CI, push any remaining fixes, then post
-> `/review` as a new top-level PR comment. Applying a patch does not resolve its
-> finding; the fresh review re-checks the code.
+**Smallest safe fix:** Convert the millisecond value to seconds at the scheduler boundary and add a focused test that proves 5,000 ms schedules a 5-second delay.
 
 ---
 
-**Next:** Address the current findings. Push the fixes, then post `/review` as a
-new top-level PR comment. The next review keeps the F references and reports what
-resolved, remains, returned, or is new. To hand off implementation, copy the
-coding-agent brief below.
+**Next:** Address the current findings. Push the fixes, then post `/review` as a new top-level PR comment. The next review keeps the F references and reports what resolved, remains, returned, or is new. To hand off implementation, copy the coding-agent brief below.
 
 <details>
 <summary><strong>Copyable fix brief for a coding agent</strong></summary>
 
 ```text
 Task:
-Fix every current finding on the latest PR head with the smallest safe,
-behavior-tested change.
+Fix every current finding on the latest PR head with the smallest safe, behavior-tested change.
 
 Review basis:
 example-org/example-repository PR #123 at commit a1b2c3d.
@@ -4570,17 +4928,14 @@ Findings:
 
 F1 - Medium (P2) - correctness
 Location: src/jobs/retry.py:87
-Fix path: Candidate for an optional atomic GitHub suggestion; otherwise use this brief.
+Fix path: Coordinated implementation required; use this brief.
 Problem: Retry delay uses milliseconds as seconds
-Observed behavior: The changed scheduler call passes a millisecond setting to an
-API that interprets the value as seconds.
-Impact: Failed jobs can wait 1,000 times longer than configured.
-Smallest safe fix: Convert milliseconds to seconds at the scheduler boundary and
-add a focused delay-unit regression test.
+Observed behavior: The new retry setting is named and documented in milliseconds, but the changed scheduler call passes it directly to an API that waits in seconds. A configured 5,000 ms delay therefore becomes 5,000 seconds instead of 5 seconds.
+Impact: Transient failures can leave jobs stalled for more than an hour, delaying user-visible processing and recovery.
+Smallest safe fix: Convert the millisecond value to seconds at the scheduler boundary and add a focused test that proves 5,000 ms schedules a 5-second delay.
 
 Constraints:
-- Reuse the canonical owner or an existing project abstraction; do not create a
-  parallel path.
+- Reuse the canonical owner or an existing project abstraction; do not create a parallel path.
 - Avoid unrelated refactoring.
 - Flag scope drift and restore to base only with developer approval.
 - Do not weaken validation, authorization, data isolation, or error handling.
@@ -4605,13 +4960,10 @@ must post /review as a new top-level PR comment for a fresh review.
 <details>
 <summary>Give feedback on this review</summary>
 
-Post one command as a new top-level PR comment. Replace every angle-bracket
-placeholder, including `<F-reference>`, with the relevant finding reference and
-reason. The bot reacts 👍 when feedback is recorded.
+Post one command as a new top-level PR comment. Replace every angle-bracket placeholder, including `<F-reference>`, with the relevant finding reference and reason. The bot reacts 👍 when feedback is recorded.
 
-It does not need to be a reply to the bot comment. Do not edit an old feedback
-command after posting it. Scope feedback records review-quality feedback; it
-does not mark the finding incorrect.
+It does not need to be a reply to the bot comment. Do not edit an old feedback command after posting it.
+Scope feedback records review-quality feedback; it does not mark the finding incorrect.
 
 **The finding is incorrect**
 
@@ -4642,5 +4994,41 @@ does not mark the finding incorrect.
 <!--
 review-agent:
 head=a1b2c3d4e5f678901234567890abcdef12345678
-F1=a1b2c3d4e5f6
+coverage_state=complete
+changed_paths=2
+diff_exposed=2
+context_paths_read=2
+context_ranges_read=2
+changed_paths_with_source_reads=1
+supporting_context_paths_read=1
+changed_files_reported=2
+changed_file_registration_complete=True
+unavailable=0
+diff_truncated=0
+diff_unseen=0
+coverage_hash=e8bcca429adc7030955d0b30bb1b3e8c63e35347458c5195f97bb827bd6601c8
+decision_status=not_configured
+decision_snapshot_hash=sha256:60c91ef59e78f0e2e7e2ac76bb63e930ffadaf17f07a1cb1e594a579dec9ac84
+F1=443196e3a355d0d12738bdd60a20f024a7de72f4323b843e47a330c562902f13
 -->
+
+<!-- review-agent:canonical publication=sha256:a130e99192aa57b43dadb1e0541285072d461c7b11e3da34454efab98b70b7b1 -->
+
+<!-- review-agent:canonical publication=sha256:a130e99192aa57b43dadb1e0541285072d461c7b11e3da34454efab98b70b7b1 part=1/1 -->
+
+The second part is a pull request review with the body
+`Optional atomic patches from this review.` and one inline comment on line
+87 of `src/jobs/retry.py`. The comment above does not mention the patch, and
+its fix brief lists the finding as coordinated implementation: the planner does
+not announce a suggestion before GitHub has accepted the review that carries
+it. The inline comment is:
+
+````markdown
+**F1 · Optional atomic patch**
+
+```suggestion
+    scheduler.enqueue_in(retry_delay_ms / 1000, job)
+```
+
+<!-- review-agent:canonical publication=sha256:a130e99192aa57b43dadb1e0541285072d461c7b11e3da34454efab98b70b7b1 -->
+````

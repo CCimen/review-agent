@@ -39,7 +39,8 @@ connection. See
 ## How do I serve many repositories or a whole organization?
 
 Deploy once, install the App on the organization, and approve the installation
-once. Repositories then activate on their first authorized `/review`. See
+once. Each repository the installation reaches is then enabled by its first
+`/review` command; a review starts only if the commenter may request one. See
 [Set up and share the GitHub App](./GITHUB_APP_PILOT.md), and
 [scale workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when queue wait
 time grows.
@@ -63,9 +64,11 @@ locations per query. Nothing reranks findings or context. See
 
 ## Does it find security problems?
 
-Yes, within the pull request. Every code review applies security-audit guidance
-to the changed code and reports vulnerabilities and flawed security logic the
-pull request introduces or worsens. It does not run exploits, query a CVE
+Yes, within the pull request. The review procedure instructs the reviewer to
+apply security-audit guidance to the changed code and to report vulnerabilities
+and flawed security logic the pull request introduces or worsens. Those are
+instructions to the model: code checks each finding it records, not that every
+path was traced. It does not run exploits, query a CVE
 database, audit unchanged code, or certify a repository as secure; keep
 deterministic scanners in CI. See [How reviews work](./HOW_REVIEWS_WORK.md).
 
@@ -80,7 +83,8 @@ against it. It does not assess the whole repository.
 ## Does feedback affect later reviews?
 
 `/review false-positive` and `/review intentional` suppress the same finding in
-later rounds while the code and ADR still match. `/review feedback scope` and
+later rounds while the code and ADR still match and the decision has not
+expired (180 days for a comment). `/review feedback scope` and
 `/review feedback missed` record evidence only. See
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md).
 
@@ -89,8 +93,9 @@ later rounds while the code and ADR still match. `/review feedback scope` and
 Each repository can add review focus, communication preferences, technical
 context, and accepted ADRs through its [`.review-agent/`
 package](./REPOSITORY_CONTEXT.md), read from the pull request's base commit. The
-deployment profile owns identity, procedure, evidence gates, severity, tools,
-authorization, and publication; see
+deployment profile owns the reviewer's identity, procedure, and review rules
+such as severity. Tools, authorization, the finding gates, and publication are
+fixed in code, and neither a profile nor a repository can change them; see
 [Behavior ownership](./BEHAVIOR_OWNERSHIP.md).
 
 ## What is stored in PostgreSQL?
@@ -101,9 +106,12 @@ so back it up and treat exports as sensitive. See [Security](./SECURITY.md).
 
 ## Why did a review fail or stop?
 
-Common causes are an unauthorized requester, a disabled repository, a stale head
-SHA, or a GitHub permission failure. Check the run's failure code in the
-[Operations runbook](./OPERATIONS.md#runbook).
+A request from an unauthorized requester or in a disabled repository is
+rejected before a run exists: look for the delivery's `status=` and `reason=`
+in the `review-github-app-worker` log
+([failure codes](./OPERATIONS.md#failure-codes)). Once a run exists, common
+causes are a stale head SHA or a GitHub permission failure; check the run's
+failure code in the [Operations runbook](./OPERATIONS.md#runbook).
 
 ## Can we follow reviews in Slack or Microsoft Teams?
 

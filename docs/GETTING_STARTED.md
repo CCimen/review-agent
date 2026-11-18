@@ -40,9 +40,11 @@ In an open pull request, add a new top-level comment:
 /review
 ```
 
-The published review names the base and head commits it covers, its coverage,
-and its findings. After fixing findings, push a commit and comment `/review`
-again. If no comment appears, follow the
+The published review links the head commit it reviewed and reports its coverage
+and findings. The base commit is stored with the run; the
+[admin console](./ADMIN_PANEL.md) shows it in the request's execution details.
+After fixing findings, push a commit and comment `/review` again. If no comment
+appears, follow the
 [runbook](./OPERATIONS.md#runbook).
 
 ## 4. Add repository context (optional)
@@ -66,8 +68,11 @@ See [Repository context](./REPOSITORY_CONTEXT.md).
 
 ## Serve many repositories
 
-One approved installation covers its current and future repositories. Each
-repository is enabled the first time an authorized user posts `/review` in it.
+One approved installation covers the repositories GitHub lets the App reach:
+all current and future ones, or only the selected ones. Each repository is
+enabled by the first `/review` command posted in it; a review starts only if
+the commenter
+[may request one](./GITHUB_APP_PILOT.md#who-can-request-a-review).
 All repositories share one queue and one PostgreSQL database; reviews of the
 same repository run one at a time, so
 [add review workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when wait

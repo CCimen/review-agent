@@ -423,9 +423,9 @@ class DeploymentConfigTests(unittest.TestCase):
                 tab("compose-upgrade", "Compose"),
                 (
                     "docker compose stop $APP_SERVICES",
-                    'running="$(docker compose ps --status running --services)"',
-                    "docker compose run --rm --no-deps --no-build review-profile-install",
-                    "docker compose run --rm --no-deps --no-build review-db-migrate",
+                    "remaining=\"$(docker compose ps --all --format '{{.Service}} {{.State}}' |",
+                    "docker compose run --rm --no-deps review-profile-install",
+                    "docker compose run --rm --no-deps review-db-migrate",
                     "docker compose up -d --no-deps --no-build --force-recreate",
                 ),
             ),
@@ -446,6 +446,71 @@ class DeploymentConfigTests(unittest.TestCase):
                 self.assertIn(fail_fast_shell, procedure)
                 positions = [procedure.index(step) for step in steps]
                 self.assertEqual(positions, sorted(positions))
+
+    def test_documented_compose_upgrade_stops_at_the_first_failed_step(self):
+        scripts = re.findall(
+            r"```bash\n(bash -euo pipefail <<'COMPOSE_UPGRADE'\n.*?\nCOMPOSE_UPGRADE)\n```",
+            read("docs/DEPLOYMENT.md"),
+            flags=re.S,
+        )
+        self.assertEqual(1, len(scripts))
+        stopped = "review-postgres running\nhermes-review exited\nreview-admin exited\n"
+
+        def run(states: str, failing: str = "no step fails") -> tuple[int, list[str]]:
+            with tempfile.TemporaryDirectory() as directory:
+                calls = Path(directory) / "calls"
+                listing = Path(directory) / "states"
+                listing.write_text(states, encoding="utf-8")
+                stub = Path(directory) / "docker"
+                stub.write_text(
+                    "#!/bin/sh\n"
+                    f'echo "docker $*" >> "{calls}"\n'
+                    'case "$*" in\n'
+                    '  "compose config --services") printf "%s\\n" review-postgres '
+                    "review-profile-install review-db-migrate hermes-review review-admin;;\n"
+                    f'  "compose ps --all --format"*) cat "{listing}";;\n'
+                    # A container command reads whatever standard input it inherits.
+                    '  "compose run "*|"compose exec "*) cat >/dev/null;;\n'
+                    "esac\n"
+                    f'case "docker $*" in *"{failing}"*) exit 1;; esac\n',
+                    encoding="utf-8",
+                )
+                stub.chmod(0o755)
+                result = subprocess.run(
+                    ["bash", "-c", scripts[0]],
+                    env={**os.environ, "PATH": f"{directory}{os.pathsep}{os.environ['PATH']}"},
+                    capture_output=True, text=True, check=False,
+                )
+                return result.returncode, calls.read_text(encoding="utf-8").splitlines()
+
+        migrate = "docker compose run --rm --no-deps review-db-migrate"
+        code, calls = run(stopped)
+        self.assertEqual(0, code)
+        self.assertIn("docker compose stop hermes-review review-admin", calls)
+        self.assertIn(migrate, calls)
+        # The script reaches bash on standard input; a one-shot that consumed it
+        # would end the script here with status 0.
+        start = [call for call in calls if call.startswith("docker compose up -d ")]
+        self.assertEqual(1, len(start))
+        self.assertTrue(start[0].endswith(" hermes-review review-admin"))
+        self.assertEqual("docker compose ps", calls[-1])
+
+        for states, failing in (
+            (stopped + "review-worker restarting\n", "no step fails"),
+            (stopped + "review-worker paused\n", "no step fails"),
+            # The listing itself fails and prints nothing.
+            ("", "compose ps --all"),
+            (stopped, "compose stop"),
+            (stopped, "review-profile-install"),
+        ):
+            with self.subTest(states=states, failing=failing):
+                code, calls = run(states, failing)
+                self.assertNotEqual(0, code)
+                self.assertFalse([call for call in calls if " run " in call and "db-migrate" in call])
+                self.assertFalse([call for call in calls if call.startswith("docker compose up")])
+        code, calls = run(stopped, "review-db-migrate")
+        self.assertNotEqual(0, code)
+        self.assertFalse([call for call in calls if call.startswith("docker compose up")])
 
     def _helm(self) -> str:
         helm = shutil.which("helm")

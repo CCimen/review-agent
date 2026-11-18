@@ -75,10 +75,12 @@ with `docker rm --force review-agent-dev-db`.
 | `tools/` | Entrypoints for the services and operator commands; each starts code from the package |
 | `bootstrap/` | What the image installs into Hermes: installer, managed configuration, reviewer profiles |
 | `admin/` | The admin console frontend (React); its API lives in the package's `admin/` |
-| `tests/` | Unit tests and the PostgreSQL contract tests |
+| `tests/` | Unit tests and the PostgreSQL contract tests; `tests/support.py` seeds review runs for them |
 | `scripts/` | Checks that CI runs, and release tooling |
 | `examples/`, `install/`, `skills/` | The OpenShift template and Helm chart, example configuration, the install plan schema, and the install skill |
 | `docs/`, `website/` | Documentation and the site that publishes it |
+| `requirements.txt`, `requirements/` | Pinned dependencies: the runtime's at the root; the console's, the code graph's, development and release tooling in the directory |
+| `pyproject.toml` | Ruff and Pyright settings; the application is not an installable distribution |
 
 Inside the package:
 
@@ -92,7 +94,7 @@ Inside the package:
 | `repository_context/` | A repository's `.review-agent/` package: guidance, decisions, validation |
 | `code_graph/` | The optional code graph service |
 | `model_runtime/` | Hermes integration: runtime API, model accounts, quota, context window |
-| `admin/`, `admin_auth.py` | The admin console backend: HTTP API, accounts and sign-in |
+| `admin/`, `admin_auth.py` | The admin console backend. `admin_auth.py` wires sign-in and the account routes; `admin/accounts.py` holds accounts and sessions, `admin/registration.py` and `admin/account_admin.py` their use cases, and the `*_api.py` modules the rest of the HTTP API |
 | `domain/` | Pure rules and value types with no I/O |
 | `postgres/`, `postgres_migrations/` | PostgreSQL persistence, one module per concern, and the schema migrations |
 | `operator_application.py`, `operator_setup.py` | Operator command use cases, `doctor` and App registration |

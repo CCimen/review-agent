@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tomllib
 import unittest
 
 import yaml
@@ -78,6 +79,12 @@ class AiOnboardingContractTests(unittest.TestCase):
             )
         )
         self.assertEqual(public_image_tags, {generator.REVISION})
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertEqual(
+            f"v{project['project']['version']}",
+            generator.REVISION,
+            "bump version in pyproject.toml with REVISION in scripts/generate_llms_docs.py",
+        )
         for invalid_tag in (
             "v01.2.3",
             "v1.2.3-01",

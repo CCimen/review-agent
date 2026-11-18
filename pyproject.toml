@@ -1,6 +1,55 @@
-# Tool configuration only. The application is not an installable distribution:
-# images copy bootstrap/ and tools/, and dependencies are pinned in
-# requirements.txt and requirements/.
+# Build metadata and tool configuration. The wheel holds the package where it
+# lies, bootstrap/plugins/review_agent_tools, with its migrations and plugin
+# manifest. Images do not install it yet: they copy bootstrap/ and tools/ and
+# install the pins in requirements.txt and requirements/.
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "review-agent"
+# The release this source belongs to; a test keeps it equal to REVISION in
+# scripts/generate_llms_docs.py, which the release workflow checks against the tag.
+version = "0.4.14"
+description = "Self-hosted, advisory AI code review for GitHub pull requests"
+requires-python = ">=3.11"
+license = "EUPL-1.2"
+license-files = ["LICENSE", "NOTICE.md"]
+# What the stores, worker, admission, GitHub gateway and operator commands
+# import. Lower bounds are the versions pinned today; images install the pins.
+# pydantic has no root pin, the Hermes image provides it: its bound is the API.
+dependencies = [
+    "cryptography>=50.0.0",
+    "psycopg[binary]>=3.3.4",
+    "psycopg-pool>=3.3.1",
+    "pydantic>=2",
+    "PyJWT>=2.14.0",
+    "PyYAML>=6.0.3",
+]
+
+[project.optional-dependencies]
+# The console API, and uvicorn, the server it is started with.
+admin = [
+    "authlib>=1.9.8",
+    "fastapi>=0.141.1",
+    "fastapi-users[sqlalchemy]>=15.0.5",
+    "httpx2>=2.12.0",
+    "joserfc>=1.7.5",
+    "SQLAlchemy>=2.0.52",
+    "starlette>=1.6.0",
+    "uvicorn>=0.52.4",
+]
+# The runtime API the plugin registers inside the Hermes gateway.
+hermes = ["aiohttp>=3.14.4"]
+
+[tool.setuptools.packages.find]
+where = ["bootstrap/plugins"]
+include = ["review_agent_tools*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+review_agent_tools = ["plugin.yaml", "postgres_migrations/*.sql"]
 
 [tool.ruff]
 target-version = "py311"

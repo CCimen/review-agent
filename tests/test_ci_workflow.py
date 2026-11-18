@@ -187,6 +187,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             source,
         )
         self.assertIn("./scripts/check_bundle.sh", source)
+        self.assertIn("./scripts/check_package.sh", source)
         self.assertIn("./scripts/check_postgres_schema.sh", source)
         self.assertIn("docker build --tag review-agent:ci .", source)
         self.assertIn("bash ./scripts/check_image.sh review-agent:ci", source)
@@ -255,6 +256,40 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             )
         self.assertEqual(True, mapping(policy["pkg"])["include-dev-deps"])
         self.assertEqual(False, mapping(policy["vulnerability"])["ignore-unfixed"])
+
+    def test_package_metadata_declares_the_pinned_direct_dependencies(self):
+        def names(lines: list[str]) -> set[str]:
+            found = (re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", line) for line in lines)
+            return {
+                re.sub(r"[-_.]+", "-", match.group()).lower()
+                for match in found
+                if match is not None
+            }
+
+        def lines(relative: str) -> list[str]:
+            return (ROOT / relative).read_text(encoding="utf-8").splitlines()
+
+        project = mapping(
+            mapping(tomllib.loads(PYPROJECT.read_text(encoding="utf-8")))["project"]
+        )
+        declared = names(
+            [str(item) for item in sequence(project["dependencies"])]
+            + [
+                str(item)
+                for group in mapping(project["optional-dependencies"]).values()
+                for item in sequence(group)
+            ]
+        )
+        # The images install the pinned files, not the package metadata. Every
+        # declared dependency must be pinned in the lock that holds them all.
+        self.assertEqual(
+            set(), declared - names(lines("requirements/requirements-admin.txt"))
+        )
+        direct = names(
+            lines("requirements.txt") + lines("requirements/requirements-admin.in")
+        )
+        # These three only patch packages inherited from the Hermes image.
+        self.assertEqual(set(), direct - declared - {"tornado", "anyio", "urllib3"})
 
     def test_ruff_keeps_correctness_rules_enabled(self):
         project = mapping(tomllib.loads(PYPROJECT.read_text(encoding="utf-8")))

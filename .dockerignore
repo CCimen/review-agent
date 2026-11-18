@@ -7,5 +7,6 @@
 !tools/
 !tools/review_agent_*.py
 bootstrap/plugins/review_agent_tools/_build.json
+bootstrap/plugins/*.egg-info/
 **/__pycache__/
 **/*.py[cod]

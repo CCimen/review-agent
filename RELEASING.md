@@ -19,7 +19,8 @@ you publish the GitHub release.
   publishing an image.
 - Confirm the public docs, generated LLM files, and installation-skill mirrors
   are current.
-- Update `REVISION` in `scripts/generate_llms_docs.py`, the image example in
+- Update `REVISION` in `scripts/generate_llms_docs.py`, `version` in
+  `pyproject.toml` (a test keeps the two equal), the image example in
   `docs/REPOSITORY_CONTEXT.md`, and `REVIEW_AGENT_IMAGE` in
   `examples/workflows/review-agent-context.yml` to the same release. Regenerate
   both LLM files and commit them, with any changed operator guidance, before

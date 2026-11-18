@@ -50,6 +50,7 @@ from .email import email_cipher
 from .identity_config import IdentitySettings
 from ..build_info import BuildInfo, read_build_info
 from ..domain.review import ReviewPurpose
+from ..review.contract import source_checkout
 from ..postgres import admin_operations, admin_reporting, admin_usage
 from ..postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
 from ..postgres.teams import TeamConflict
@@ -479,11 +480,9 @@ def create_app(
 
 
 def _built_frontend() -> Path:
-    """The image's frontend, else admin/dist in the checkout that holds src/."""
-    if IMAGE_STATIC_DIR.is_dir():
-        return IMAGE_STATIC_DIR
-    package = Path(__file__).resolve().parents[1]
-    return package.parents[1] / "admin" / "dist"
+    """A checkout serves its own admin/dist; an installed package the image's."""
+    checkout = source_checkout()
+    return checkout / "admin" / "dist" if checkout is not None else IMAGE_STATIC_DIR
 
 
 def app_from_environment() -> FastAPI:

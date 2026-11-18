@@ -326,17 +326,20 @@ class DeploymentConfigTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as temp:
             image_dist = Path(temp) / "dist"
+            image_dist.mkdir()
             with (
                 patch.dict(os.environ, environment),
                 patch.object(api, "create_app") as create,
                 patch.object(api, "IMAGE_STATIC_DIR", image_dist),
             ):
+                # An image frontend on the same machine does not capture an
+                # API that runs from a checkout.
                 api.app_from_environment()
-                image_dist.mkdir()
-                api.app_from_environment()
+                with patch.object(api, "source_checkout", return_value=None):
+                    api.app_from_environment()
         checkout, image = (call.kwargs["static_dir"] for call in create.call_args_list)
-        # A checkout serves the frontend built beside src/; the image serves the
-        # directory its Dockerfile copies the build to.
+        # A checkout serves the frontend built beside src/; an installed
+        # package serves the directory the Dockerfile copies the build to.
         self.assertEqual(ROOT / "admin" / "dist", checkout)
         self.assertEqual(image_dist, image)
         self.assertIn(

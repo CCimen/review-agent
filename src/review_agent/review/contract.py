@@ -350,23 +350,30 @@ class BehaviorInputs:
     package: Path  # the engine, hashed file by file
 
 
+def source_checkout() -> Path | None:
+    """The repository this package runs from, or None when it is installed.
+
+    A checkout holds the package at ``src/review_agent``; images and wheels do not.
+    """
+    package = Path(__file__).resolve().parents[1]
+    return package.parents[1] if package.parent.name == "src" else None
+
+
 def locate_behavior_inputs(bootstrap: Path | None = None) -> BehaviorInputs:
     """Find the managed config and profiles for the engine that is running.
 
-    ``bootstrap`` holds ``config.yaml`` and ``profiles/``. Without it, that is
-    the image's bootstrap directory, else ``bootstrap/`` in the checkout whose
-    ``src/`` holds this package.
+    ``bootstrap`` holds ``config.yaml`` and ``profiles/``. Without it, a package
+    running from a checkout uses that checkout's ``bootstrap/``, whatever else
+    the machine holds, and an installed package uses the image's bootstrap
+    directory.
     """
     package = Path(__file__).resolve().parents[1]
     if bootstrap is None:
-        candidates = (_IMAGE_BOOTSTRAP, package.parents[1] / "bootstrap")
-        bootstrap = next(
-            (item for item in candidates if (item / "config.yaml").is_file()), None
-        )
-        if bootstrap is None:
+        checkout = source_checkout()
+        bootstrap = checkout / "bootstrap" if checkout is not None else _IMAGE_BOOTSTRAP
+        if not (bootstrap / "config.yaml").is_file():
             raise ReviewContractError(
-                "managed reviewer config.yaml is in neither "
-                f"{candidates[0]} nor {candidates[1]}"
+                f"managed reviewer config.yaml is not in {bootstrap}"
             )
     return BehaviorInputs(
         config=bootstrap / "config.yaml",

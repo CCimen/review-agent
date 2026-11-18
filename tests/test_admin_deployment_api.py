@@ -11,8 +11,8 @@ from unittest.mock import Mock, patch
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap/plugins"))
-from review_agent_tools.admin.deployment_api import (  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from review_agent.admin.deployment_api import (  # noqa: E402
     DokployDeployment,
     DokployError,
     create_router,

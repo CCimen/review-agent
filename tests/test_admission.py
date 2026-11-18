@@ -15,15 +15,15 @@ from unittest.mock import MagicMock, Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tools"))
 
 import review_agent_admission as admission_entrypoint  # noqa: E402
 
-from review_agent_tools import admission  # noqa: E402
-from review_agent_tools.review import contract as review_contract  # noqa: E402
-from review_agent_tools.postgres.runtime import PostgreSQLUnavailable  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl, SettingsError  # noqa: E402
+from review_agent import admission  # noqa: E402
+from review_agent.review import contract as review_contract  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLUnavailable  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl, SettingsError  # noqa: E402
 
 
 class AdmissionTests(unittest.TestCase):

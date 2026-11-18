@@ -12,10 +12,10 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import Mock, patch
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import source_control  # noqa: E402
+from review_agent import source_control  # noqa: E402
 
 
 class _FakeResponse:
@@ -390,7 +390,7 @@ class GitHubReadClientTests(unittest.TestCase):
                 self.assertEqual([call.args[0] for call in sleeper.call_args_list], [1.0, 2.0])
 
     def test_the_gateway_reader_retries_a_brief_github_failure(self) -> None:
-        from review_agent_tools.github import gateway
+        from review_agent.github import gateway
 
         opener = Mock(spec=urllib.request.OpenerDirector)
         opener.open.side_effect = [urllib.error.URLError("reset"), _FakeResponse(b"{}")]

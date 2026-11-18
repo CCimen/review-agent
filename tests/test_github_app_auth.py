@@ -21,13 +21,13 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools.domain.review import RepositoryId  # noqa: E402
-from review_agent_tools import source_control  # noqa: E402
-from review_agent_tools.github import app_auth  # noqa: E402
-from review_agent_tools.postgres import github_app  # noqa: E402
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.domain.review import RepositoryId  # noqa: E402
+from review_agent import source_control  # noqa: E402
+from review_agent.github import app_auth  # noqa: E402
+from review_agent.postgres import github_app  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 
 
 NOW = datetime(2026, 8, 26, 8, tzinfo=timezone.utc)

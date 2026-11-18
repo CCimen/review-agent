@@ -41,7 +41,7 @@ docker run --rm --network none \
     --entrypoint /opt/review-agent-code-graph/bin/python "$image" -c '
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from review_agent_tools.code_graph.indexer import execute
+from review_agent.code_graph.indexer import execute
 
 with TemporaryDirectory() as directory:
     root = Path(directory)

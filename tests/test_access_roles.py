@@ -5,9 +5,9 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from review_agent_tools.domain.access import Role  # noqa: E402
+from review_agent.domain.access import Role  # noqa: E402
 
 
 class PlatformRoleTests(unittest.TestCase):

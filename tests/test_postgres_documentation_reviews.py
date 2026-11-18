@@ -9,29 +9,29 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools.review import (  # noqa: E402
+from review_agent.review import (  # noqa: E402
     run_application as review_run_application,
 )
-from review_agent_tools.domain.documentation_scope import (  # noqa: E402
+from review_agent.domain.documentation_scope import (  # noqa: E402
     ChangedPath,
     DocumentationScope,
     ScopeExclusion,
     SelectedArea,
 )
-from review_agent_tools.domain.documentation_review import (  # noqa: E402
+from review_agent.domain.documentation_review import (  # noqa: E402
     DocumentationOutcome,
     DocumentationReviewError,
     EvidenceRead,
     EvidenceRole,
     decode_scope,
 )
-from review_agent_tools.domain.review import ReviewPurpose, ReviewRunId  # noqa: E402
-from review_agent_tools.postgres import documentation_reviews, review_runs  # noqa: E402
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.domain.review import ReviewPurpose, ReviewRunId  # noqa: E402
+from review_agent.postgres import documentation_reviews, review_runs  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -128,11 +128,11 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
         return started.run.id
 
     def test_preflight_persists_an_explicit_exclusion_without_semantic_context(self) -> None:
-        from review_agent_tools.documentation import (
+        from review_agent.documentation import (
             preflight as documentation_preflight,
         )
-        from review_agent_tools.postgres import jobs
-        from review_agent_tools.review.tool_runtime import GatewaySourceSession
+        from review_agent.postgres import jobs
+        from review_agent.review.tool_runtime import GatewaySourceSession
         from tests.test_documentation_preflight import POLICY, policy
 
         run_id = self.start()
@@ -163,12 +163,12 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
             self.assertEqual(documentation_reviews.get_result(connection, run_id=run_id), result)
 
     def test_preflight_only_freezes_verified_comparison_absence(self) -> None:
-        from review_agent_tools.documentation import (
+        from review_agent.documentation import (
             preflight as documentation_preflight,
         )
-        from review_agent_tools.github.gateway import GitHubGatewayRejected
-        from review_agent_tools.postgres import jobs
-        from review_agent_tools.review.tool_runtime import GatewaySourceSession
+        from review_agent.github.gateway import GitHubGatewayRejected
+        from review_agent.postgres import jobs
+        from review_agent.review.tool_runtime import GatewaySourceSession
         from tests.test_documentation_preflight import POLICY, policy
         run_id = self.start()
         support.register_postgres_changed_files(self.runtime, run_id=run_id,
@@ -193,10 +193,10 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
         self.assertIsNone(result.comparison_sha)
 
     def test_preparation_rejects_cancelled_worker_before_advancing_phase(self) -> None:
-        from review_agent_tools.review import (
+        from review_agent.review import (
             publication_application as review_publication_application,
         )
-        from review_agent_tools.postgres import jobs
+        from review_agent.postgres import jobs
         run_id = self.start()
         with self.runtime.transaction() as connection:
             documentation_reviews.initialize(connection, run_id=run_id, comparison_sha=COMPARISON)
@@ -227,12 +227,12 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
     def test_semantic_finalization_fences_lease_and_authority_before_atomic_receipt(
         self,
     ) -> None:
-        from review_agent_tools.documentation.findings import (
+        from review_agent.documentation.findings import (
             finalize_documentation_assessment,
         )
-        from review_agent_tools.domain.review import ReviewPhase
-        from review_agent_tools.postgres import findings, jobs, repository_decisions
-        from review_agent_tools.domain.repository_decision_context import (
+        from review_agent.domain.review import ReviewPhase
+        from review_agent.postgres import findings, jobs, repository_decisions
+        from review_agent.domain.repository_decision_context import (
             not_configured,
         )
         from tests.test_documentation_findings import input_fixture, result_fixture
@@ -289,7 +289,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
             assessment=input_fixture(observed),
         )
         with patch(
-            "review_agent_tools.documentation.findings.github_app.authorize_documentation_review"
+            "review_agent.documentation.findings.github_app.authorize_documentation_review"
         ) as authority:
             with self.assertRaises(jobs.ReviewJobLeaseLost):
                 finalize_documentation_assessment(
@@ -320,13 +320,13 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
                 (run_id,),
             ).fetchall()
             self.assertEqual(rows, [("docs/api.md",)])
-            from review_agent_tools.domain.finding import (
+            from review_agent.domain.finding import (
                 resolve_finding_content,
                 FindingContent,
             )
 
-            from review_agent_tools import operator_input
-            from review_agent_tools.review import decision_application
+            from review_agent import operator_input
+            from review_agent.review import decision_application
 
             target = connection.execute(
                 "SELECT identity.fingerprint, occurrence.id FROM review_agent.finding_occurrences occurrence JOIN review_agent.finding_identities identity ON identity.id = occurrence.finding_id WHERE occurrence.review_run_id = %s",

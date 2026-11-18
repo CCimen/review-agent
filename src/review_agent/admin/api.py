@@ -50,6 +50,7 @@ from .email import email_cipher
 from .identity_config import IdentitySettings
 from ..build_info import BuildInfo, read_build_info
 from ..domain.review import ReviewPurpose
+from ..review.contract import source_checkout
 from ..postgres import admin_operations, admin_reporting, admin_usage
 from ..postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
 from ..postgres.teams import TeamConflict
@@ -62,6 +63,9 @@ from ..postgres.runtime import (
 )
 from ..settings import ReviewAgentSettings
 
+
+# Where admin/Dockerfile copies the built frontend in the console image.
+IMAGE_STATIC_DIR = Path("/app/admin/dist")
 
 Days = Annotated[int, Query(ge=1, le=90)]
 Limit = Annotated[int, Query(ge=1, le=100)]
@@ -475,6 +479,12 @@ def create_app(
     return app
 
 
+def _built_frontend() -> Path:
+    """A checkout serves its own admin/dist; an installed package the image's."""
+    checkout = source_checkout()
+    return checkout / "admin" / "dist" if checkout is not None else IMAGE_STATIC_DIR
+
+
 def app_from_environment() -> FastAPI:
     settings = ReviewAgentSettings.from_environment()
     runtime = PostgreSQLRuntime(
@@ -483,5 +493,5 @@ def app_from_environment() -> FastAPI:
     return create_app(
         runtime,
         public_url=os.environ.get("REVIEW_AGENT_ADMIN_PUBLIC_URL", ""),
-        static_dir=Path(__file__).resolve().parents[4] / "admin" / "dist",
+        static_dir=_built_frontend(),
     )

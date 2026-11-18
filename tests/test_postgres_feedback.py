@@ -12,48 +12,48 @@ from threading import Barrier
 import psycopg
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
+PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import operator_application  # noqa: E402
-from review_agent_tools.domain import repository_decision_context  # noqa: E402
-from review_agent_tools.review import (  # noqa: E402
+from review_agent import operator_application  # noqa: E402
+from review_agent.domain import repository_decision_context  # noqa: E402
+from review_agent.review import (  # noqa: E402
     decision_application,
     feedback_application as review_feedback_application,
 )
-from review_agent_tools.review import (  # noqa: E402
+from review_agent.review import (  # noqa: E402
     finding_application as review_finding_application,
     run_application as review_run_application,
 )
-from review_agent_tools.domain.finding import (  # noqa: E402
+from review_agent.domain.finding import (  # noqa: E402
     FindingId,
     FindingInput,
 )
-from review_agent_tools.domain import repository_decisions as decision_domain  # noqa: E402
-from review_agent_tools.domain.feedback import (  # noqa: E402
+from review_agent.domain import repository_decisions as decision_domain  # noqa: E402
+from review_agent.domain.feedback import (  # noqa: E402
     FeedbackDomainError,
     FeedbackStatus,
     resolve_feedback_triage,
 )
-from review_agent_tools.domain.publication import (  # noqa: E402
+from review_agent.domain.publication import (  # noqa: E402
     PublicationFindingInput,
     PublicationFindingOutcome,
     PublicationPartInput,
     PublicationPartType,
     resolve_publication_plan,
 )
-from review_agent_tools.domain.review import ReviewPhase  # noqa: E402
-from review_agent_tools.feedback_commands import (  # noqa: E402
+from review_agent.domain.review import ReviewPhase  # noqa: E402
+from review_agent.feedback_commands import (  # noqa: E402
     parse_review_feedback_command,
 )
-from review_agent_tools.postgres import feedback as postgres_feedback  # noqa: E402
-from review_agent_tools.postgres import quality_triage as postgres_quality_triage  # noqa: E402
-from review_agent_tools.postgres import repository_decisions  # noqa: E402
-from review_agent_tools.postgres import publications, reporting, review_runs  # noqa: E402
-from review_agent_tools.postgres import decisions as postgres_decisions  # noqa: E402
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.postgres import feedback as postgres_feedback  # noqa: E402
+from review_agent.postgres import quality_triage as postgres_quality_triage  # noqa: E402
+from review_agent.postgres import repository_decisions  # noqa: E402
+from review_agent.postgres import publications, reporting, review_runs  # noqa: E402
+from review_agent.postgres import decisions as postgres_decisions  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")

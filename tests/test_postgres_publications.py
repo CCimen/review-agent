@@ -17,19 +17,19 @@ import psycopg
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
+PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.review import (  # noqa: E402
+from review_agent.review import (  # noqa: E402
     finding_application as review_finding_application,
     publication_application as review_publication_application,
     run_application as review_run_application,
 )
-from review_agent_tools.domain.finding import (  # noqa: E402
+from review_agent.domain.finding import (  # noqa: E402
     MAX_FINDINGS_PER_REVIEW,
     FindingInput,
 )
-from review_agent_tools.domain.publication import (  # noqa: E402
+from review_agent.domain.publication import (  # noqa: E402
     CheckRunDelivery,
     IssueCommentDelivery,
     PublicationDomainError,
@@ -40,8 +40,8 @@ from review_agent_tools.domain.publication import (  # noqa: E402
     PublicationPlan,
     resolve_publication_plan,
 )
-from review_agent_tools.domain.review import DiffState, ReviewPhase, ReviewPurpose, ReviewStatus  # noqa: E402
-from review_agent_tools.github.publication import (  # noqa: E402
+from review_agent.domain.review import DiffState, ReviewPhase, ReviewPurpose, ReviewStatus  # noqa: E402
+from review_agent.github.publication import (  # noqa: E402
     CheckRun,
     CheckRunScan,
     PUBLICATION_REQUEST_MAX_PAGES,
@@ -52,26 +52,26 @@ from review_agent_tools.github.publication import (  # noqa: E402
     PullRequestReviewComment,
     PullRequestState,
 )
-from review_agent_tools.github.gateway import GitHubGatewayRejected  # noqa: E402
-from review_agent_tools.github.publication_gateway import (  # noqa: E402
+from review_agent.github.gateway import GitHubGatewayRejected  # noqa: E402
+from review_agent.github.publication_gateway import (  # noqa: E402
     PublicationGatewayRequest,
     ReviewPublicationGateway,
 )
-from review_agent_tools.postgres import feedback, publications, quality_reporting, reporting  # noqa: E402
-from review_agent_tools.postgres import findings as finding_store  # noqa: E402
-from review_agent_tools.postgres import github_app  # noqa: E402
-from review_agent_tools.postgres import jobs  # noqa: E402
-from review_agent_tools.postgres import review_runs  # noqa: E402
-from review_agent_tools.postgres.runtime import (  # noqa: E402
+from review_agent.postgres import feedback, publications, quality_reporting, reporting  # noqa: E402
+from review_agent.postgres import findings as finding_store  # noqa: E402
+from review_agent.postgres import github_app  # noqa: E402
+from review_agent.postgres import jobs  # noqa: E402
+from review_agent.postgres import review_runs  # noqa: E402
+from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLUnavailable,
 )
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools.publisher import (  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.publisher import (  # noqa: E402
     PublicationWorker,
     PublisherPolicy,
 )
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
 
@@ -322,10 +322,10 @@ class FakePostgresPublicationGitHub:
 
 class PublicationDomainTests(unittest.TestCase):
     def test_quality_sections_publish_and_survive_history_with_v1_blocks(self) -> None:
-        from review_agent_tools.publication_partition import (
+        from review_agent.publication_partition import (
             historical_bodies, publication_content_budget, split_publication_body,
         )
-        from review_agent_tools.review.renderer import (
+        from review_agent.review.renderer import (
             render_review,
             review_blocks_to_json,
         )
@@ -405,8 +405,8 @@ class PublicationDomainTests(unittest.TestCase):
             self.assertEqual(part.body.count("<details>"), part.body.count("</details>"))
 
     def test_a_split_review_starts_its_next_comment_at_the_handoff(self) -> None:
-        from review_agent_tools.publication_partition import split_publication_body
-        from review_agent_tools.review.renderer import (
+        from review_agent.publication_partition import split_publication_body
+        from review_agent.review.renderer import (
             render_review,
             review_blocks_to_json,
         )
@@ -443,9 +443,9 @@ class PublicationDomainTests(unittest.TestCase):
         self.assertIn("**Next:**", parts[1].body)
 
     def test_a_quoted_marker_in_a_finding_never_replaces_the_comment_marker(self) -> None:
-        from review_agent_tools.domain.publication import extract_publication_key
-        from review_agent_tools.publication_partition import split_publication_body
-        from review_agent_tools.review.renderer import (
+        from review_agent.domain.publication import extract_publication_key
+        from review_agent.publication_partition import split_publication_body
+        from review_agent.review.renderer import (
             render_review,
             review_blocks_to_json,
         )
@@ -474,7 +474,7 @@ class PublicationDomainTests(unittest.TestCase):
         self.assertEqual(extract_publication_key(parts[0].body), key)
 
     def test_shortened_history_keeps_coverage_disclosures_balanced(self) -> None:
-        from review_agent_tools.publication_partition import historical_bodies
+        from review_agent.publication_partition import historical_bodies
 
         body = (
             "## AI code & security review\n\n"
@@ -723,9 +723,9 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             registration_complete=True,
         )
         if purpose is ReviewPurpose.DOCUMENTATION:
-            from review_agent_tools.domain.finding import resolve_finding_content, finding_definition_hash
-            from review_agent_tools.domain.documentation_review import DocumentationAssessment, FindingEvidence, EvidenceCitation, EvidenceRole
-            from review_agent_tools.postgres import documentation_reviews, findings as finding_store
+            from review_agent.domain.finding import resolve_finding_content, finding_definition_hash
+            from review_agent.domain.documentation_review import DocumentationAssessment, FindingEvidence, EvidenceCitation, EvidenceRole
+            from review_agent.postgres import documentation_reviews, findings as finding_store
             definitions = tuple(resolve_finding_content(item, context_hash="c" * 40) for item in inputs)
             # Publication tests start after the documentation validator's boundary.
             receipt = DocumentationAssessment(tuple(FindingEvidence(item.fingerprint, finding_definition_hash(item), item.path,
@@ -762,13 +762,13 @@ class PostgreSQLPublicationTests(unittest.TestCase):
     def test_reconciles_observed_duplicates_and_preserves_independent_findings(
         self,
     ) -> None:
-        from review_agent_tools.postgres import feedback
-        from review_agent_tools.review import (
+        from review_agent.postgres import feedback
+        from review_agent.review import (
             feedback_application as review_feedback_application,
         )
-        from review_agent_tools.feedback_commands import ReviewQualityFeedbackCommand
-        from review_agent_tools.domain.publication import PublicationId
-        from review_agent_tools.review.publication_planner import (
+        from review_agent.feedback_commands import ReviewQualityFeedbackCommand
+        from review_agent.domain.publication import PublicationId
+        from review_agent.review.publication_planner import (
             PublicationPlanningError,
         )
 
@@ -1019,13 +1019,13 @@ class PostgreSQLPublicationTests(unittest.TestCase):
     def test_group_preserves_human_suppression_and_requires_reopen_before_split(
         self,
     ) -> None:
-        from review_agent_tools.domain.finding import (
+        from review_agent.domain.finding import (
             FindingDecision,
             FindingId,
             resolve_decision,
         )
-        from review_agent_tools.postgres import decisions
-        from review_agent_tools.review.publication_planner import (
+        from review_agent.postgres import decisions
+        from review_agent.review.publication_planner import (
             PublicationPlanningError,
         )
 
@@ -1192,7 +1192,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             )
 
     def test_failed_publication_does_not_activate_a_finding_group(self) -> None:
-        from review_agent_tools.review.publication_planner import (
+        from review_agent.review.publication_planner import (
             PublicationPlanningError,
         )
 
@@ -1274,7 +1274,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         )
 
     def test_alias_only_rereview_can_record_its_canonical_and_retry(self) -> None:
-        from review_agent_tools.review.publication_planner import (
+        from review_agent.review.publication_planner import (
             PublicationPlanningError,
         )
 
@@ -1467,9 +1467,9 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             )
 
     def test_conflicting_human_decisions_block_a_proposed_group(self) -> None:
-        from review_agent_tools.domain.finding import resolve_decision
-        from review_agent_tools.postgres import decisions
-        from review_agent_tools.review.publication_planner import (
+        from review_agent.domain.finding import resolve_decision
+        from review_agent.postgres import decisions
+        from review_agent.review.publication_planner import (
             PublicationPlanningError,
         )
 
@@ -1528,8 +1528,8 @@ class PostgreSQLPublicationTests(unittest.TestCase):
     def test_human_decision_after_preparation_invalidates_group_publication(
         self,
     ) -> None:
-        from review_agent_tools.domain.finding import resolve_decision
-        from review_agent_tools.postgres import decisions
+        from review_agent.domain.finding import resolve_decision
+        from review_agent.postgres import decisions
 
         run_id, batch = self.start_recorded_run(
             findings=(
@@ -1585,8 +1585,8 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             )
 
     def test_human_decision_during_github_write_prevents_group_activation(self) -> None:
-        from review_agent_tools.domain.finding import resolve_decision
-        from review_agent_tools.postgres import decisions
+        from review_agent.domain.finding import resolve_decision
+        from review_agent.postgres import decisions
 
         run_id, batch = self.start_recorded_run(
             findings=(
@@ -2194,7 +2194,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                     publications.PublicationLeaseLost("lease replaced"),
                 ),
             ) as heartbeat,
-            self.assertLogs("review_agent_tools.publisher", level="WARNING"),
+            self.assertLogs("review_agent.publisher", level="WARNING"),
         ):
             worker._heartbeat(claim.publication, threading.Event(), lease_lost)
 
@@ -2833,7 +2833,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 max_comment_bytes=60_000,
             ), lease_owner="publisher", stop_event=threading.Event(),
         )
-        with self.assertLogs("review_agent_tools.publisher", level="WARNING") as logs:
+        with self.assertLogs("review_agent.publisher", level="WARNING") as logs:
             worker.run(once=True)
         self.assertIn("github_http_429", logs.output[0])
         with self.runtime.transaction() as connection:
@@ -2945,9 +2945,9 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 f.source_review_run_id, f.local_reference, f.outcome, f.outcome_evidence) for f in plan.findings))
 
     def test_documentation_rerun_preserves_unchecked_and_resolved_occurrences(self) -> None:
-        from review_agent_tools.domain.documentation_review import DocumentationAssessment, DocumentationOutcome, PreviousDocumentationAssessment
-        from review_agent_tools.postgres import documentation_reviews
-        from review_agent_tools.review.publication_planner import (
+        from review_agent.domain.documentation_review import DocumentationAssessment, DocumentationOutcome, PreviousDocumentationAssessment
+        from review_agent.postgres import documentation_reviews
+        from review_agent.review.publication_planner import (
             build_documentation_publication,
         )
         run_id, batch = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION)
@@ -2990,8 +2990,8 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.assertEqual(documentation_reviews.previous_findings(connection, run_id=third), ())
 
     def test_documentation_zero_model_result_prepares_without_code_diff_coverage(self) -> None:
-        from review_agent_tools.domain.documentation_review import DocumentationOutcome
-        from review_agent_tools.postgres import documentation_reviews
+        from review_agent.domain.documentation_review import DocumentationOutcome
+        from review_agent.postgres import documentation_reviews
         from tests.test_postgres_documentation_reviews import scope
         run_id, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION, findings=())
         with self.runtime.transaction() as connection:
@@ -3016,9 +3016,9 @@ class PostgreSQLPublicationTests(unittest.TestCase):
 
     def documentation_findings_result(self, *, evidence: str = "Concrete evidence.",
                                       reasons: tuple[str, ...] = ("Documentation impact remains unresolved for src/new.py.",)):
-        from review_agent_tools.domain.documentation_scope import ChangedPath
-        from review_agent_tools.domain.documentation_review import DocumentationOutcome
-        from review_agent_tools.postgres import documentation_reviews
+        from review_agent.domain.documentation_scope import ChangedPath
+        from review_agent.domain.documentation_review import DocumentationOutcome
+        from review_agent.postgres import documentation_reviews
         from tests.test_postgres_documentation_reviews import scope
         run_id, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION,
             findings=(self.finding(evidence=evidence, path="docs/api_v2.md"),))
@@ -3036,7 +3036,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         return run_id, context, replace(result, outcome=DocumentationOutcome.FINDINGS)
 
     def test_documentation_findings_are_posted_in_conversation_and_check(self) -> None:
-        from review_agent_tools.review.publication_planner import (
+        from review_agent.review.publication_planner import (
             build_documentation_publication,
         )
         run_id, context, result = self.documentation_findings_result(
@@ -3075,10 +3075,10 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                             findings: tuple[FindingInput, ...], resolve: bool = False,
                             rationale: str = "The guide now matches the implementation.",
                             max_comment_bytes: int = 60_000) -> list[PublicationPartType]:
-        from review_agent_tools.domain.documentation_review import (
+        from review_agent.domain.documentation_review import (
             DocumentationAssessment, DocumentationOutcome, PreviousDocumentationAssessment)
-        from review_agent_tools.postgres import documentation_reviews
-        from review_agent_tools.review.publication_planner import (
+        from review_agent.postgres import documentation_reviews
+        from review_agent.review.publication_planner import (
             build_documentation_publication,
         )
         from tests.test_postgres_documentation_reviews import scope
@@ -3170,7 +3170,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                          {context.current[0].fingerprint})
 
     def test_documentation_findings_comment_survives_long_limitations(self) -> None:
-        from review_agent_tools.review.publication_planner import (
+        from review_agent.review.publication_planner import (
             build_documentation_publication,
         )
         reasons = tuple(f"Limitation {index}: " + "unresolved evidence " * 24 for index in range(121))
@@ -3183,7 +3183,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertIn("Limitation 120:", delivered)
 
     def test_documentation_policy_notes_follow_the_target_policy_state(self) -> None:
-        from review_agent_tools.review.publication_planner import (
+        from review_agent.review.publication_planner import (
             build_documentation_publication,
         )
         _, context, result = self.documentation_findings_result()
@@ -3196,12 +3196,12 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertNotIn("map unmapped paths", markdown)
 
     def test_documentation_report_partitions_without_dropping_blocks(self) -> None:
-        from review_agent_tools.domain.documentation_review import DocumentationOutcome
-        from review_agent_tools.postgres import documentation_reviews
-        from review_agent_tools.review.publication_planner import (
+        from review_agent.domain.documentation_review import DocumentationOutcome
+        from review_agent.postgres import documentation_reviews
+        from review_agent.review.publication_planner import (
             build_documentation_publication,
         )
-        from review_agent_tools.review.renderer import ReviewBlock
+        from review_agent.review.renderer import ReviewBlock
         from tests.test_postgres_documentation_reviews import scope
         run_id, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION, findings=())
         with self.runtime.transaction() as connection:
@@ -3341,11 +3341,11 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(len(docs_findings), 1)
         self.assertEqual(quality.completed_reviews, 1)
         self.assertEqual(quality.published_findings, 1)
-        from review_agent_tools.review.feedback_application import (
+        from review_agent.review.feedback_application import (
             record_postgres_feedback,
         )
-        from review_agent_tools.feedback_commands import FindingFeedbackCommand
-        from review_agent_tools.domain.feedback import FeedbackStatus
+        from review_agent.feedback_commands import FindingFeedbackCommand
+        from review_agent.domain.feedback import FeedbackStatus
         for reference, expected in (("F1", FeedbackStatus.NOT_CURRENT), ("F2", FeedbackStatus.RECORDED)):
             decision = record_postgres_feedback(
                 self.runtime, event_id=f"docs-feedback:{reference}", repository="team/service", pr_number=41,
@@ -4024,7 +4024,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ), lease_owner="fairness-worker", stop_event=threading.Event(),
         )
 
-        with self.assertLogs("review_agent_tools.publisher", level="INFO") as logs:
+        with self.assertLogs("review_agent.publisher", level="INFO") as logs:
             worker.run(once=True)
             worker.run(once=True)
 

@@ -15,25 +15,25 @@ import psycopg
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
+PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import operator_application, operator_input  # noqa: E402
-from review_agent_tools.review import (  # noqa: E402
+from review_agent import operator_application, operator_input  # noqa: E402
+from review_agent.review import (  # noqa: E402
     decision_application,
     finding_application as review_finding_application,
     run_application as review_run_application,
 )
-from review_agent_tools.domain.finding import FindingInput  # noqa: E402
-from review_agent_tools.domain.publication import (  # noqa: E402
+from review_agent.domain.finding import FindingInput  # noqa: E402
+from review_agent.domain.publication import (  # noqa: E402
     PublicationFindingInput,
     PublicationFindingOutcome,
     PublicationPartInput,
     PublicationPartType,
     resolve_publication_plan,
 )
-from review_agent_tools.domain.review import DiffState, ReviewPhase, ReviewPurpose  # noqa: E402
-from review_agent_tools.postgres import (  # noqa: E402
+from review_agent.domain.review import DiffState, ReviewPhase, ReviewPurpose  # noqa: E402
+from review_agent.postgres import (  # noqa: E402
     publications,
     quality_reporting,
     registry,
@@ -41,9 +41,9 @@ from review_agent_tools.postgres import (  # noqa: E402
     review_runs,
     webhook_deliveries,
 )
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
 
@@ -67,7 +67,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
     @cached_property
     def admin_access(self):
-        from review_agent_tools.postgres.team_access import AccessRequest
+        from review_agent.postgres.team_access import AccessRequest
 
         user_id = uuid4()
         with self.runtime.transaction() as connection:
@@ -110,7 +110,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
     def test_queue_inventory_exposes_waiting_webhook_and_missing_consumer(self) -> None:
         from unittest.mock import Mock
-        from review_agent_tools import operator_setup
+        from review_agent import operator_setup
 
         self.register_webhook()
         with self.runtime.transaction() as connection:
@@ -143,9 +143,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_queue_report_preserves_cooldowns_and_includes_failure_notice_delivery(self) -> None:
         from unittest.mock import Mock
         from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
-        from review_agent_tools import operator_setup
-        from review_agent_tools.review import contract as review_contract
-        from review_agent_tools.postgres import jobs
+        from review_agent import operator_setup
+        from review_agent.review import contract as review_contract
+        from review_agent.postgres import jobs
 
         self.register_webhook()
         with self.runtime.transaction() as connection:
@@ -224,9 +224,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(next(check for check in report.checks if check.name == "queues").status, "ready")
 
     def test_review_history_distinguishes_review_retry_and_expired_worker(self) -> None:
-        from review_agent_tools.admin import application as admin_application
-        from review_agent_tools.review import contract as review_contract
-        from review_agent_tools.postgres import jobs
+        from review_agent.admin import application as admin_application
+        from review_agent.review import contract as review_contract
+        from review_agent.postgres import jobs
         from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
 
         run = self.start(
@@ -280,9 +280,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_a_review_split_into_parts_stays_one_request_with_its_activity_and_usage(
         self,
     ) -> None:
-        from review_agent_tools.admin import application as admin_application
-        from review_agent_tools.review import contract as review_contract
-        from review_agent_tools.postgres import jobs
+        from review_agent.admin import application as admin_application
+        from review_agent.review import contract as review_contract
+        from review_agent.postgres import jobs
         from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
 
         run = self.start(
@@ -347,7 +347,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual((review_queue.waiting, review_queue.leased), (1, 1))
 
     def test_review_history_keeps_publication_retry_and_recovery_in_delivery(self) -> None:
-        from review_agent_tools.admin import application as admin_application
+        from review_agent.admin import application as admin_application
 
         run = self.start(pr_number=94, request_suffix="progress-publication")
         publication = self.prepare_publication(
@@ -568,13 +568,13 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_purpose_filters_keep_counts_and_selected_evidence_separate(
         self,
     ) -> None:
-        from review_agent_tools.admin import application as admin_application
-        from review_agent_tools.domain.documentation_scope import (
+        from review_agent.admin import application as admin_application
+        from review_agent.domain.documentation_scope import (
             ChangedPath,
             DocumentationScope,
         )
-        from review_agent_tools.domain.documentation_review import DocumentationOutcome
-        from review_agent_tools.postgres import documentation_reviews
+        from review_agent.domain.documentation_review import DocumentationOutcome
+        from review_agent.postgres import documentation_reviews
 
         code = self.start(pr_number=17, request_suffix="purpose-code")
         batch = self.record_finding(code, findings=())
@@ -683,7 +683,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_counts_requests_separately_and_keeps_recovered_failures(
         self,
     ) -> None:
-        from review_agent_tools.admin import application as admin_application
+        from review_agent.admin import application as admin_application
 
         failed = self.start(pr_number=17, request_suffix="admin-failed")
         with self.runtime.transaction() as connection:
@@ -741,7 +741,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual([item.id for item in active_page.items], [active.run.id])
 
     def test_admin_totals_cover_matching_rows_beyond_the_page(self) -> None:
-        from review_agent_tools.admin import application as admin_application
+        from review_agent.admin import application as admin_application
 
         self.start(pr_number=81, request_suffix="totals-one")
         self.start(pr_number=82, request_suffix="totals-two")
@@ -786,7 +786,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_groups_requests_before_pagination_and_preserves_commit_context(
         self,
     ) -> None:
-        from review_agent_tools.admin import application as admin_application
+        from review_agent.admin import application as admin_application
 
         first = None
         last = None
@@ -847,9 +847,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_usage_and_publication_time_are_independent_of_request_time(
         self,
     ) -> None:
-        from review_agent_tools.admin import application as admin_application
-        from review_agent_tools.postgres import admin_operations, jobs
-        from review_agent_tools.worker_telemetry import TokenUsage, record_usage
+        from review_agent.admin import application as admin_application
+        from review_agent.postgres import admin_operations, jobs
+        from review_agent.worker_telemetry import TokenUsage, record_usage
 
         run = self.start(pr_number=84, request_suffix="usage-window")
         with self.runtime.transaction() as connection:
@@ -947,9 +947,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_usage_attributes_requests_and_all_reported_attempts_without_fanout(
         self,
     ) -> None:
-        from review_agent_tools.admin import application as admin_application
-        from review_agent_tools.postgres import jobs
-        from review_agent_tools.postgres.team_access import AccessRequest
+        from review_agent.admin import application as admin_application
+        from review_agent.postgres import jobs
+        from review_agent.postgres.team_access import AccessRequest
 
         first_repository = self.repository
         alice = self.start(pr_number=180, request_suffix="usage-alice")
@@ -1166,8 +1166,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_usage_bounds_request_time_and_rechecks_application_authorization(
         self,
     ) -> None:
-        from review_agent_tools.admin import application as admin_application
-        from review_agent_tools.postgres.team_access import AccessDenied
+        from review_agent.admin import application as admin_application
+        from review_agent.postgres.team_access import AccessDenied
 
         run = self.start(pr_number=183, request_suffix="usage-date-boundary")
         start = run.run.started_at
@@ -1207,7 +1207,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_reader_returns_exact_published_snapshot_and_excludes_drafts(
         self,
     ) -> None:
-        from review_agent_tools.admin import application as admin_application
+        from review_agent.admin import application as admin_application
 
         first = self.start(pr_number=94, request_suffix="reader-published")
         published = self.publish_run(
@@ -1292,7 +1292,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertTrue(bounded.content_truncated)
 
     def test_admin_reader_pages_pr_history_without_losing_selected_review(self) -> None:
-        from review_agent_tools.admin import application as admin_application
+        from review_agent.admin import application as admin_application
 
         runs: list[review_runs.StartedRun] = []
         for index in range(22):
@@ -1328,8 +1328,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
     def test_worker_presence_expires_and_events_remain_bounded(self) -> None:
         import threading
-        from review_agent_tools.postgres import admin_operations, jobs
-        from review_agent_tools.worker_telemetry import WorkerTelemetry
+        from review_agent.postgres import admin_operations, jobs
+        from review_agent.worker_telemetry import WorkerTelemetry
 
         run = self.start(pr_number=86, request_suffix="worker-presence")
         with self.runtime.transaction() as connection:

@@ -12,16 +12,16 @@ import psycopg
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools.admin.api import create_app  # noqa: E402
-from review_agent_tools.admin_auth import bootstrap_admin  # noqa: E402
-from review_agent_tools.postgres.runtime import (  # noqa: E402
+from review_agent.admin.api import create_app  # noqa: E402
+from review_agent.admin_auth import bootstrap_admin  # noqa: E402
+from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLUnavailable,
 )
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 ORIGIN = "https://admin.example.test"
@@ -111,7 +111,7 @@ class AdminAPITests(unittest.TestCase):
         self.assertTrue(cookie)
         self.assertEqual(self.client.get("/api/repositories").json()["items"], [])
         with patch(
-            "review_agent_tools.admin.application.repositories",
+            "review_agent.admin.application.repositories",
             side_effect=PostgreSQLUnavailable("private database details"),
         ):
             unavailable = self.client.get("/api/repositories")

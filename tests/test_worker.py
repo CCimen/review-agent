@@ -19,28 +19,28 @@ from typing import Any, cast
 from unittest.mock import Mock, patch
 
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.review import (  # noqa: E402
+from review_agent.review import (  # noqa: E402
     contract as review_contract,
     run_application as review_run_application,
 )
-from review_agent_tools.source_control import SameOriginHttpsRedirectHandler  # noqa: E402
-from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
-from review_agent_tools.postgres import jobs  # noqa: E402
-from review_agent_tools.worker_telemetry import TokenUsage  # noqa: E402
-from review_agent_tools.postgres.runtime import (  # noqa: E402
+from review_agent.source_control import SameOriginHttpsRedirectHandler  # noqa: E402
+from review_agent.domain.review import ReviewRunId  # noqa: E402
+from review_agent.postgres import jobs  # noqa: E402
+from review_agent.worker_telemetry import TokenUsage  # noqa: E402
+from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLUnavailable,
 )
-from review_agent_tools.model_runtime.hermes_chat import (  # noqa: E402
+from review_agent.model_runtime.hermes_chat import (  # noqa: E402
     HermesChatClient,
     HermesChatSettings,
     parse_usage,
 )
-from review_agent_tools.review.turn import ClaimedReview, ReviewTurnError  # noqa: E402
-from review_agent_tools.worker import (  # noqa: E402
+from review_agent.review.turn import ClaimedReview, ReviewTurnError  # noqa: E402
+from review_agent.worker import (  # noqa: E402
     ReviewWorker,
     WorkerConfigurationError,
     WorkerPolicy,
@@ -68,13 +68,13 @@ class _ChatHandler(BaseHTTPRequestHandler):
 
 class WorkerBoundaryTests(unittest.TestCase):
     def test_documentation_preflight_routes_terminal_and_semantic_work(self) -> None:
-        from review_agent_tools.documentation import (
+        from review_agent.documentation import (
             preflight as documentation_preflight,
         )
-        from review_agent_tools.review import (
+        from review_agent.review import (
             publication_application as review_publication_application,
         )
-        from review_agent_tools.domain.review import ReviewPurpose
+        from review_agent.domain.review import ReviewPurpose
 
         for frozen in (True, False):
             with self.subTest(frozen=frozen):
@@ -221,7 +221,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.assertEqual((unreadable.code, unreadable.detail), ("hermes_http_503", None))
 
     def test_documentation_request_uses_installed_docs_procedure_and_exact_run(self) -> None:
-        from review_agent_tools.domain.review import ReviewPurpose
+        from review_agent.domain.review import ReviewPurpose
 
         with tempfile.TemporaryDirectory() as directory:
             code_skill = Path(directory) / "code.md"
@@ -260,7 +260,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         with (
             patch.object(jobs, "get_job", return_value=replace(claimed.job, status=jobs.ReviewJobStatus.SUCCEEDED)),
             patch.object(review_run_application, "fail_claimed_job_in_transaction") as fail,
-            self.assertLogs("review_agent_tools.worker_telemetry", level="WARNING"),
+            self.assertLogs("review_agent.worker_telemetry", level="WARNING"),
         ):
             worker._execute(claimed)
         fail.assert_not_called()
@@ -431,7 +431,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         with (
             patch.object(worker, "_recover_if_due"),
             patch.object(worker, "_claim", side_effect=claim),
-            self.assertLogs("review_agent_tools.worker", level="WARNING") as logged,
+            self.assertLogs("review_agent.worker", level="WARNING") as logged,
         ):
             worker.run()
 
@@ -564,7 +564,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             patch.object(worker, "_recover_if_due"),
             patch.object(worker, "_claim", side_effect=claim) as claim_job,
             patch.object(worker, "_execute", side_effect=execute),
-            self.assertLogs("review_agent_tools.worker", level="ERROR") as logged,
+            self.assertLogs("review_agent.worker", level="ERROR") as logged,
         ):
             runner = threading.Thread(target=run_worker)
             runner.start()
@@ -635,7 +635,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                     job=Mock(status=jobs.ReviewJobStatus.QUEUED),
                 ),
             ) as fail_job,
-            self.assertLogs("review_agent_tools.worker", level="INFO") as logged,
+            self.assertLogs("review_agent.worker", level="INFO") as logged,
         ):
             runner = threading.Thread(target=run_worker)
             runner.start()
@@ -694,7 +694,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                     ),
                     patch.object(jobs, "requeue_unstarted_job") as requeue,
                     self.assertLogs(
-                        "review_agent_tools.worker", level="INFO"
+                        "review_agent.worker", level="INFO"
                     ) as logged,
                 ):
                     worker.run(once=once)
@@ -777,7 +777,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 review_run_application,
                 "fail_claimed_job_in_transaction",
             ) as fail_job,
-            self.assertLogs("review_agent_tools.worker", level="WARNING"),
+            self.assertLogs("review_agent.worker", level="WARNING"),
         ):
             worker.run()
 
@@ -880,7 +880,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                     jobs.ReviewJobLeaseLost(job),
                 ),
             ) as heartbeat,
-            self.assertLogs("review_agent_tools.worker", level="WARNING"),
+            self.assertLogs("review_agent.worker", level="WARNING"),
         ):
             worker._heartbeat(job, threading.Event(), lease_lost)
 
@@ -969,15 +969,15 @@ class WorkerEntrypointLoggingTests(unittest.TestCase):
                                     module['main'](['--once'])
                                 except RuntimeError as exc:
                                     assert str(exc) == 'stop before configuration'
-                        logging.getLogger('review_agent_tools.{name}').info('lifecycle visible')
+                        logging.getLogger('review_agent.{name}').info('lifecycle visible')
                         """)],
-                    cwd=PACKAGE_ROOT.parents[1],
+                    cwd=PACKAGE_ROOT.parent,
                     capture_output=True, text=True, timeout=10,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(
                     result.stdout,
-                    f"INFO review_agent_tools.{name} lifecycle visible\n",
+                    f"INFO review_agent.{name} lifecycle visible\n",
                 )
                 self.assertEqual(result.stderr, "")
 

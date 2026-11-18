@@ -28,17 +28,17 @@ RUN apt-get -o Acquire::Retries=3 update \
     && /usr/local/bin/python -m pip uninstall --yes pip \
     && rm -rf /usr/local/lib/python3.14/ensurepip \
     && dpkg --purge --force-remove-essential perl-base
-COPY bootstrap/plugins/review_agent_tools /app/bootstrap/plugins/review_agent_tools
+COPY src/review_agent /app/bootstrap/plugins/review_agent
 COPY --from=frontend /build/dist /app/admin/dist
 COPY --from=frontend /build/frontend.cyclonedx.json /build/frontend-lock.sha256 /app/share/review-agent/
 COPY scripts/write_build_info.py scripts/validate_release_tag.py /tmp/build-info/
 ARG REVIEW_AGENT_VERSION=development
 ARG REVIEW_AGENT_REVISION=unknown
-RUN python /tmp/build-info/write_build_info.py /app/bootstrap/plugins/review_agent_tools/_build.json \
+RUN python /tmp/build-info/write_build_info.py /app/bootstrap/plugins/review_agent/_build.json \
     --version "$REVIEW_AGENT_VERSION" --revision "$REVIEW_AGENT_REVISION" \
     && rm -r /tmp/build-info
 LABEL org.opencontainers.image.version=$REVIEW_AGENT_VERSION \
       org.opencontainers.image.revision=$REVIEW_AGENT_REVISION
 USER 10000:10000
 EXPOSE 8090
-CMD ["uvicorn", "review_agent_tools.admin.api:app_from_environment", "--factory", "--host", "0.0.0.0", "--port", "8090", "--no-access-log", "--no-proxy-headers"]
+CMD ["uvicorn", "review_agent.admin.api:app_from_environment", "--factory", "--host", "0.0.0.0", "--port", "8090", "--no-access-log", "--no-proxy-headers"]

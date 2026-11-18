@@ -8,12 +8,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.github import source  # noqa: E402
-from review_agent_tools.domain.review import ReviewPurpose  # noqa: E402
-from review_agent_tools.postgres.review_runs import ReviewRunScope  # noqa: E402
+from review_agent.github import source  # noqa: E402
+from review_agent.domain.review import ReviewPurpose  # noqa: E402
+from review_agent.postgres.review_runs import ReviewRunScope  # noqa: E402
 
 
 class ReviewSourceFilePageTests(unittest.TestCase):

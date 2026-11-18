@@ -13,13 +13,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools.admin.access_api import create_router  # noqa: E402
-from review_agent_tools.domain.review import RepositoryId  # noqa: E402
-from review_agent_tools.github import app_auth, app_inventory  # noqa: E402
-from review_agent_tools.postgres import github_app  # noqa: E402
-from review_agent_tools.postgres.team_access import AccessRequest  # noqa: E402
+from review_agent.admin.access_api import create_router  # noqa: E402
+from review_agent.domain.review import RepositoryId  # noqa: E402
+from review_agent.github import app_auth, app_inventory  # noqa: E402
+from review_agent.postgres import github_app  # noqa: E402
+from review_agent.postgres.team_access import AccessRequest  # noqa: E402
 
 
 NOW = datetime(2026, 9, 8, 10, 30, tzinfo=timezone.utc)
@@ -97,7 +97,7 @@ class AdminAccessAPITests(unittest.TestCase):
             "Organization",
         )
         with patch(
-            "review_agent_tools.admin.access_api.operator_setup.github_app_authenticator",
+            "review_agent.admin.access_api.operator_setup.github_app_authenticator",
             return_value=authenticator,
         ):
             client = TestClient(self.app())
@@ -127,10 +127,10 @@ class AdminAccessAPITests(unittest.TestCase):
         self,
     ) -> None:
         with patch.dict(os.environ, {}, clear=True), patch(
-            "review_agent_tools.admin.access_api.operator_application.list_github_app_installations",
+            "review_agent.admin.access_api.operator_application.list_github_app_installations",
             return_value=(installation(),),
         ) as list_installations, patch(
-            "review_agent_tools.admin.access_api.operator_application.list_github_app_repositories",
+            "review_agent.admin.access_api.operator_application.list_github_app_repositories",
             return_value=(repository(),),
         ) as list_repositories:
             client = TestClient(self.app())
@@ -175,19 +175,19 @@ class AdminAccessAPITests(unittest.TestCase):
             "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE": "/private/key.pem",
         }
         with patch.dict(os.environ, environment, clear=True), patch(
-            "review_agent_tools.admin.access_api.operator_setup.github_app_authenticator",
+            "review_agent.admin.access_api.operator_setup.github_app_authenticator",
             return_value=Mock(),
         ), patch(
-            "review_agent_tools.admin.access_api.operator_application.approve_github_app_installation",
+            "review_agent.admin.access_api.operator_application.approve_github_app_installation",
             return_value=installation(),
         ) as approve, patch(
-            "review_agent_tools.admin.access_api.operator_application.sync_github_app_installation",
+            "review_agent.admin.access_api.operator_application.sync_github_app_installation",
             return_value=reconciliation,
         ) as sync, patch(
-            "review_agent_tools.admin.access_api.operator_application.enable_github_app_repository",
+            "review_agent.admin.access_api.operator_application.enable_github_app_repository",
             return_value=enabled,
         ) as enable, patch(
-            "review_agent_tools.admin.access_api.operator_application.disable_github_app_repository",
+            "review_agent.admin.access_api.operator_application.disable_github_app_repository",
             return_value=repository(),
         ) as disable:
             client = TestClient(self.app())
@@ -238,14 +238,14 @@ class AdminAccessAPITests(unittest.TestCase):
         )
         with (
             patch(
-                "review_agent_tools.admin.access_api.operator_setup.github_app_authenticator",
+                "review_agent.admin.access_api.operator_setup.github_app_authenticator",
                 return_value=Mock(),
             ),
             patch.object(
                 app_inventory, "read_installation_metadata", return_value=metadata
             ),
             patch(
-                "review_agent_tools.admin.access_api.operator_application.onboard_github_app_repository",
+                "review_agent.admin.access_api.operator_application.onboard_github_app_repository",
                 return_value=SimpleNamespace(access=repository(enabled=True)),
             ) as onboard,
         ):
@@ -284,10 +284,10 @@ class AdminAccessAPITests(unittest.TestCase):
             "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE": "/private/key.pem",
         }
         with patch.dict(os.environ, environment, clear=True), patch(
-            "review_agent_tools.admin.access_api.operator_setup.github_app_authenticator",
+            "review_agent.admin.access_api.operator_setup.github_app_authenticator",
             return_value=Mock(),
         ), patch(
-            "review_agent_tools.admin.access_api.operator_application.sync_github_app_installation",
+            "review_agent.admin.access_api.operator_application.sync_github_app_installation",
             side_effect=app_inventory.GitHubAppInventoryRetryable("private provider detail"),
         ):
             client = TestClient(self.app())

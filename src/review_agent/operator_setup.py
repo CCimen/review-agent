@@ -352,8 +352,6 @@ def preflight(
     """Validate local configuration and packaged behavior without network or DB I/O."""
     settings = ReviewAgentSettings(environment)
     contract_environment = review_contract.deployment_environment(environment)
-    # operator_setup.py lives at bootstrap/plugins/review_agent_tools/.
-    contract_source = bootstrap_source or Path(__file__).resolve().parents[2]
     checks = (
         _run_check(
             "database_configuration",
@@ -370,7 +368,7 @@ def preflight(
             "Packaged review profile contract is valid",
             lambda: review_contract.load_packaged_contract(
                 settings.profile,
-                source=contract_source,
+                source=bootstrap_source,
                 environment=contract_environment,
             ),
         ),

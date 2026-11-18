@@ -27,6 +27,7 @@ SCAN_ROOTS = (
     Path("install"),
     Path("scripts"),
     Path("skills"),
+    Path("src"),
     Path("tools"),
     Path("website"),
 )

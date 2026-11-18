@@ -10,19 +10,19 @@ from typing import Literal, cast
 from unittest.mock import Mock
 
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import capacity  # noqa: E402
-from review_agent_tools.domain import repository_decision_context  # noqa: E402
-from review_agent_tools.repository_context import (  # noqa: E402
+from review_agent import capacity  # noqa: E402
+from review_agent.domain import repository_decision_context  # noqa: E402
+from review_agent.repository_context import (  # noqa: E402
     decision_context as repository_decision_loader,
 )
-from review_agent_tools.github.gateway import GitHubGatewayRetryable  # noqa: E402
-from review_agent_tools.github.source import ReviewFilePage  # noqa: E402
-from review_agent_tools.domain import repository_decisions  # noqa: E402
-from review_agent_tools.domain.finding import IntentionalDesignEvidence  # noqa: E402
-from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
+from review_agent.github.gateway import GitHubGatewayRetryable  # noqa: E402
+from review_agent.github.source import ReviewFilePage  # noqa: E402
+from review_agent.domain import repository_decisions  # noqa: E402
+from review_agent.domain.finding import IntentionalDesignEvidence  # noqa: E402
+from review_agent.domain.review import ReviewRunId  # noqa: E402
 
 
 BASE_SHA = "a" * 40

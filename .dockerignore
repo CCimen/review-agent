@@ -4,9 +4,11 @@
 !requirements/requirements-code-graph.txt
 !bootstrap/
 !bootstrap/**
+!src/
+!src/review_agent/
+!src/review_agent/**
 !tools/
 !tools/review_agent_*.py
-bootstrap/plugins/review_agent_tools/_build.json
-bootstrap/plugins/*.egg-info/
+src/review_agent/_build.json
 **/__pycache__/
 **/*.py[cod]

@@ -14,20 +14,20 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools.review import decision_application  # noqa: E402
-from review_agent_tools.postgres.team_access import AccessRequest
-from review_agent_tools.admin.quality_api import create_router  # noqa: E402
-from review_agent_tools.domain.finding import (  # noqa: E402
+from review_agent.review import decision_application  # noqa: E402
+from review_agent.postgres.team_access import AccessRequest
+from review_agent.admin.quality_api import create_router  # noqa: E402
+from review_agent.domain.finding import (  # noqa: E402
     DecisionKind,
     FindingDecisionId,
     FindingOccurrenceId,
 )
-from review_agent_tools.postgres import admin_quality  # noqa: E402
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.postgres import admin_quality  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import test_postgres_reporting_cli  # noqa: E402
 
 
@@ -76,7 +76,7 @@ class AdminQualityAPITests(unittest.TestCase):
             expires_at=now,
         )
         with patch(
-            "review_agent_tools.admin.quality_api.admin_application.decide_finding",
+            "review_agent.admin.quality_api.admin_application.decide_finding",
             return_value=result,
         ) as decide:
             response = self.client.post(

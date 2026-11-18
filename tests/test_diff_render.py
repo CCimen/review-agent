@@ -4,10 +4,10 @@ import sys
 import unittest
 from pathlib import Path
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import diff_render  # noqa: E402
+from review_agent import diff_render  # noqa: E402
 
 
 def _cf(**over: object) -> dict[str, object]:

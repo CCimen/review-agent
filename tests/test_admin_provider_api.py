@@ -15,10 +15,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools.admin.provider_api import create_router  # noqa: E402
-from review_agent_tools.model_runtime.hermes_control import (  # noqa: E402
+from review_agent.admin.provider_api import create_router  # noqa: E402
+from review_agent.model_runtime.hermes_control import (  # noqa: E402
     HermesControlClient,
     HermesRuntimeClient,
     HermesControlConfigurationError,

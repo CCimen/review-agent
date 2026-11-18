@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGINS = ROOT / "bootstrap" / "plugins"
+PLUGINS = ROOT / "src"
 sys.path.insert(0, str(PLUGINS))
 
-from review_agent_tools import failure_codes  # noqa: E402
+from review_agent import failure_codes  # noqa: E402
 
 
 class FailureCodesTests(unittest.TestCase):

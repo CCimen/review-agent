@@ -8,9 +8,9 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent_tools import github_webhook  # noqa: E402
+from review_agent import github_webhook  # noqa: E402
 
 
 class GitHubWebhookTests(unittest.TestCase):

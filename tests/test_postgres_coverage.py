@@ -18,10 +18,10 @@ import psycopg
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
+PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.domain.review import (  # noqa: E402
+from review_agent.domain.review import (  # noqa: E402
     CoverageState,
     DiffPage,
     DiffState,
@@ -36,19 +36,19 @@ from review_agent_tools.domain.review import (  # noqa: E402
     resolve_changed_file,
     resolve_diff_observation,
 )
-from review_agent_tools.postgres import coverage as postgres_coverage  # noqa: E402
-from review_agent_tools.postgres import review_runs as postgres_review_runs  # noqa: E402
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools.review import (  # noqa: E402
+from review_agent.postgres import coverage as postgres_coverage  # noqa: E402
+from review_agent.postgres import review_runs as postgres_review_runs  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.review import (  # noqa: E402
     delivery_tool as review_delivery_tool,
     memory_tools as review_memory_tools,
     run_application as review_run_application,
     source_tools as review_source_tools,
     tool_runtime as review_tool_runtime,
 )
-from review_agent_tools.diff_render import prepare_rendered_diff  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.diff_render import prepare_rendered_diff  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
 

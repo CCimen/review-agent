@@ -11,12 +11,12 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
+PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.documentation import scope as documentation_scope  # noqa: E402
-from review_agent_tools.domain.documentation_scope import ChangedPath  # noqa: E402
-from review_agent_tools.domain import documentation_policy  # noqa: E402
+from review_agent.documentation import scope as documentation_scope  # noqa: E402
+from review_agent.domain.documentation_scope import ChangedPath  # noqa: E402
+from review_agent.domain import documentation_policy  # noqa: E402
 
 
 POLICY = """version = 1

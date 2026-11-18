@@ -9,18 +9,18 @@ import psycopg
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
+PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.domain import repository_guidance_context  # noqa: E402
-from review_agent_tools.review import (  # noqa: E402
+from review_agent.domain import repository_guidance_context  # noqa: E402
+from review_agent.review import (  # noqa: E402
     run_application as review_run_application,
 )
-from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
-from review_agent_tools.postgres import repository_guidance  # noqa: E402
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.domain.review import ReviewRunId  # noqa: E402
+from review_agent.postgres import repository_guidance  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
 

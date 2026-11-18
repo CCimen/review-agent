@@ -16,42 +16,42 @@ import threading
 def _load_package() -> None:
     candidates = (
         Path("/opt/review-agent-bootstrap/plugins"),
-        Path(__file__).resolve().parents[1] / "bootstrap" / "plugins",
+        Path(__file__).resolve().parents[1] / "src",
     )
     for candidate in candidates:
-        if (candidate / "review_agent_tools" / "github" / "app_worker.py").is_file():
+        if (candidate / "review_agent" / "github" / "app_worker.py").is_file():
             sys.path.insert(0, str(candidate))
             return
-    raise SystemExit("Could not locate the review_agent_tools package")
+    raise SystemExit("Could not locate the review_agent package")
 
 
 _load_package()
 
-from review_agent_tools.worker_telemetry import WorkerTelemetry  # noqa: E402
+from review_agent.worker_telemetry import WorkerTelemetry  # noqa: E402
 
-from review_agent_tools.github.app_processor import (  # noqa: E402
+from review_agent.github.app_processor import (  # noqa: E402
     GitHubAppProcessor,
     ProcessorConfig,
 )
-from review_agent_tools.github.app_worker import (  # noqa: E402
+from review_agent.github.app_worker import (  # noqa: E402
     GitHubAppWorker,
     GitHubAppWorkerConfigurationError,
     GitHubAppWorkerPolicy,
     default_github_app_worker_name,
 )
-from review_agent_tools.github.gateway import (  # noqa: E402
+from review_agent.github.gateway import (  # noqa: E402
     GitHubGatewayProtocolError,
 )
-from review_agent_tools.github.gateway_client import (  # noqa: E402
+from review_agent.github.gateway_client import (  # noqa: E402
     ReviewGitHubGatewayClient,
 )
-from review_agent_tools.review import contract as review_contract  # noqa: E402
-from review_agent_tools.postgres.runtime import (  # noqa: E402
+from review_agent.review import contract as review_contract  # noqa: E402
+from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
 )
-from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
-from review_agent_tools.postgres.deployment_settings import apply_at_startup  # noqa: E402
+from review_agent.settings import ReviewAgentSettings  # noqa: E402
+from review_agent.postgres.deployment_settings import apply_at_startup  # noqa: E402
 
 
 def _positive_integer(name: str, default: str | None = None) -> int:

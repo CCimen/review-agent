@@ -6,15 +6,15 @@ import unittest
 from pathlib import Path
 
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.domain import repository_guidance_context  # noqa: E402
-from review_agent_tools.repository_context import (  # noqa: E402
+from review_agent.domain import repository_guidance_context  # noqa: E402
+from review_agent.repository_context import (  # noqa: E402
     validation as repository_context_validation,
     guidance_context as repository_guidance_loader,
 )
-from review_agent_tools.domain import repository_decisions  # noqa: E402
+from review_agent.domain import repository_decisions  # noqa: E402
 
 
 class RepositoryContextValidationTests(unittest.TestCase):

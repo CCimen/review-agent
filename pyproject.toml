@@ -1,7 +1,7 @@
-# Build metadata and tool configuration. The wheel holds the package where it
-# lies, bootstrap/plugins/review_agent_tools, with its migrations and plugin
-# manifest. Images do not install it yet: they copy bootstrap/ and tools/ and
-# install the pins in requirements.txt and requirements/.
+# Build metadata and tool configuration. The wheel holds the package,
+# src/review_agent, with its migrations and plugin manifest. Images do not
+# install it yet: they copy bootstrap/, the package and tools/ and install the
+# pins in requirements.txt and requirements/.
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -44,12 +44,12 @@ admin = [
 hermes = ["aiohttp>=3.14.4"]
 
 [tool.setuptools.packages.find]
-where = ["bootstrap/plugins"]
-include = ["review_agent_tools*"]
+where = ["src"]
+include = ["review_agent*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-review_agent_tools = ["plugin.yaml", "postgres_migrations/*.sql"]
+review_agent = ["plugin.yaml", "postgres_migrations/*.sql"]
 
 [tool.ruff]
 target-version = "py311"
@@ -62,7 +62,7 @@ select = ["E4", "E7", "E9", "F", "B905"]
 
 [tool.pyright]
 include = [
-    "bootstrap/plugins/review_agent_tools",
+    "src/review_agent",
     "bootstrap/install.py",
     "scripts/check_trivy_report.py",
     "scripts/validate_release_tag.py",
@@ -84,6 +84,6 @@ reportMissingImports = "error"
 reportMissingModuleSource = "error"
 reportMissingTypeStubs = "error"
 executionEnvironments = [
-    { root = ".", extraPaths = ["tools", "bootstrap/plugins"] },
-    { root = "bootstrap/plugins", extraPaths = ["bootstrap/plugins"] },
+    { root = ".", extraPaths = ["tools", "src"] },
+    { root = "src", extraPaths = ["src"] },
 ]

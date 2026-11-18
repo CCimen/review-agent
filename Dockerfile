@@ -37,6 +37,9 @@ RUN uv venv --python /opt/hermes/.venv/bin/python /opt/review-agent-code-graph \
     && chown 10000:10000 /var/lib/review-agent-code-graph
 
 COPY --chown=hermes:hermes bootstrap/ /opt/review-agent-bootstrap/
+# The package is importable from the bootstrap root's plugins directory; the
+# installer copies it from there into the Hermes home as the plugin.
+COPY --chown=hermes:hermes src/review_agent/ /opt/review-agent-bootstrap/plugins/review_agent/
 ARG REVIEW_AGENT_VERSION=development
 ARG REVIEW_AGENT_REVISION=unknown
 LABEL org.opencontainers.image.version=$REVIEW_AGENT_VERSION \

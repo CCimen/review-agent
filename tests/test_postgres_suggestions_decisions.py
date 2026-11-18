@@ -12,28 +12,28 @@ import psycopg
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
+PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.review import (  # noqa: E402
+from review_agent.review import (  # noqa: E402
     finding_application as review_finding_application,
     run_application as review_run_application,
 )
-from review_agent_tools.domain.finding import (  # noqa: E402
+from review_agent.domain.finding import (  # noqa: E402
     DecisionKind,
     FindingDecision,
     FindingInput,
     resolve_decision,
     suppression_is_active,
 )
-from review_agent_tools.postgres import (  # noqa: E402
+from review_agent.postgres import (  # noqa: E402
     decisions as postgres_decisions,
     review_runs as postgres_review_runs,
     suggestions as postgres_suggestions,
 )
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
 
@@ -224,7 +224,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
     def test_suggestion_storage_failure_does_not_rollback_findings(self) -> None:
         run_id = self.start()
         with mock.patch(
-            "review_agent_tools.review.finding_application."
+            "review_agent.review.finding_application."
             "postgres_suggestions.replace_suggestions",
             side_effect=psycopg.OperationalError("storage unavailable"),
         ):
@@ -339,7 +339,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             "postgres_decisions.latest_suppression_decisions",
         ):
             with self.subTest(target=target), mock.patch(
-                "review_agent_tools.review.finding_application." + target,
+                "review_agent.review.finding_application." + target,
                 side_effect=psycopg.OperationalError("context unavailable"),
             ):
                 second = (

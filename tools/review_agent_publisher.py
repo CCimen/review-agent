@@ -16,32 +16,32 @@ import threading
 def _load_package() -> None:
     candidates = (
         Path("/opt/review-agent-bootstrap/plugins"),
-        Path(__file__).resolve().parents[1] / "bootstrap" / "plugins",
+        Path(__file__).resolve().parents[1] / "src",
     )
     for candidate in candidates:
-        if (candidate / "review_agent_tools" / "publisher.py").is_file():
+        if (candidate / "review_agent" / "publisher.py").is_file():
             sys.path.insert(0, str(candidate))
             return
-    raise SystemExit("Could not locate the review_agent_tools package")
+    raise SystemExit("Could not locate the review_agent package")
 
 
 _load_package()
 
-from review_agent_tools.worker_telemetry import WorkerTelemetry  # noqa: E402
+from review_agent.worker_telemetry import WorkerTelemetry  # noqa: E402
 
-from review_agent_tools.github.gateway_client import ReviewGitHubGatewayClient  # noqa: E402
-from review_agent_tools.postgres.runtime import (  # noqa: E402
+from review_agent.github.gateway_client import ReviewGitHubGatewayClient  # noqa: E402
+from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
 )
-from review_agent_tools.publisher import (  # noqa: E402
+from review_agent.publisher import (  # noqa: E402
     PublicationWorker,
     PublisherConfigurationError,
     PublisherPolicy,
     default_publisher_name,
 )
-from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
-from review_agent_tools.postgres.deployment_settings import apply_at_startup  # noqa: E402
+from review_agent.settings import ReviewAgentSettings  # noqa: E402
+from review_agent.postgres.deployment_settings import apply_at_startup  # noqa: E402
 
 
 def _seconds(name: str, default: str) -> timedelta:

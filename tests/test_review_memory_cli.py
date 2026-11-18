@@ -16,15 +16,15 @@ import psycopg
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
-PLUGIN_PARENT = ROOT / "bootstrap" / "plugins"
+PLUGIN_PARENT = ROOT / "src"
 sys.path.insert(0, str(TOOLS))
 sys.path.insert(0, str(PLUGIN_PARENT))
 
 import review_agent_memory as memory  # noqa: E402
 from review_agent_private_io import write_private_file  # noqa: E402
-from review_agent_tools import operator_input  # noqa: E402
-from review_agent_tools.postgres import quality_reporting, quality_triage  # noqa: E402
-from review_agent_tools.postgres.runtime import (  # noqa: E402
+from review_agent import operator_input  # noqa: E402
+from review_agent.postgres import quality_reporting, quality_triage  # noqa: E402
+from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLNotReady,
     PostgreSQLUnavailable,
 )
@@ -367,8 +367,8 @@ class ReviewAgentMemoryCliTests(unittest.TestCase):
     def test_run_diagnostics_stay_readable_in_one_512_kib_file_read(self) -> None:
         from datetime import datetime, timezone
 
-        from review_agent_tools.domain.review import CoverageState, FailureStatusDelivery, ReviewRunId
-        from review_agent_tools.postgres import reporting
+        from review_agent.domain.review import CoverageState, FailureStatusDelivery, ReviewRunId
+        from review_agent.postgres import reporting
 
         moment = datetime(2026, 10, 15, tzinfo=timezone.utc)
         wide = "\N{GRINNING FACE}"  # four UTF-8 bytes per character

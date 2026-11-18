@@ -18,17 +18,17 @@ from typing import cast
 def _load_package() -> None:
     for candidate in (
         Path("/opt/review-agent-bootstrap/plugins"),
-        Path(__file__).resolve().parents[1] / "bootstrap" / "plugins",
+        Path(__file__).resolve().parents[1] / "src",
     ):
-        if (candidate / "review_agent_tools" / "code_graph" / "contract.py").is_file():
+        if (candidate / "review_agent" / "code_graph" / "contract.py").is_file():
             sys.path.insert(0, str(candidate))
             return
-    raise SystemExit("Could not locate the review_agent_tools package")
+    raise SystemExit("Could not locate the review_agent package")
 
 
 _load_package()
 
-from review_agent_tools.code_graph.contract import (  # noqa: E402
+from review_agent.code_graph.contract import (  # noqa: E402
     GRAPH_QUERY_PATH,
     GRAPH_RESULT_MAX_BYTES,
     GraphError,
@@ -38,9 +38,9 @@ from review_agent_tools.code_graph.contract import (  # noqa: E402
 def serve(host: str, port: int) -> None:
     # The indexer runs with only its isolated dependency set, so server imports
     # stay out of that process's startup path.
-    from review_agent_tools.code_graph.service import CodeGraphService
-    from review_agent_tools.github.gateway import GitHubGatewayError
-    from review_agent_tools.settings import ReviewAgentSettings
+    from review_agent.code_graph.service import CodeGraphService
+    from review_agent.github.gateway import GitHubGatewayError
+    from review_agent.settings import ReviewAgentSettings
 
     configured = ReviewAgentSettings.from_environment()
     python = Path("/opt/review-agent-code-graph/bin/python")
@@ -128,7 +128,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8647)
     args = parser.parse_args()
     if args.indexer:
-        from review_agent_tools.code_graph.indexer import main as index
+        from review_agent.code_graph.indexer import main as index
         return index()
     logging.basicConfig(level=logging.INFO)
     serve(args.host, args.port)

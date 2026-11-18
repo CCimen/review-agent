@@ -12,10 +12,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
+PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.domain.review import (  # noqa: E402
+from review_agent.domain.review import (  # noqa: E402
     DiffState,
     FileReadDefinition,
     ReviewRunId,
@@ -23,12 +23,12 @@ from review_agent_tools.domain.review import (  # noqa: E402
     resolve_changed_file_count,
     resolve_diff_observation,
 )
-from review_agent_tools.postgres import (  # noqa: E402
+from review_agent.postgres import (  # noqa: E402
     coverage as postgres_coverage,
     review_runs as postgres_review_runs,
 )
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.review import run_application  # noqa: E402
+from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent.review import run_application  # noqa: E402
 
 
 def start_postgres_review(

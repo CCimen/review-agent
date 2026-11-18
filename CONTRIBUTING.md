@@ -44,14 +44,14 @@ else has to run; pages that read review data are empty until a review has run.
 docker run --detach --name review-agent-dev-db --publish 127.0.0.1:55432:5432 \
   --env POSTGRES_PASSWORD=postgres postgres:17
 
-export PYTHONPATH=bootstrap/plugins
+export PYTHONPATH=src
 export REVIEW_AGENT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres
 export REVIEW_AGENT_ADMIN_PUBLIC_URL=http://127.0.0.1:5173
 
 REVIEW_AGENT_RUNTIME_DATABASE_URL=postgresql://review_agent_runtime:local-runtime-password@127.0.0.1:55432/postgres \
   python3 tools/review_agent_admin.py database prepare
-python3 -m review_agent_tools.admin_auth --email admin@example.com
-uvicorn review_agent_tools.admin.api:app_from_environment --factory --port 8090
+python3 -m review_agent.admin_auth --email admin@example.com
+uvicorn review_agent.admin.api:app_from_environment --factory --port 8090
 ```
 
 In a second terminal:
@@ -71,7 +71,7 @@ with `docker rm --force review-agent-dev-db`.
 
 | Path | What it is |
 | --- | --- |
-| `bootstrap/plugins/review_agent_tools/` | The application: one Python package, loaded by Hermes as a plugin and by every service |
+| `src/review_agent/` | The application: one Python package, `review_agent`, loaded by Hermes as a plugin and by every service |
 | `tools/` | Entrypoints for the services and operator commands; each starts code from the package |
 | `bootstrap/` | What the image installs into Hermes: installer, managed configuration, reviewer profiles |
 | `admin/` | The admin console frontend (React); its API lives in the package's `admin/` |
@@ -101,7 +101,7 @@ Inside the package:
 | `settings.py`, `deployment_settings.py`, `schemas.py` and the other top-level modules | Configuration, tool schemas and helpers shared by several packages |
 
 Two modules stay at the top of the package because they are started by module
-path: `admin_auth` (`python -m review_agent_tools.admin_auth`) and
+path: `admin_auth` (`python -m review_agent.admin_auth`) and
 `provider_gateway` (`compose.providers.yaml`).
 
 Dependencies point mostly one way: entrypoints call the application modules,

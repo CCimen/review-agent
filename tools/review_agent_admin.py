@@ -20,44 +20,43 @@ import psycopg
 def _load_package() -> None:
     candidates = (
         Path("/opt/review-agent-bootstrap/plugins"),
-        Path(os.environ.get("HERMES_HOME", "/opt/data")) / "plugins",
-        Path(__file__).resolve().parents[1] / "bootstrap" / "plugins",
+        Path(__file__).resolve().parents[1] / "src",
     )
     for candidate in candidates:
-        if (candidate / "review_agent_tools" / "operator_setup.py").is_file():
+        if (candidate / "review_agent" / "operator_setup.py").is_file():
             sys.path.insert(0, str(candidate))
             return
-    raise SystemExit("Could not locate the review_agent_tools package")
+    raise SystemExit("Could not locate the review_agent package")
 
 
 _load_package()
 
-from review_agent_tools.documentation import scope as documentation_scope  # noqa: E402
-from review_agent_tools import (  # noqa: E402
+from review_agent.documentation import scope as documentation_scope  # noqa: E402
+from review_agent import (  # noqa: E402
     operator_application,
     operator_input,
     operator_setup,
 )
-from review_agent_tools.repository_context import (  # noqa: E402
+from review_agent.repository_context import (  # noqa: E402
     validation as repository_context_validation,
 )
-from review_agent_tools.github import app_auth, app_inventory  # noqa: E402
-from review_agent_tools.github.gateway import (  # noqa: E402
+from review_agent.github import app_auth, app_inventory  # noqa: E402
+from review_agent.github.gateway import (  # noqa: E402
     GitHubGatewayError,
     GitHubGatewayRetryable,
 )
-from review_agent_tools.github.gateway_client import (  # noqa: E402
+from review_agent.github.gateway_client import (  # noqa: E402
     ReviewGitHubGatewayClient,
 )
-from review_agent_tools.postgres import github_app, jobs, registry  # noqa: E402
-from review_agent_tools.postgres import roles as database_roles  # noqa: E402
-from review_agent_tools.postgres.runtime import (  # noqa: E402
+from review_agent.postgres import github_app, jobs, registry  # noqa: E402
+from review_agent.postgres import roles as database_roles  # noqa: E402
+from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,
     PostgreSQLRuntimeRole,
 )
-from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
+from review_agent.settings import ReviewAgentSettings  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
 
 
 def _parser() -> argparse.ArgumentParser:

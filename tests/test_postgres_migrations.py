@@ -14,16 +14,16 @@ import psycopg
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
+PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools.postgres import github_app  # noqa: E402
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres import github_app  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 MIGRATIONS = (
-    ROOT / "bootstrap" / "plugins" / "review_agent_tools" / "postgres_migrations"
+    ROOT / "src" / "review_agent" / "postgres_migrations"
 )
 SHIPPED = runner.discover_migrations()
 LATEST = SHIPPED[-1].version

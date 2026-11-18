@@ -6,10 +6,10 @@ from pathlib import Path
 
 import yaml
 
-PLUGIN_PARENT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+PLUGIN_PARENT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PLUGIN_PARENT))
 
-from review_agent_tools.settings import (  # noqa: E402
+from review_agent.settings import (  # noqa: E402
     PostgresDatabaseUrl,
     ReviewAgentSettings,
     SettingsError,

@@ -17,20 +17,20 @@ import psycopg
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
+PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import failure_codes, operator_application  # noqa: E402
-from review_agent_tools.review import (  # noqa: E402
+from review_agent import failure_codes, operator_application  # noqa: E402
+from review_agent.review import (  # noqa: E402
     contract as review_contract,
     parts_application as review_parts_application,
     run_application as review_run_application,
     source_initialization as review_source_initialization,
 )
-from review_agent_tools.github.source import ReviewSourceBytes  # noqa: E402
-from review_agent_tools.model_runtime.window import ModelWindow  # noqa: E402
-from review_agent_tools.review.tool_runtime import GatewaySourceSession  # noqa: E402
-from review_agent_tools.domain.review import (  # noqa: E402
+from review_agent.github.source import ReviewSourceBytes  # noqa: E402
+from review_agent.model_runtime.window import ModelWindow  # noqa: E402
+from review_agent.review.tool_runtime import GatewaySourceSession  # noqa: E402
+from review_agent.domain.review import (  # noqa: E402
     ReviewPartPlan,
     ReviewPhase,
     ReviewPurpose,
@@ -38,16 +38,16 @@ from review_agent_tools.domain.review import (  # noqa: E402
     ReviewStatus,
     resolve_review_subject,
 )
-from review_agent_tools.postgres import github_app, jobs, registry, reporting, review_runs  # noqa: E402
-from review_agent_tools.postgres.runtime import (  # noqa: E402
+from review_agent.postgres import github_app, jobs, registry, reporting, review_runs  # noqa: E402
+from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
 )
-from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
-from review_agent_tools.model_runtime.hermes_chat import HermesChatClient  # noqa: E402
-from review_agent_tools.review.turn import ReviewTurnError  # noqa: E402
-from review_agent_tools.worker import (  # noqa: E402
+from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent.model_runtime.hermes_chat import HermesChatClient  # noqa: E402
+from review_agent.review.turn import ReviewTurnError  # noqa: E402
+from review_agent.worker import (  # noqa: E402
     ReviewWorker,
     WorkerPolicy,
 )

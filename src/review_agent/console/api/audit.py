@@ -13,7 +13,7 @@ from fastapi.responses import Response
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, TypeAdapter
 
 from .. import application as console_application
-from ..auth import AdminAuth
+from ..auth import ConsoleAuth
 from ...postgres import audit
 from ...postgres.runtime import PostgreSQLRuntime
 from ...postgres.team_access import AccessRequest
@@ -184,7 +184,7 @@ def _otlp(page: audit.AuditPage) -> str:
     )
 
 
-def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
+def create_router(runtime: PostgreSQLRuntime, auth: ConsoleAuth) -> APIRouter:
     router = APIRouter(prefix="/api/audit", tags=["audit"])
 
     def events(

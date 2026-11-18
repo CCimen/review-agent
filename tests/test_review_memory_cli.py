@@ -160,7 +160,7 @@ class ReviewAgentMemoryCliTests(unittest.TestCase):
             patch.object(
                 memory,
                 "_run_live",
-                side_effect=input_checks.OperatorInputError(secret),
+                side_effect=input_checks.InputError(secret),
             ),
             redirect_stderr(stderr),
         ):

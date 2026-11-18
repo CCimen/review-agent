@@ -16,11 +16,11 @@ from ..postgres import jobs, review_runs as postgres_review_runs, run_actions as
 from ..review import runs as review_runs
 
 
-class AdminRunActionError(ValueError):
+class RunActionError(ValueError):
     """An administrative run action is invalid or no longer current."""
 
 
-class AdminRunActionStale(AdminRunActionError):
+class RunActionStale(RunActionError):
     """The submitted run and job snapshot is no longer current."""
 
 
@@ -55,7 +55,7 @@ class JobSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class AdminRunActionEvent:
+class RunActionEvent:
     id: int
     action: RunAction
     actor: str
@@ -75,7 +75,7 @@ class RunControls:
     release_retry: ActionAvailability
     cancel: ActionAvailability
     mark_stalled: ActionAvailability
-    audit: tuple[AdminRunActionEvent, ...]
+    audit: tuple[RunActionEvent, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,20 +92,20 @@ class ActionRequest:
 
 def _require_transaction(connection: psycopg.Connection[TupleRow]) -> None:
     if connection.info.transaction_status != TransactionStatus.INTRANS:
-        raise AdminRunActionError("admin run actions require an active transaction")
+        raise RunActionError("admin run actions require an active transaction")
 
 
 def _moment(value: datetime | None) -> datetime:
     moment = value or datetime.now(timezone.utc)
     if moment.tzinfo is None or moment.utcoffset() is None:
-        raise AdminRunActionError("now must include a timezone")
+        raise RunActionError("now must include a timezone")
     return moment
 
 
 def _audit_text(value: str, *, field: str, maximum: int) -> str:
     normalized = " ".join(value.strip().split())
     if not normalized or len(normalized) > maximum:
-        raise AdminRunActionError(f"{field} must be 1 to {maximum} characters")
+        raise RunActionError(f"{field} must be 1 to {maximum} characters")
     return normalized
 
 
@@ -120,9 +120,9 @@ def _job_snapshot(job: jobs.ReviewJob) -> JobSnapshot:
     )
 
 
-def _audit(row: store.RecordedAction) -> AdminRunActionEvent:
+def _audit(row: store.RecordedAction) -> RunActionEvent:
     try:
-        return AdminRunActionEvent(
+        return RunActionEvent(
             id=row.id,
             action=RunAction(row.action),
             actor=row.actor,
@@ -135,7 +135,7 @@ def _audit(row: store.RecordedAction) -> AdminRunActionEvent:
             recorded_at=row.recorded_at,
         )
     except ValueError as exc:
-        raise AdminRunActionError("stored admin run action is invalid") from exc
+        raise RunActionError("stored admin run action is invalid") from exc
 
 
 def _availability(
@@ -203,7 +203,7 @@ def controls(
     _require_transaction(connection)
     moment = _moment(now)
     if not 1 <= stale_after_minutes <= 1440:
-        raise AdminRunActionError("stale_after_minutes must be 1 to 1440")
+        raise RunActionError("stale_after_minutes must be 1 to 1440")
     run = postgres_review_runs.get_run(connection, run_id)
     # A delayed retry, of the main job or of a review part, is the job an
     # operator can release; otherwise the controls describe the main job.
@@ -245,23 +245,23 @@ def apply_action(
     actor = _audit_text(request.actor, field="actor", maximum=200)
     reason = _audit_text(request.reason, field="reason", maximum=500)
     if request.expected_job_id < 1 or request.expected_lease_generation < 0:
-        raise AdminRunActionError("expected job identity is invalid")
+        raise RunActionError("expected job identity is invalid")
     if (
         request.expected_available_at.tzinfo is None
         or request.expected_available_at.utcoffset() is None
     ):
-        raise AdminRunActionError("expected_available_at must include a timezone")
+        raise RunActionError("expected_available_at must include a timezone")
     stale_minutes = request.stale_after_minutes
     if request.action is RunAction.MARK_STALLED:
         stale_minutes = 15 if stale_minutes is None else stale_minutes
         if not 1 <= stale_minutes <= 1440:
-            raise AdminRunActionError("stale_after_minutes must be 1 to 1440")
+            raise RunActionError("stale_after_minutes must be 1 to 1440")
     elif stale_minutes is not None:
-        raise AdminRunActionError("stale_after_minutes is only valid for mark_stalled")
+        raise RunActionError("stale_after_minutes is only valid for mark_stalled")
 
     run = postgres_review_runs.lock_run(connection, run_id)
     if not store.lock_job(connection, run.id, request.expected_job_id):
-        raise AdminRunActionStale("The review job changed. Refresh and try again.")
+        raise RunActionStale("The review job changed. Refresh and try again.")
     job = jobs.get_job(connection, request.expected_job_id)
     if (
         job.review_run_id != run.id
@@ -269,20 +269,20 @@ def apply_action(
         or job.status is not request.expected_status
         or job.available_at != request.expected_available_at
     ):
-        raise AdminRunActionStale("The review job changed. Refresh and try again.")
+        raise RunActionStale("The review job changed. Refresh and try again.")
     if run.status is not ReviewStatus.RUNNING:
-        raise AdminRunActionStale("The review run is already terminal.")
+        raise RunActionStale("The review run is already terminal.")
 
     if request.action is RunAction.RELEASE_RETRY:
         if job.status is not jobs.ReviewJobStatus.QUEUED or job.available_at <= moment:
-            raise AdminRunActionError("Only a delayed queued retry can be released.")
+            raise RunActionError("Only a delayed queued retry can be released.")
         jobs.retry_queued_job(connection, job_id=job.id)
     elif request.action is RunAction.CANCEL:
         if job.status not in {
             jobs.ReviewJobStatus.QUEUED,
             jobs.ReviewJobStatus.LEASED,
         }:
-            raise AdminRunActionError("This review job cannot be cancelled safely.")
+            raise RunActionError("This review job cannot be cancelled safely.")
         review_runs.fail_run_in_transaction(
             connection,
             run.id,
@@ -297,7 +297,7 @@ def apply_action(
             not in {jobs.ReviewJobStatus.QUEUED, jobs.ReviewJobStatus.LEASED}
             or store.has_live_lease(connection, run.id, now=moment)
         ):
-            raise AdminRunActionError(
+            raise RunActionError(
                 "The review heartbeat or worker lease is still current."
             )
         review_runs.fail_run_in_transaction(

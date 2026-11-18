@@ -589,6 +589,10 @@ In the console's OpenAPI document, the component schema
 changed: `FindingDecision.occurrence_id` could be `null` and is now always an
 integer.
 
+In a run's `failure_detail`, the reviewer's input validation error now reads
+`ReviewValidationError` where it read `ReviewMemoryError`. Failure codes are
+unchanged, and details stored before the upgrade keep the old name.
+
 Removed since 0.4.14:
 
 - Nine `review-agent-memory` subcommands of the offline learning tools:

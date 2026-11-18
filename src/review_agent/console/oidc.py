@@ -26,7 +26,7 @@ from sqlalchemy import DateTime, ForeignKey, delete, select
 from sqlalchemy.orm import Mapped, mapped_column
 from starlette.responses import RedirectResponse
 
-from .auth import AdminAuth
+from .auth import ConsoleAuth
 from .accounts import Base, User, registration_settings, sign_in_oidc_account
 from .identity_config import IdentitySettings, OIDCSettings, identity_https_url
 
@@ -232,7 +232,7 @@ async def exchange(
         return IdentityClaims.model_validate(decoded.claims)
 
 
-def create_router(auth: AdminAuth, identity: IdentitySettings) -> APIRouter:
+def create_router(auth: ConsoleAuth, identity: IdentitySettings) -> APIRouter:
     router = APIRouter(tags=["organization sign-in"])
     cookie_name = (
         "__Host-review_agent_oidc"

@@ -30,7 +30,7 @@ from ..postgres.runtime import PostgreSQLRuntime
 
 
 @dataclass(frozen=True, slots=True)
-class OperatorDecisionRequest:
+class DecisionRequest:
     repository: str
     fingerprint: str
     decision: str
@@ -129,7 +129,7 @@ def show_finding_in_transaction(
 
 def decide_finding(
     runtime: PostgreSQLRuntime,
-    request: OperatorDecisionRequest,
+    request: DecisionRequest,
     *,
     now: datetime | None = None,
 ) -> OperatorDecisionResult:
@@ -139,7 +139,7 @@ def decide_finding(
 
 def decide_finding_in_transaction(
     connection: psycopg.Connection[TupleRow],
-    request: OperatorDecisionRequest,
+    request: DecisionRequest,
     *,
     now: datetime | None = None,
 ) -> OperatorDecisionResult:
@@ -173,14 +173,14 @@ def decide_finding_in_transaction(
             latest=request.latest,
         )
     except FindingDomainError as exc:
-        raise input_checks.OperatorInputError(str(exc)) from exc
+        raise input_checks.InputError(str(exc)) from exc
     scope = postgres_reporting.repository_scope(connection, repository=repository)
     purpose = (
         postgres_reporting.occurrence_purpose(connection, repository_id=scope.id, occurrence_id=occurrence_id)
         if occurrence_id is not None else ReviewPurpose.CODE
     )
     if purpose is ReviewPurpose.DOCUMENTATION and definition.decision is DecisionKind.INTENTIONAL_BY_DESIGN:
-        raise input_checks.OperatorInputError("Documentation findings do not support intentional-by-design decisions")
+        raise input_checks.InputError("Documentation findings do not support intentional-by-design decisions")
     fingerprint = postgres_findings.resolve_fingerprint(
         connection,
         repository_id=scope.id,
@@ -210,11 +210,11 @@ def decide_finding_in_transaction(
             finding_path=target.path,
         )
         if intentional_evidence is None:
-            raise input_checks.OperatorInputError(
+            raise input_checks.InputError(
                 "intentional decision does not match the occurrence's exact "
                 "accepted ADR snapshot and path"
             )
-    stored = postgres_decisions.append_operator_decision(
+    stored = postgres_decisions.append_decision(
         connection,
         finding_id=target.finding_id,
         occurrence_id=target.occurrence_id,

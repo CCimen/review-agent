@@ -428,7 +428,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
         return error_output(exc)
     except (
         ToolInputError,
-        review_validation.ReviewMemoryError,
+        review_validation.ReviewValidationError,
         review_runs.ReviewRunError,
         PostgreSQLRuntimeError,
     ) as exc:

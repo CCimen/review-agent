@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 
-from ..github.app_processor import GitHubAppProcessor, ProcessorConfig
+from ..github.app_processor import WebhookDeliveryProcessor, WebhookDeliveryConfig
 from ..github.gateway import GitHubGatewayProtocolError
 from ..github.gateway_client import ReviewGitHubGatewayClient
 from ..postgres import webhook_deliveries
@@ -67,7 +67,7 @@ class GitHubAppWorker:
     def __init__(
         self,
         runtime: PostgreSQLRuntime,
-        processor: GitHubAppProcessor,
+        processor: WebhookDeliveryProcessor,
         policy: GitHubAppWorkerPolicy,
         *,
         lease_owner: str,
@@ -225,10 +225,10 @@ def main(argv: list[str] | None = None) -> int:
     runtime.open()
     apply_at_startup(runtime, "admission")
     try:
-        processor = GitHubAppProcessor(
+        processor = WebhookDeliveryProcessor(
             postgres=runtime,
             gateway=gateway,
-            config=ProcessorConfig(
+            config=WebhookDeliveryConfig(
                 profile=configured.profile,
                 policy_revision=configured.policy_revision(),
                 job_priority=_nonnegative_integer("REVIEW_AGENT_JOB_PRIORITY", "0"),

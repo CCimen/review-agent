@@ -15,11 +15,11 @@ from review_agent.github import webhook as github_webhook  # noqa: E402
 
 class GitHubWebhookTests(unittest.TestCase):
     def test_documentation_commands_and_only_relevant_pr_actions_are_normalized(self) -> None:
-        from tests.test_github_app_processor import GitHubAppProcessorTests
+        from tests.test_github_app_processor import WebhookDeliveryProcessorTests
         for body, expected in (("/review docs", "review"), ("@review DOCS", "review"),
                                ("/review docs extra", "invalid"),
                                ("/review docs false-positive F2 because A current guard proves this.", "finding_feedback")):
-            payload = GitHubAppProcessorTests.review_payload()
+            payload = WebhookDeliveryProcessorTests.review_payload()
             payload["comment"]["body"] = body
             normalized = github_webhook.normalize_event("issue_comment", payload)
             self.assertEqual(normalized.command_kind.value, expected)

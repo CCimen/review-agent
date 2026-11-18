@@ -117,13 +117,13 @@ def register(ctx: ToolRegistry) -> None:
         name="review_agent_memory_context",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_MEMORY_CONTEXT"),
-        handler=getattr(finding_tools, "review_memory_context"),
+        handler=getattr(finding_tools, "finding_history"),
     )
     ctx.register_tool(
         name="review_agent_memory_record",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_MEMORY_RECORD"),
-        handler=getattr(finding_tools, "review_memory_record"),
+        handler=getattr(finding_tools, "record_review_findings"),
     )
     ctx.register_tool(
         name="review_agent_part_report",

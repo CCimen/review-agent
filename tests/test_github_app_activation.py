@@ -17,7 +17,7 @@ PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent.cli import github_app_worker as app_worker  # noqa: E402
-from review_agent.github.app_processor import GitHubAppProcessor  # noqa: E402
+from review_agent.github.app_processor import WebhookDeliveryProcessor  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 
 
@@ -47,7 +47,7 @@ class GitHubAppWorkerTests(unittest.TestCase):
         processor = _Processor()
         worker = app_worker.GitHubAppWorker(
             cast(PostgreSQLRuntime, runtime),
-            cast(GitHubAppProcessor, processor),
+            cast(WebhookDeliveryProcessor, processor),
             app_worker.GitHubAppWorkerPolicy(recovery_batch_size=7),
             lease_owner="github-app:test",
             stop_event=threading.Event(),
@@ -72,7 +72,7 @@ class GitHubAppWorkerTests(unittest.TestCase):
 
         worker = app_worker.GitHubAppWorker(
             cast(PostgreSQLRuntime, _Runtime()),
-            cast(GitHubAppProcessor, DefectProcessor()),
+            cast(WebhookDeliveryProcessor, DefectProcessor()),
             app_worker.GitHubAppWorkerPolicy(),
             lease_owner="github-app:test",
             stop_event=threading.Event(),

@@ -112,9 +112,9 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
     def start(
         self, *, purpose: ReviewPurpose = ReviewPurpose.DOCUMENTATION
     ) -> ReviewRunId:
-        started = support.start_postgres_review(
+        started = support.start_review(
             self.runtime,
-            review_runs.PostgresRunRequest(
+            review_runs.RunRequest(
                 provider="github",
                 provider_repository_id=901,
                 repository="team/repository",
@@ -139,9 +139,9 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
         from tests.test_documentation_preflight import POLICY, policy
 
         run_id = self.start()
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime, run_id=run_id,
-            files=(review_runs.PostgresChangedFile(path="tests/api.py", change_status="modified"),),
+            files=(review_runs.RunChangedFile(path="tests/api.py", change_status="modified"),),
             changed_files_reported=1, registration_complete=True,
         )
         with self.runtime.transaction() as connection:
@@ -174,8 +174,8 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
         from review_agent.review.tool_runtime import GatewaySourceSession
         from tests.test_documentation_preflight import POLICY, policy
         run_id = self.start()
-        support.register_postgres_changed_files(self.runtime, run_id=run_id,
-            files=(review_runs.PostgresChangedFile(path="tests/api.py", change_status="modified"),),
+        support.register_changed_files(self.runtime, run_id=run_id,
+            files=(review_runs.RunChangedFile(path="tests/api.py", change_status="modified"),),
             changed_files_reported=1, registration_complete=True)
         with self.runtime.transaction() as connection:
             jobs.enqueue_run(connection, review_run_id=run_id, priority=0, max_attempts=3, active_job_limit=10)
@@ -211,7 +211,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
             connection.execute("UPDATE review_agent.review_jobs SET last_heartbeat_at = started_at, lease_expires_at = statement_timestamp() WHERE id = %s", (job.id,))
         with patch.object(postgres_review_runs, "advance_phase", wraps=postgres_review_runs.advance_phase) as advance:
             with self.assertRaises(jobs.ReviewJobLeaseLost):
-                publish.prepare_postgres_documentation_publication(
+                publish.prepare_documentation_publication(
                     self.runtime, run_id=int(run_id), max_comment_bytes=60_000,
                     review_job_id=job.id, review_lease_generation=job.lease_generation)
             advance.assert_not_called()
@@ -220,7 +220,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
             jobs.reconcile_run_jobs(connection, run_ids=(run_id,), status=postgres_review_runs.get_run(connection, run_id).status)
         with patch.object(postgres_review_runs, "advance_phase", wraps=postgres_review_runs.advance_phase) as advance:
             with self.assertRaises(jobs.ReviewJobLeaseLost):
-                publish.prepare_postgres_documentation_publication(
+                publish.prepare_documentation_publication(
                     self.runtime, run_id=int(run_id), max_comment_bytes=60_000,
                     review_job_id=job.id, review_lease_generation=job.lease_generation)
             advance.assert_not_called()
@@ -242,11 +242,11 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
 
         run_id = self.start()
         observed = replace(result_fixture(), run_id=run_id)
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(
-                review_runs.PostgresChangedFile(
+                review_runs.RunChangedFile(
                     path="src/api.py", change_status="modified"
                 ),
             ),
@@ -335,13 +335,13 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
                 "SELECT identity.fingerprint, occurrence.id FROM review_agent.finding_occurrences occurrence JOIN review_agent.finding_identities identity ON identity.id = occurrence.finding_id WHERE occurrence.review_run_id = %s",
                 (run_id,),
             ).fetchone()
-            request = review_decisions.OperatorDecisionRequest(
+            request = review_decisions.DecisionRequest(
                 repository="team/repository", fingerprint=target[0], occurrence_id=target[1],
                 decision="false_positive", reason="The documentation already describes this behavior", actor="operator:test",
             )
             decision = review_decisions.decide_finding_in_transaction(connection, request)
             self.assertEqual(int(decision.occurrence_id), target[1])
-            with self.assertRaisesRegex(input_checks.OperatorInputError, "Documentation findings"):
+            with self.assertRaisesRegex(input_checks.InputError, "Documentation findings"):
                 review_decisions.decide_finding_in_transaction(
                     connection, replace(request, decision="intentional_by_design", adr_id="ADR-0001"),
                 )

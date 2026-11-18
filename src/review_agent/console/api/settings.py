@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import application as console_application
-from ..auth import AdminAuth
+from ..auth import ConsoleAuth
 from ...postgres.team_access import AccessRequest
 from ...deployment_settings import DeploymentSettings
 from ...postgres import deployment_settings as store
@@ -20,7 +20,7 @@ class SaveSettings(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
-def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
+def create_router(runtime: PostgreSQLRuntime, auth: ConsoleAuth) -> APIRouter:
     router = APIRouter(
         prefix="/api/settings", dependencies=[Depends(auth.current_owner)]
     )

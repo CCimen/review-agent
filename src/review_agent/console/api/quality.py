@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .. import application as console_application
 from ...review import decisions as review_decisions
-from ..auth import AdminAuth
+from ..auth import ConsoleAuth
 from ...postgres.team_access import AccessRequest
 from ...domain.feedback import FeedbackTargetOwner, FeedbackTriageStatus
 from ...domain.finding import DecisionKind
@@ -55,7 +55,7 @@ def _input_error(error: ValueError) -> HTTPException:
     return HTTPException(status_code=422, detail=str(error))
 
 
-def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
+def create_router(runtime: PostgreSQLRuntime, auth: ConsoleAuth) -> APIRouter:
     """Create quality routes over the existing operator application boundary."""
     router = APIRouter(dependencies=[Depends(auth.current_user)])
 
@@ -124,7 +124,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
         try:
             return console_application.decide_finding(
                 runtime,
-                review_decisions.OperatorDecisionRequest(
+                review_decisions.DecisionRequest(
                     repository=request.repository,
                     fingerprint=fingerprint,
                     occurrence_id=request.occurrence_id,

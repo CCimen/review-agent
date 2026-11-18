@@ -248,8 +248,8 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
         repository: str = "team/reviewer",
         request_key: str = "github:issue-comment:1001",
         head_sha: str = "a" * 40,
-    ) -> review_runs.PostgresRunRequest:
-        return review_runs.PostgresRunRequest(
+    ) -> review_runs.RunRequest:
+        return review_runs.RunRequest(
             provider="github",
             provider_repository_id=provider_repository_id,
             repository=repository,
@@ -265,15 +265,15 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
         )
 
     def test_code_and_docs_coexist_and_supersede_only_their_own_purpose(self) -> None:
-        code = support.start_postgres_review(self.runtime, self.request())
+        code = support.start_review(self.runtime, self.request())
         request = replace(
             self.request(request_key="docs:1"),
             purpose=ReviewPurpose.DOCUMENTATION,
         )
-        docs = support.start_postgres_review(self.runtime, request)
+        docs = support.start_review(self.runtime, request)
         self.assertNotEqual(code.run.review_subject_id, docs.run.review_subject_id)
         self.assertEqual(docs.run.purpose, ReviewPurpose.DOCUMENTATION)
-        changed = support.start_postgres_review(
+        changed = support.start_review(
             self.runtime, replace(request, request_key="docs:2", base_sha="c" * 40)
         )
         with self.runtime.transaction() as connection:
@@ -284,10 +284,10 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
 
     def test_start_is_idempotent_and_cross_scope_key_conflict_rolls_back(self) -> None:
         def admit(
-            request: review_runs.PostgresRunRequest,
+            request: review_runs.RunRequest,
         ) -> postgres_review_runs.RunStart:
             with self.runtime.transaction() as connection:
-                return review_runs.admit_postgres_review_in_transaction(
+                return review_runs.admit_review_in_transaction(
                     connection,
                     request,
                     priority=0,
@@ -321,7 +321,7 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
         self.assertEqual(rolled_back, (0,))
 
     def test_run_transitions_are_explicit_and_monotonic(self) -> None:
-        started = support.start_postgres_review(
+        started = support.start_review(
             self.runtime, self.request()
         )
         assert isinstance(started, postgres_review_runs.StartedRun)
@@ -361,7 +361,7 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
         self.assertEqual(completed.phase, ReviewPhase.POSTED)
         self.assertEqual(completed.findings_count, 2)
 
-        next_run = support.start_postgres_review(
+        next_run = support.start_review(
             self.runtime,
             self.request(request_key="github:issue-comment:1002"),
         )
@@ -415,11 +415,11 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
         self.assertEqual(comments, ())
 
     def test_documentation_activity_does_not_hide_a_code_failure(self) -> None:
-        code = support.start_postgres_review(self.runtime, self.request())
+        code = support.start_review(self.runtime, self.request())
         assert isinstance(code, postgres_review_runs.StartedRun)
         with self.runtime.transaction() as connection:
             postgres_review_runs.fail_run(connection, code.run.id, failure_code="review_failed")
-        docs = support.start_postgres_review(
+        docs = support.start_review(
             self.runtime,
             replace(self.request(request_key="docs:failure-isolation"), purpose=ReviewPurpose.DOCUMENTATION),
         )
@@ -448,7 +448,7 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
         self.assertEqual(docs_comments, ())
 
     def test_render_validation_can_reopen_finding_collection_only(self) -> None:
-        started = support.start_postgres_review(
+        started = support.start_review(
             self.runtime,
             self.request(request_key="github:issue-comment:render-correction"),
         )
@@ -495,7 +495,7 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
                 postgres_review_runs.reopen_finding_collection(connection, run_id)
 
     def test_review_activity_can_reenter_without_moving_the_phase_backward(self) -> None:
-        started = support.start_postgres_review(
+        started = support.start_review(
             self.runtime,
             self.request(request_key="github:issue-comment:reenter-review"),
         )
@@ -544,10 +544,10 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
                 )
 
     def test_new_exact_subject_supersedes_the_active_run(self) -> None:
-        first = support.start_postgres_review(
+        first = support.start_review(
             self.runtime, self.request()
         )
-        second = support.start_postgres_review(
+        second = support.start_review(
             self.runtime,
             self.request(
                 request_key="github:issue-comment:1002",
@@ -628,7 +628,7 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
 
         def start(index: int) -> postgres_review_runs.RunStart:
             ready.wait()
-            return support.start_postgres_review(
+            return support.start_review(
                 self.runtime,
                 self.request(request_key=f"github:issue-comment:{1100 + index}"),
             )

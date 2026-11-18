@@ -67,13 +67,13 @@ class PostgreSQLFindingDomainTests(unittest.TestCase):
         finding = PostgreSQLFindingTests.finding(confidence=0.84)
 
         with self.assertRaisesRegex(FindingDomainError, "confidence"):
-            review_findings.record_postgres_findings(
+            review_findings.record_run_findings(
                 runtime,
                 run_id=postgres_review_runs.ReviewRunId(1),
                 head_sha="a" * 40,
                 findings=(finding,),
                 changed_files=(
-                    review_findings.ChangedFile(
+                    review_findings.ChangedFileContext(
                         path="backend/changed.py",
                         context_hash="c" * 40,
                         context_hash_source="blob",
@@ -91,13 +91,13 @@ class PostgreSQLFindingDomainTests(unittest.TestCase):
         finding = PostgreSQLFindingTests.finding()
 
         with self.assertRaisesRegex(FindingDomainError, "duplicate stable identities"):
-            review_findings.record_postgres_findings(
+            review_findings.record_run_findings(
                 runtime,
                 run_id=postgres_review_runs.ReviewRunId(1),
                 head_sha="a" * 40,
                 findings=(finding, finding),
                 changed_files=(
-                    review_findings.ChangedFile(
+                    review_findings.ChangedFileContext(
                         path="backend/changed.py",
                         context_hash="c" * 40,
                         context_hash_source="blob",
@@ -127,8 +127,8 @@ class PostgreSQLFindingTests(unittest.TestCase):
         request_key: str,
         provider_repository_id: int = 930,
         pr_number: int = 31,
-    ) -> review_runs.PostgresRunRequest:
-        return review_runs.PostgresRunRequest(
+    ) -> review_runs.RunRequest:
+        return review_runs.RunRequest(
             provider="github",
             provider_repository_id=provider_repository_id,
             repository=repository,
@@ -171,7 +171,7 @@ class PostgreSQLFindingTests(unittest.TestCase):
         provider_repository_id: int = 930,
         pr_number: int = 31,
     ) -> postgres_review_runs.ReviewRunId:
-        result = support.start_postgres_review(
+        result = support.start_review(
             self.runtime,
             self.request(
                 repository=repository,
@@ -182,11 +182,11 @@ class PostgreSQLFindingTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, postgres_review_runs.StartedRun)
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=(
-                review_runs.PostgresChangedFile(
+                review_runs.RunChangedFile(
                     path="backend/changed.py",
                     change_status="modified",
                 ),
@@ -202,14 +202,14 @@ class PostgreSQLFindingTests(unittest.TestCase):
         head_sha: str,
         *,
         findings: tuple[FindingInput, ...] | None = None,
-    ) -> review_findings.PostgresFindingBatch:
-        return review_findings.record_postgres_findings(
+    ) -> review_findings.FindingBatch:
+        return review_findings.record_run_findings(
             self.runtime,
             run_id=run_id,
             head_sha=head_sha,
             findings=findings if findings is not None else (self.finding(),),
             changed_files=(
-                review_findings.ChangedFile(
+                review_findings.ChangedFileContext(
                     path="backend/changed.py",
                     context_hash="c" * 40,
                     context_hash_source="blob",
@@ -321,13 +321,13 @@ class PostgreSQLFindingTests(unittest.TestCase):
             self.record(run_id, "d" * 40)
 
         with self.assertRaises(postgres_findings.FindingPathNotChanged):
-            review_findings.record_postgres_findings(
+            review_findings.record_run_findings(
                 self.runtime,
                 run_id=run_id,
                 head_sha="a" * 40,
                 findings=(self.finding(path="backend/not-changed.py"),),
                 changed_files=(
-                    review_findings.ChangedFile(
+                    review_findings.ChangedFileContext(
                         path="backend/not-changed.py",
                         context_hash="c" * 40,
                         context_hash_source="blob",

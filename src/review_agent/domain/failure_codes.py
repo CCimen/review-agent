@@ -16,7 +16,7 @@ REVIEW_FAILED: Final = "review_failed"
 STALE_TIMEOUT: Final = "stale_timeout"
 # The pull request base/head snapshot changed, so a newer explicit review may proceed.
 SNAPSHOT_SUPERSEDED: Final = "snapshot_superseded"
-# review_deliver raised a known ToolInputError/ReviewMemoryError before publishing.
+# review_deliver raised a known ToolInputError/ReviewValidationError before publishing.
 REVIEW_DELIVER_ERROR: Final = "review_deliver_error"
 # review_deliver raised an unexpected error before publishing.
 UNEXPECTED_REVIEW_DELIVER_FAILURE: Final = "unexpected_review_deliver_failure"

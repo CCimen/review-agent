@@ -25,7 +25,7 @@ class PublicationPart:
     body: str
 
 
-class HistoricalPublication(TypedDict):
+class HistoricalPublicationBody(TypedDict):
     review_number: int | None
     repository: str
     pr_number: int
@@ -200,7 +200,7 @@ def _comment_url(repository: str, pr_number: int, comment_id: int) -> str:
 
 
 def _historical_content_blocks(
-    publication: HistoricalPublication,
+    publication: HistoricalPublicationBody,
 ) -> list[str]:
     marker = f"<!-- {publication_marker(publication['publication_key'])} -->"
     blocks_json = publication["rendered_blocks_json"]
@@ -273,7 +273,7 @@ def _fit_historical_chunks(
 
 
 def historical_bodies(
-    publication: HistoricalPublication,
+    publication: HistoricalPublicationBody,
     *,
     max_comment_bytes: int,
     target_parts: int,
@@ -334,7 +334,7 @@ def historical_bodies(
 
 
 def extra_superseded_body(
-    publication: HistoricalPublication,
+    publication: HistoricalPublicationBody,
     *,
     part_number: int,
     total_parts: int,

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header, Path, Query
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from .. import application as console_application
-from ..auth import AdminAuth
+from ..auth import ConsoleAuth
 from ...domain.documentation_operating_policy import DocumentationMode
 from ...postgres import documentation_operating_policy as docs_policy
 from ...postgres import audit, teams
@@ -44,7 +44,7 @@ class TeamDocumentationUpdate(BaseModel):
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
+def create_router(runtime: PostgreSQLRuntime, auth: ConsoleAuth) -> APIRouter:
     router = APIRouter(prefix="/api/teams", tags=["teams"])
 
     def list_teams(

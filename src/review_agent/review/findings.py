@@ -37,14 +37,14 @@ from ..postgres.runtime import PostgreSQLRuntime, PostgreSQLRuntimeError
 _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
 HeadFileLoader = Callable[[str, int, int], str | None]
 RecordedFinding = dict[str, object]
-PostgresFindingBatch: TypeAlias = postgres_findings.FindingBatch
+FindingBatch: TypeAlias = postgres_findings.FindingBatch
 
 
 class ReviewFindingError(ValueError):
     """A finding does not belong to the changed files of its review snapshot."""
 
 
-class FindingMemoryContext(TypedDict):
+class FindingHistoryContext(TypedDict):
     repository: str
     paths: list[str]
     policy: str
@@ -61,7 +61,7 @@ class FindingContextQuery:
 
 
 @dataclass(frozen=True, slots=True)
-class ChangedFile:
+class ChangedFileContext:
     path: str
     context_hash: str = ""
     context_hash_source: str = ""
@@ -69,8 +69,8 @@ class ChangedFile:
 
 
 @dataclass(frozen=True, slots=True)
-class PostgresFindingRecordResult:
-    batch: PostgresFindingBatch
+class FindingRecordResult:
+    batch: FindingBatch
     suggestions_recorded: int
     suggestion_statuses: tuple[domain_suggestions.SuggestionStatus, ...]
 
@@ -93,7 +93,7 @@ class LiveFindingRecordResult:
     suggestions_recorded: int
 
 
-def _postgres_context_hash(changed_file: ChangedFile, head_sha: str) -> str:
+def _context_hash(changed_file: ChangedFileContext, head_sha: str) -> str:
     candidate = changed_file.context_hash.strip().lower()
     if changed_file.context_hash_source == "blob" and _SHA_RE.fullmatch(candidate):
         return resolve_context_hash(candidate)
@@ -104,7 +104,7 @@ def resolve_finding_batch(
     *,
     head_sha: str,
     findings: Sequence[FindingInput],
-    changed_files: Sequence[ChangedFile],
+    changed_files: Sequence[ChangedFileContext],
 ) -> tuple[FindingDefinition, ...]:
     """Apply the recording admission checks to one batch without persisting it."""
     if len(findings) > MAX_FINDINGS_PER_REVIEW:
@@ -126,21 +126,21 @@ def resolve_finding_batch(
         definitions.append(
             resolve_finding(
                 replace(item, path=path),
-                context_hash=_postgres_context_hash(changed_file, resolved_head),
+                context_hash=_context_hash(changed_file, resolved_head),
             )
         )
     require_unique_finding_identities(definitions)
     return tuple(definitions)
 
 
-def record_postgres_findings(
+def record_run_findings(
     runtime: PostgreSQLRuntime,
     *,
     run_id: ReviewRunId,
     head_sha: str,
     findings: Sequence[FindingInput],
-    changed_files: Sequence[ChangedFile],
-) -> PostgresFindingBatch:
+    changed_files: Sequence[ChangedFileContext],
+) -> FindingBatch:
     """Validate and atomically persist one pre-reviewed PostgreSQL finding batch."""
     definitions = resolve_finding_batch(
         head_sha=head_sha, findings=findings, changed_files=changed_files
@@ -154,7 +154,7 @@ def record_postgres_findings(
         )
 
 
-def _postgres_suggestion_rank(
+def _suggestion_rank(
     finding: FindingInput, index: int
 ) -> tuple[int, int, str, int]:
     return (
@@ -165,13 +165,13 @@ def _postgres_suggestion_rank(
     )
 
 
-def _record_postgres_optional_suggestions(
+def _record_optional_suggestions(
     runtime: PostgreSQLRuntime,
     *,
-    batch: PostgresFindingBatch,
+    batch: FindingBatch,
     head_sha: str,
     findings: Sequence[FindingInput],
-    changed_files: Sequence[ChangedFile],
+    changed_files: Sequence[ChangedFileContext],
     suggestions: Sequence[object | None],
     head_file_loader: HeadFileLoader | None,
 ) -> tuple[int, tuple[domain_suggestions.SuggestionStatus, ...]]:
@@ -220,11 +220,11 @@ def _record_postgres_optional_suggestions(
             path = resolve_finding_path(finding.path)
             changed_file = changed_by_path[path]
             decision = decisions.get(recorded.finding_id)
-            context_hash = _postgres_context_hash(changed_file, head_sha)
+            context_hash = _context_hash(changed_file, head_sha)
             candidates.append(
                 domain_suggestions.SuggestionCandidate(
                     index=index,
-                    priority=_postgres_suggestion_rank(finding, index),
+                    priority=_suggestion_rank(finding, index),
                     repository=context.repository,
                     pr_number=context.pr_number,
                     head_sha=context.head_sha,
@@ -274,27 +274,27 @@ def _record_postgres_optional_suggestions(
     return len(selected_by_occurrence), tuple(statuses)
 
 
-def record_postgres_findings_with_suggestions(
+def record_run_findings_with_suggestions(
     runtime: PostgreSQLRuntime,
     *,
     run_id: ReviewRunId,
     head_sha: str,
     findings: Sequence[FindingInput],
-    changed_files: Sequence[ChangedFile],
+    changed_files: Sequence[ChangedFileContext],
     suggestions: Sequence[object | None],
     head_file_loader: HeadFileLoader | None,
-) -> PostgresFindingRecordResult:
+) -> FindingRecordResult:
     """Commit findings first, then best-effort validated optional suggestions."""
     if len(suggestions) != len(findings):
         raise ReviewFindingError("suggestions must align one-to-one with findings")
-    batch = record_postgres_findings(
+    batch = record_run_findings(
         runtime,
         run_id=run_id,
         head_sha=head_sha,
         findings=findings,
         changed_files=changed_files,
     )
-    recorded, statuses = _record_postgres_optional_suggestions(
+    recorded, statuses = _record_optional_suggestions(
         runtime,
         batch=batch,
         head_sha=resolve_context_hash(head_sha),
@@ -303,7 +303,7 @@ def record_postgres_findings_with_suggestions(
         suggestions=suggestions,
         head_file_loader=head_file_loader,
     )
-    return PostgresFindingRecordResult(
+    return FindingRecordResult(
         batch=batch,
         suggestions_recorded=recorded,
         suggestion_statuses=statuses,
@@ -352,7 +352,7 @@ def validate_live_findings(
     *,
     head_sha: str,
     raw_findings: Sequence[Mapping[str, object]],
-    changed_files: Sequence[ChangedFile],
+    changed_files: Sequence[ChangedFileContext],
 ) -> None:
     """Check a tool payload exactly as recording would, without persisting it."""
     resolve_finding_batch(
@@ -368,13 +368,13 @@ def record_live_findings(
     run_id: ReviewRunId,
     head_sha: str,
     raw_findings: Sequence[Mapping[str, object]],
-    changed_files: Sequence[ChangedFile],
+    changed_files: Sequence[ChangedFileContext],
     head_file_loader: HeadFileLoader | None,
 ) -> LiveFindingRecordResult:
     """Validate the tool payload and return its stable PostgreSQL receipt."""
     findings = tuple(_finding_input(item) for item in raw_findings)
     suggestions = tuple(item.get("suggestion") for item in raw_findings)
-    result = record_postgres_findings_with_suggestions(
+    result = record_run_findings_with_suggestions(
         runtime,
         run_id=run_id,
         head_sha=head_sha,
@@ -400,7 +400,7 @@ def record_live_findings(
         result.suggestion_statuses,
         strict=True,
     ):
-        context_hash = _postgres_context_hash(
+        context_hash = _context_hash(
             changed_by_path[resolve_finding_path(finding.path)], head_sha
         )
         decision = decisions.get(recorded.finding_id)
@@ -429,7 +429,7 @@ def record_live_findings(
 
 def load_live_context(
     runtime: PostgreSQLRuntime, query: FindingContextQuery
-) -> FindingMemoryContext:
+) -> FindingHistoryContext:
     """Load bounded historical hints from the only active PostgreSQL store."""
     clean_paths = sorted(
         {resolve_finding_path(path) for path in query.paths if path.strip()}
@@ -584,7 +584,7 @@ def load_live_context(
             }
         )
 
-    return FindingMemoryContext(
+    return FindingHistoryContext(
         repository=query.repository,
         paths=clean_paths,
         policy=(

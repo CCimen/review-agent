@@ -28,7 +28,7 @@ from ..github.publication import (
     PUBLICATION_REQUEST_MAX_PAGES,
 )
 from .partition import (
-    HistoricalPublication,
+    HistoricalPublicationBody,
     extra_superseded_body,
     historical_bodies,
 )
@@ -56,16 +56,16 @@ class SupersessionGateway(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class PostgresPublishedPart:
+class PublishedPart:
     part_type: PublicationPartType
     external_id: int
 
 
 @dataclass(frozen=True, slots=True)
-class PostgresPublicationResult:
+class PublicationOutcome:
     publication_id: int
     status: str
-    published_parts: tuple[PostgresPublishedPart, ...]
+    published_parts: tuple[PublishedPart, ...]
     recovered_parts: int
     superseded_publication_id: int | None = None
     supersession_rendered: bool | None = None
@@ -73,14 +73,14 @@ class PostgresPublicationResult:
 
 
 @dataclass(frozen=True, slots=True)
-class PostgresSupersessionResult:
+class SupersessionOutcome:
     publication_id: int
     rendered: bool
     failure_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class PostgresFailureStatusResult:
+class FailureStatusResult:
     run_id: int
     # Both are None when the delivery was suppressed for a closed pull request.
     comment_id: int | None
@@ -90,7 +90,7 @@ class PostgresFailureStatusResult:
 
 
 @dataclass(frozen=True, slots=True)
-class PreparedPostgresPublication:
+class PreparedPublication:
     publication_id: int
     findings_count: int
     suggestions_count: int
@@ -98,7 +98,7 @@ class PreparedPostgresPublication:
     ignored_previous_verdicts: tuple[str, ...]
 
 
-def prepare_postgres_publication(
+def prepare_review_publication(
     runtime: "PostgreSQLRuntime",
     *,
     run_id: int,
@@ -109,7 +109,7 @@ def prepare_postgres_publication(
     delivery_max_attempts: int = 3,
     review_job_id: int | None = None,
     review_lease_generation: int | None = None,
-) -> PreparedPostgresPublication:
+) -> PreparedPublication:
     """Build and freeze one exact plan in a single bounded transaction."""
     from ..domain.publication import (
         PublicationFindingOutcome,
@@ -128,7 +128,7 @@ def prepare_postgres_publication(
         )
         if existing is not None:
             stored = postgres_publications.get_publication(connection, existing)
-            return PreparedPostgresPublication(
+            return PreparedPublication(
                 publication_id=int(stored.id),
                 findings_count=sum(
                     item.outcome is PublicationFindingOutcome.CURRENT
@@ -169,7 +169,7 @@ def prepare_postgres_publication(
             review_job_id=review_job_id,
             review_lease_generation=review_lease_generation,
         )
-    return PreparedPostgresPublication(
+    return PreparedPublication(
         publication_id=int(stored.id),
         findings_count=planned.findings_count,
         suggestions_count=planned.suggestions_count,
@@ -178,7 +178,7 @@ def prepare_postgres_publication(
     )
 
 
-def prepare_postgres_documentation_publication(
+def prepare_documentation_publication(
     runtime: "PostgreSQLRuntime",
     *,
     run_id: int,
@@ -187,7 +187,7 @@ def prepare_postgres_documentation_publication(
     delivery_max_attempts: int = 3,
     review_job_id: int | None = None,
     review_lease_generation: int | None = None,
-) -> PreparedPostgresPublication:
+) -> PreparedPublication:
     from ..domain.review import ReviewPhase, ReviewRunId
     from ..postgres import (
         documentation_reviews,
@@ -226,12 +226,12 @@ def prepare_postgres_documentation_publication(
             delivery_max_attempts=delivery_max_attempts,
             review_job_id=review_job_id, review_lease_generation=review_lease_generation,
         )
-    return PreparedPostgresPublication(
+    return PreparedPublication(
         int(stored.id), planned.findings_count, 0, planned.resolved_count, ()
     )
 
 
-def _postgres_target_failure(
+def _target_failure(
     *, base_sha: str, head_sha: str, pull: PullRequestState
 ) -> str | None:
     if pull.state != "open":
@@ -243,13 +243,13 @@ def _postgres_target_failure(
     return None
 
 
-def _render_postgres_supersession(
+def _render_supersession(
     runtime: "PostgreSQLRuntime",
     *,
     github: SupersessionGateway,
     superseding_publication_id: int,
     max_comment_bytes: int,
-) -> PostgresSupersessionResult | None:
+) -> SupersessionOutcome | None:
     """Rewrite one prior PostgreSQL publication without holding a checkout."""
     from ..domain.publication import PublicationDomainError, PublicationId
     from ..postgres import publications as postgres_publications
@@ -262,7 +262,7 @@ def _render_postgres_supersession(
     if historical is None:
         return None
 
-    partition_input: HistoricalPublication = {
+    partition_input: HistoricalPublicationBody = {
         "review_number": historical.review_number,
         "repository": historical.repository,
         "pr_number": historical.pr_number,
@@ -320,7 +320,7 @@ def _render_postgres_supersession(
                 publication_id=historical.publication_id,
                 failure_code=code,
             )
-        return PostgresSupersessionResult(
+        return SupersessionOutcome(
             publication_id=int(historical.publication_id),
             rendered=False,
             failure_code=code,
@@ -332,13 +332,13 @@ def _render_postgres_supersession(
             publication_id=historical.publication_id,
             failure_code=None,
         )
-    return PostgresSupersessionResult(
+    return SupersessionOutcome(
         publication_id=int(historical.publication_id),
         rendered=True,
     )
 
 
-def publish_postgres_run_failure_status(
+def publish_failure_status(
     runtime: "PostgreSQLRuntime",
     *,
     run_id: int,
@@ -347,7 +347,7 @@ def publish_postgres_run_failure_status(
     lease_generation: int | None = None,
     retry_delay: timedelta = timedelta(minutes=1),
     lease_lost: threading.Event | None = None,
-) -> PostgresFailureStatusResult:
+) -> FailureStatusResult:
     """Deliver one leased deterministic terminal status with exact recovery."""
     from ..domain.review import FailureStatusDelivery, ReviewRunId
     from ..postgres import review_runs as postgres_review_runs
@@ -365,7 +365,7 @@ def publish_postgres_run_failure_status(
             and existing_target.comment_id is not None
             and existing_target.posted_at is not None
         ):
-            return PostgresFailureStatusResult(
+            return FailureStatusResult(
                 run_id=run_id, comment_id=existing_target.comment_id,
                 failure_code=existing_target.failure_code,
                 posted_at=existing_target.posted_at.isoformat().replace("+00:00", "Z"),
@@ -389,7 +389,7 @@ def publish_postgres_run_failure_status(
         listed_markers = _my_failure_status_comments(
             github, target.repository, target.pr_number, purpose=purpose
         )
-        current_markers = _cleanup_postgres_failure_status(
+        current_markers = _cleanup_failure_status(
             runtime, github=github, repository=target.repository,
             pr_number=target.pr_number, exclude_run_id=resolved_id,
             purpose=purpose,
@@ -413,7 +413,7 @@ def publish_postgres_run_failure_status(
                     connection, run_id=resolved_id, lease_owner=owner,
                     lease_generation=generation,
                 )
-            return PostgresFailureStatusResult(
+            return FailureStatusResult(
                 run_id=run_id, comment_id=None,
                 failure_code=suppressed.failure_code, posted_at=None,
                 delivery_status="suppressed",
@@ -459,7 +459,7 @@ def publish_postgres_run_failure_status(
         raise postgres_review_runs.ReviewRunError(
             "failure-status comment has no recorded timestamp"
         )
-    return PostgresFailureStatusResult(
+    return FailureStatusResult(
         run_id=run_id,
         comment_id=comment.comment_id,
         failure_code=recorded.failure_code,
@@ -468,7 +468,7 @@ def publish_postgres_run_failure_status(
     )
 
 
-def _cleanup_postgres_failure_status(
+def _cleanup_failure_status(
     runtime: "PostgreSQLRuntime",
     *,
     github: GitHubPublicationGateway,
@@ -537,7 +537,7 @@ def _cleanup_postgres_failure_status(
     return tuple(current_markers)
 
 
-def publish_postgres_publication(
+def publish_publication(
     runtime: "PostgreSQLRuntime",
     *,
     publication_id: int,
@@ -549,7 +549,7 @@ def publish_postgres_publication(
     retry_delay: timedelta = timedelta(seconds=30),
     lease_lost: threading.Event | None = None,
     posted_github: SupersessionGateway | None = None,
-) -> PostgresPublicationResult:
+) -> PublicationOutcome:
     """Deliver one prepared PostgreSQL plan without holding a database checkout.
 
     ``recover_posting`` requires the caller to establish that the prior poster
@@ -602,13 +602,13 @@ def publish_postgres_publication(
     publication = claim.publication
     finalizer = posted_github or github
     if publication.status is PublicationStatus.POSTED:
-        supersession = _render_postgres_supersession(
+        supersession = _render_supersession(
             runtime,
             github=finalizer,
             superseding_publication_id=publication_id,
             max_comment_bytes=max_comment_bytes,
         )
-        _cleanup_postgres_failure_status(
+        _cleanup_failure_status(
             runtime,
             github=github,
             repository=publication.repository,
@@ -616,11 +616,11 @@ def publish_postgres_publication(
             scan_markers=False,
             purpose=publication.purpose,
         )
-        return PostgresPublicationResult(
+        return PublicationOutcome(
             publication_id=publication_id,
             status=PublicationStatus.POSTED.value,
             published_parts=tuple(
-                PostgresPublishedPart(part.part_type, part.external_id)
+                PublishedPart(part.part_type, part.external_id)
                 for part in publication.parts
                 if part.external_id is not None
             ),
@@ -636,11 +636,11 @@ def publish_postgres_publication(
             ),
         )
     if not claim.acquired:
-        return PostgresPublicationResult(
+        return PublicationOutcome(
             publication_id=publication_id,
             status=publication.status.value,
             published_parts=tuple(
-                PostgresPublishedPart(part.part_type, part.external_id)
+                PublishedPart(part.part_type, part.external_id)
                 for part in publication.parts
                 if part.external_id is not None
             ),
@@ -709,13 +709,13 @@ def publish_postgres_publication(
             if not postgres_findings.finding_relationships_are_current(connection, run_id=publication.review_run_id):
                 return failure_codes.FINDING_DECISIONS_CHANGED
         pull = github.get_pull_request(publication.repository, publication.pr_number)
-        return _postgres_target_failure(
+        return _target_failure(
             base_sha=publication.base_sha,
             head_sha=publication.head_sha,
             pull=pull,
         )
 
-    def terminalize_stale(failure_code: str) -> PostgresPublicationResult:
+    def terminalize_stale(failure_code: str) -> PublicationOutcome:
         if check_external_id is not None:
             prove_provider_write()
             github.update_check_run(publication.repository, check_external_id, cancelled=True)
@@ -737,7 +737,7 @@ def publish_postgres_publication(
                 failure_code=failure_code,
                 findings_count=findings_count,
             )
-        return PostgresPublicationResult(
+        return PublicationOutcome(
             publication_id=publication_id,
             status=PublicationStatus.STALE.value,
             published_parts=(),
@@ -935,18 +935,18 @@ def publish_postgres_publication(
                     failure_code=exc.code,
                     findings_count=findings_count,
                 )
-        return PostgresPublicationResult(
+        return PublicationOutcome(
             publication_id=publication_id,
             status=failed.status.value,
             published_parts=tuple(
-                PostgresPublishedPart(part.part_type, part.external_id)
+                PublishedPart(part.part_type, part.external_id)
                 for part in failed.parts
                 if part.external_id is not None
             ),
             recovered_parts=recovered,
         )
 
-    _cleanup_postgres_failure_status(
+    _cleanup_failure_status(
         runtime,
         github=github,
         repository=publication.repository,
@@ -971,17 +971,17 @@ def publish_postgres_publication(
         return terminalize_stale(failure_codes.FINDING_DECISIONS_CHANGED)
     except postgres_findings.FindingGroupsChanged:
         return terminalize_stale(failure_codes.FINDING_GROUPS_CHANGED)
-    supersession = _render_postgres_supersession(
+    supersession = _render_supersession(
         runtime,
         github=finalizer,
         superseding_publication_id=publication_id,
         max_comment_bytes=max_comment_bytes,
     )
-    return PostgresPublicationResult(
+    return PublicationOutcome(
         publication_id=publication_id,
         status=posted.status.value,
         published_parts=tuple(
-            PostgresPublishedPart(part.part_type, part.external_id)
+            PublishedPart(part.part_type, part.external_id)
             for part in posted.parts
             if part.external_id is not None
         ),

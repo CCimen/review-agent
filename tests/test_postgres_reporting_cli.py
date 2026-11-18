@@ -419,9 +419,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         purpose: ReviewPurpose = ReviewPurpose.CODE,
     ) -> postgres_review_runs.StartedRun:
         selected_head = head_sha or self.head_sha
-        result = support.start_postgres_review(
+        result = support.start_review(
             self.runtime,
-            review_runs.PostgresRunRequest(
+            review_runs.RunRequest(
                 provider="github",
                 provider_repository_id=self.provider_repository_id,
                 repository=self.repository,
@@ -442,11 +442,11 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, postgres_review_runs.StartedRun)
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=tuple(
-                review_runs.PostgresChangedFile(
+                review_runs.RunChangedFile(
                     path=path, change_status="modified"
                 )
                 for path in paths
@@ -463,15 +463,15 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         findings: tuple[FindingInput, ...] | None = None,
         context_hash: str = "c" * 40,
         head_sha: str | None = None,
-    ) -> review_findings.PostgresFindingBatch:
+    ) -> review_findings.FindingBatch:
         selected = findings if findings is not None else (self.finding(),)
-        return review_findings.record_postgres_findings(
+        return review_findings.record_run_findings(
             self.runtime,
             run_id=run.run.id,
             head_sha=head_sha or self.head_sha,
             findings=selected,
             changed_files=tuple(
-                review_findings.ChangedFile(
+                review_findings.ChangedFileContext(
                     path=path,
                     context_hash=context_hash,
                     context_hash_source="blob",
@@ -483,7 +483,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def prepare_publication(
         self,
         run: postgres_review_runs.StartedRun,
-        batch: review_findings.PostgresFindingBatch,
+        batch: review_findings.FindingBatch,
         *,
         key_character: str,
     ) -> publications.Publication:
@@ -538,7 +538,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def publish_run(
         self,
         run: postgres_review_runs.StartedRun,
-        batch: review_findings.PostgresFindingBatch,
+        batch: review_findings.FindingBatch,
         *,
         key_character: str,
     ) -> publications.Publication:
@@ -1431,7 +1431,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         review_decisions.decide_finding(
             self.runtime,
-            review_decisions.OperatorDecisionRequest(
+            review_decisions.DecisionRequest(
                 repository=self.repository,
                 fingerprint=prior_batch.items[0].fingerprint,
                 decision="false_positive",
@@ -1529,7 +1529,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         for item in suppressed.items:
             review_decisions.decide_finding(
                 self.runtime,
-                review_decisions.OperatorDecisionRequest(
+                review_decisions.DecisionRequest(
                     repository=self.repository,
                     fingerprint=item.fingerprint,
                     decision="false_positive",
@@ -1561,7 +1561,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
         decision = review_decisions.decide_finding(
             self.runtime,
-            review_decisions.OperatorDecisionRequest(
+            review_decisions.DecisionRequest(
                 repository=self.repository,
                 fingerprint=fingerprint[:12],
                 decision="false_positive",
@@ -1631,7 +1631,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
                 )
 
-        with self.assertRaises(input_checks.OperatorInputError):
+        with self.assertRaises(input_checks.InputError):
             inspection.export_repository(
                 self.runtime,
                 repository=self.repository,
@@ -1755,7 +1755,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
         latest = review_decisions.decide_finding(
             self.runtime,
-            review_decisions.OperatorDecisionRequest(
+            review_decisions.DecisionRequest(
                 repository=self.repository,
                 fingerprint=fingerprint,
                 decision="resolved",
@@ -1769,7 +1769,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
         local = review_decisions.decide_finding(
             self.runtime,
-            review_decisions.OperatorDecisionRequest(
+            review_decisions.DecisionRequest(
                 repository=self.repository,
                 fingerprint=fingerprint,
                 decision="reopen",
@@ -1783,10 +1783,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(local.occurrence_id, first_batch.items[0].occurrence_id)
         self.assertNotEqual(local.occurrence_id, latest.occurrence_id)
 
-        with self.assertRaises(input_checks.OperatorInputError):
+        with self.assertRaises(input_checks.InputError):
             review_decisions.decide_finding(
                 self.runtime,
-                review_decisions.OperatorDecisionRequest(
+                review_decisions.DecisionRequest(
                     repository=self.repository,
                     fingerprint=fingerprint,
                     decision="resolved",
@@ -1965,7 +1965,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         first_publication = self.publish_run(first, first_batch, key_character="5")
         review_decisions.decide_finding(
             self.runtime,
-            review_decisions.OperatorDecisionRequest(
+            review_decisions.DecisionRequest(
                 repository=self.repository,
                 fingerprint=first_batch.items[0].fingerprint,
                 decision="false_positive",
@@ -2015,7 +2015,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         second_publication = self.publish_run(second, second_batch, key_character="6")
         review_decisions.decide_finding(
             self.runtime,
-            review_decisions.OperatorDecisionRequest(
+            review_decisions.DecisionRequest(
                 repository=self.repository,
                 fingerprint=second_batch.items[1].fingerprint,
                 decision="false_positive",

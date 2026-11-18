@@ -54,7 +54,7 @@ from ..postgres.team_access import AccessRequest
 from ..postgres.audit import AuditAction
 
 
-class AdminAuth:
+class ConsoleAuth:
     def __init__(
         self,
         database_url: PostgresDatabaseUrl,

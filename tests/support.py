@@ -31,8 +31,8 @@ from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent.review import runs as review_runs  # noqa: E402
 
 
-def start_postgres_review(
-    runtime: PostgreSQLRuntime, request: review_runs.PostgresRunRequest
+def start_review(
+    runtime: PostgreSQLRuntime, request: review_runs.RunRequest
 ) -> postgres_review_runs.RunStart:
     """Start one exact review run without a durable job."""
     with runtime.transaction() as connection:
@@ -49,11 +49,11 @@ def start_postgres_review(
         )
 
 
-def register_postgres_changed_files(
+def register_changed_files(
     runtime: PostgreSQLRuntime,
     *,
     run_id: ReviewRunId,
-    files: Sequence[review_runs.PostgresChangedFile],
+    files: Sequence[review_runs.RunChangedFile],
     changed_files_reported: int,
     registration_complete: bool,
 ) -> postgres_coverage.CoverageRegistration:
@@ -96,7 +96,7 @@ def record_postgres_diff_observation(
         )
 
 
-def record_postgres_file_reads(
+def record_file_reads(
     runtime: PostgreSQLRuntime,
     *,
     run_id: ReviewRunId,

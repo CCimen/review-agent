@@ -158,7 +158,7 @@ def parse_path(raw: Any, *, required: bool = True) -> str:
         return ""
     try:
         return review_validation.normalize_path(value)
-    except review_validation.ReviewMemoryError as exc:
+    except review_validation.ReviewValidationError as exc:
         raise ToolInputError(str(exc)) from exc
 
 
@@ -328,8 +328,8 @@ def run_subject(
 
 def pull_snapshot(
     pull: JsonObject,
-) -> review_runs.PullSnapshot[JsonObject]:
-    return review_runs.PullSnapshot(
+) -> review_runs.RunPullSnapshot[JsonObject]:
+    return review_runs.RunPullSnapshot(
         payload=pull,
         base_sha=pull_base_sha(pull),
         head_sha=pull_head_sha(pull),
@@ -339,7 +339,7 @@ def pull_snapshot(
 
 def _load_pull_snapshot(
     source: GatewaySourceSession,
-) -> review_runs.PullSnapshot[JsonObject]:
+) -> review_runs.RunPullSnapshot[JsonObject]:
     _, _, pull = pull_request_identity(source)
     return pull_snapshot(pull)
 
@@ -396,7 +396,7 @@ def tool_failure_detail(exc: BaseException) -> str:
         exc,
         (
             ToolInputError,
-            review_validation.ReviewMemoryError,
+            review_validation.ReviewValidationError,
             review_runs.ReviewRunError,
         ),
     ):

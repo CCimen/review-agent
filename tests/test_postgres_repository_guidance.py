@@ -39,9 +39,9 @@ class PostgreSQLRepositoryGuidanceTests(unittest.TestCase):
         self.addCleanup(self.runtime.close)
 
     def start_run(self) -> ReviewRunId:
-        result = support.start_postgres_review(
+        result = support.start_review(
             self.runtime,
-            review_runs.PostgresRunRequest(
+            review_runs.RunRequest(
                 provider="github",
                 provider_repository_id=123,
                 repository="example-org/example-repository",

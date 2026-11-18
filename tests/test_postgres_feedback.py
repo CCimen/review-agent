@@ -112,7 +112,7 @@ class PostgreSQLFeedbackAdmissionTests(unittest.TestCase):
             review_feedback.ReviewFeedbackError,
             "authorization_version",
         ):
-            review_feedback.record_postgres_feedback(
+            review_feedback.record_feedback(
                 runtime,
                 event_id="github:issue-comment:500",
                 repository="example-org/example-repository",
@@ -172,9 +172,9 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
         decision_status: str | None = None,
         decision_applies_to: tuple[str, ...] = ("src/api/**",),
     ) -> publications.StoredPublication:
-        started = support.start_postgres_review(
+        started = support.start_review(
             self.runtime,
-            review_runs.PostgresRunRequest(
+            review_runs.RunRequest(
                 provider="github",
                 provider_repository_id=981,
                 repository="example-org/example-repository",
@@ -188,11 +188,11 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
             ),
         )
         assert isinstance(started, postgres_review_runs.StartedRun)
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=started.run.id,
             files=(
-                review_runs.PostgresChangedFile(
+                review_runs.RunChangedFile(
                     path="src/api/resources.py",
                     change_status="modified",
                 ),
@@ -231,13 +231,13 @@ on_change = ["Run the cross-scope authorization test."]
                     run_id=started.run.id,
                     context=context,
                 )
-        batch = review_findings.record_postgres_findings(
+        batch = review_findings.record_run_findings(
             self.runtime,
             run_id=started.run.id,
             head_sha=head_sha,
             findings=(self.finding(),) if with_finding else (),
             changed_files=(
-                review_findings.ChangedFile(
+                review_findings.ChangedFileContext(
                     path="src/api/resources.py",
                     context_hash="c" * 40,
                     context_hash_source="blob",
@@ -330,7 +330,7 @@ on_change = ["Run the cross-scope authorization test."]
     ):
         command = parse_review_feedback_command(body)
         assert command is not None
-        return review_feedback.record_postgres_feedback(
+        return review_feedback.record_feedback(
             self.runtime,
             event_id=event_id,
             repository="example-org/example-repository",

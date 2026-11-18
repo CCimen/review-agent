@@ -45,7 +45,7 @@ MIN_PUBLICATION_SCORE = min(SEVERITY_SCORE_GATES.values())
 _ELLIPSIS = "..."
 
 
-class ReviewMemoryError(ValueError):
+class ReviewValidationError(ValueError):
     """Raised for invalid memory input."""
 
 
@@ -66,9 +66,9 @@ def isoformat(value: datetime | None = None) -> str:
 def clean_text(value: Any, *, field: str, maximum: int, required: bool = True) -> str:
     text = " ".join(str(value or "").strip().split())
     if required and not text:
-        raise ReviewMemoryError(f"{field} is required")
+        raise ReviewValidationError(f"{field} is required")
     if len(text) > maximum:
-        raise ReviewMemoryError(f"{field} exceeds {maximum} characters")
+        raise ReviewValidationError(f"{field} exceeds {maximum} characters")
     return text
 
 
@@ -105,26 +105,26 @@ def clean_multiline(
 ) -> str:
     text = str(value or "").strip()
     if required and not text:
-        raise ReviewMemoryError(f"{field} is required")
+        raise ReviewValidationError(f"{field} is required")
     if len(text) > maximum:
-        raise ReviewMemoryError(f"{field} exceeds {maximum} characters")
+        raise ReviewValidationError(f"{field} exceeds {maximum} characters")
     return text
 
 
 def normalize_repository(repository: str) -> str:
     value = repository.strip().lower()
     if value.count("/") != 1 or not re.fullmatch(r"[a-z0-9_.-]+/[a-z0-9_.-]+", value):
-        raise ReviewMemoryError("repository must be owner/name")
+        raise ReviewValidationError("repository must be owner/name")
     return value
 
 
 def normalize_path(path: str) -> str:
     value = path.strip().replace("\\", "/")
     if not value or value.startswith("/") or "\x00" in value:
-        raise ReviewMemoryError("invalid repository path")
+        raise ReviewValidationError("invalid repository path")
     parts = value.split("/")
     if any(part in {"", ".", ".."} for part in parts):
-        raise ReviewMemoryError("repository path may not contain traversal segments")
+        raise ReviewValidationError("repository path may not contain traversal segments")
     if len(value) > 500:
-        raise ReviewMemoryError("repository path is too long")
+        raise ReviewValidationError("repository path is too long")
     return value

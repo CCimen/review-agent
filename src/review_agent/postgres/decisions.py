@@ -327,7 +327,7 @@ def append_decision_with_audit(
     return decision
 
 
-def append_operator_decision(
+def append_decision(
     connection: psycopg.Connection[TupleRow],
     *,
     finding_id: FindingId,

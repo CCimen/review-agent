@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Literal, TypedDict
 
 from .review import DiffPage
-from .review_validation import ReviewMemoryError, normalize_path
+from .review_validation import ReviewValidationError, normalize_path
 
 PatchState = Literal["available", "missing", "oversized", "binary", "rename_only"]
 
@@ -416,7 +416,7 @@ def _validated_path(value: str, *, prefix: str = "") -> str | None:
     candidate = decoded[len(prefix) :] if prefix else decoded
     try:
         return normalize_path(candidate)
-    except ReviewMemoryError:
+    except ReviewValidationError:
         return None
 
 

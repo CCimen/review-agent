@@ -16,9 +16,12 @@ PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools.domain.finding import (  # noqa: E402
+    MAX_FINDINGS_PER_REVIEW,
     FindingDomainError,
     FindingInput,
+    RepeatFinding,
     compute_fingerprint,
+    resolve_fingerprint_query,
 )
 from review_agent_tools.domain.review import RepositoryId  # noqa: E402
 from review_agent_tools.review import (  # noqa: E402
@@ -32,6 +35,7 @@ from review_agent_tools.postgres import (  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from tests import support  # noqa: E402
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -167,7 +171,7 @@ class PostgreSQLFindingTests(unittest.TestCase):
         provider_repository_id: int = 930,
         pr_number: int = 31,
     ) -> postgres_review_runs.ReviewRunId:
-        result = review_run_application.start_postgres_review(
+        result = support.start_postgres_review(
             self.runtime,
             self.request(
                 repository=repository,
@@ -178,7 +182,7 @@ class PostgreSQLFindingTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, postgres_review_runs.StartedRun)
-        review_run_application.register_postgres_changed_files(
+        support.register_postgres_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=(
@@ -213,6 +217,21 @@ class PostgreSQLFindingTests(unittest.TestCase):
             ),
         )
 
+    def repeat_history(
+        self, run_id: postgres_review_runs.ReviewRunId
+    ) -> tuple[RepeatFinding, ...]:
+        with self.runtime.transaction() as connection:
+            return postgres_findings.repeat_history(
+                connection, run_id=run_id, limit=MAX_FINDINGS_PER_REVIEW
+            )
+
+    def resolve_fingerprint(self, repository_id: RepositoryId, value: str) -> str:
+        query = resolve_fingerprint_query(value)
+        with self.runtime.transaction() as connection:
+            return postgres_findings.resolve_fingerprint(
+                connection, repository_id=repository_id, query=query
+            )
+
     def test_repository_rename_preserves_identity_and_adds_an_occurrence(self) -> None:
         first_run = self.start(
             repository="team/before-rename",
@@ -230,9 +249,7 @@ class PostgreSQLFindingTests(unittest.TestCase):
             head_sha="d" * 40,
             request_key="github:issue-comment:3002",
         )
-        prior = review_finding_application.load_postgres_repeat_history(
-            self.runtime, run_id=second_run
-        )
+        prior = self.repeat_history(second_run)
         self.assertEqual(len(prior), 1)
         self.assertEqual(prior[0].previous_head, "a" * 40)
         self.assertEqual(prior[0].local_reference, "F1")
@@ -255,9 +272,7 @@ class PostgreSQLFindingTests(unittest.TestCase):
             head_sha="e" * 40,
             request_key="github:issue-comment:3003",
         )
-        latest = review_finding_application.load_postgres_repeat_history(
-            self.runtime, run_id=third_run
-        )
+        latest = self.repeat_history(third_run)
         self.assertEqual(len(latest), 1)
         self.assertEqual(latest[0].previous_run_id, second_run)
         self.assertEqual(latest[0].previous_head, "d" * 40)
@@ -322,11 +337,7 @@ class PostgreSQLFindingTests(unittest.TestCase):
 
         recorded = self.record(run_id, "a" * 40)
         with self.assertRaises(postgres_findings.FingerprintNotFound):
-            review_finding_application.resolve_postgres_fingerprint(
-                self.runtime,
-                repository_id=recorded.repository_id,
-                value="f" * 64,
-            )
+            self.resolve_fingerprint(recorded.repository_id, "f" * 64)
 
         with self.runtime.transaction() as connection:
             postgres_review_runs.fail_run(
@@ -391,19 +402,11 @@ class PostgreSQLFindingTests(unittest.TestCase):
                 )
 
         self.assertEqual(
-            review_finding_application.resolve_postgres_fingerprint(
-                self.runtime,
-                repository_id=first.repository_id,
-                value="deadbeef",
-            ),
+            self.resolve_fingerprint(first.repository_id, "deadbeef"),
             "deadbeef" + "0" * 56,
         )
         self.assertEqual(
-            review_finding_application.resolve_postgres_fingerprint(
-                self.runtime,
-                repository_id=second.repository_id,
-                value="deadbeef",
-            ),
+            self.resolve_fingerprint(second.repository_id, "deadbeef"),
             "deadbeef" + "1" * 56,
         )
 
@@ -421,17 +424,9 @@ class PostgreSQLFindingTests(unittest.TestCase):
                 (first.repository_id, "deadbeef" + "2" * 56),
             )
         with self.assertRaises(postgres_findings.AmbiguousFingerprint):
-            review_finding_application.resolve_postgres_fingerprint(
-                self.runtime,
-                repository_id=first.repository_id,
-                value="deadbeef",
-            )
+            self.resolve_fingerprint(first.repository_id, "deadbeef")
         with self.assertRaises(FindingDomainError):
-            review_finding_application.resolve_postgres_fingerprint(
-                self.runtime,
-                repository_id=RepositoryId(1),
-                value="deadbee",
-            )
+            self.resolve_fingerprint(RepositoryId(1), "deadbee")
 
     def test_two_hundred_findings_are_atomic_idempotent_and_deterministic(self) -> None:
         run_id = self.start(

@@ -494,17 +494,6 @@ def _rendered_chunks(text: str) -> list[_DiffChunk]:
 
 
 
-def assemble_rendered_diff(
-    text: str, *, only_path: str | None, max_chars: int, start_char: int = 0
-) -> AssembledDiff:
-    """Select and pack exact file blocks from a complete GitHub-rendered diff."""
-    return prepare_rendered_diff(text).assemble(
-        only_path=only_path,
-        max_chars=max_chars,
-        start_char=start_char,
-    )
-
-
 def prepare_rendered_diff(text: str) -> PreparedDiff:
     """Parse a complete rendering once, preserving its exact block order."""
     return PreparedDiff(_rendered_chunks(text), [])
@@ -529,29 +518,12 @@ def synthesize_file_diff(changed_file: ChangedFile) -> str | None:
     return f"{header}--- {old_marker}\n+++ {new_marker}\n{body}"
 
 
-def assemble_fallback_diff(
-    files: list[ChangedFile],
-    *,
-    only_path: str | None,
-    max_chars: int,
-    start_char: int = 0,
-) -> AssembledDiff:
-    """Pack per-file synthesized diffs for the 406 fallback.
+def prepare_fallback_diff(files: list[ChangedFile]) -> PreparedDiff:
+    """Frame per-file patches once for the 406 fallback.
 
-    With ``only_path`` set, returns just that file's diff (or marks it
-    unavailable / not present). Otherwise packs whole-file diffs in the files'
-    registered order up to ``max_chars``; files past the budget set
-    ``more_paths_available`` so the reviewer can request them individually.
-    Files whose patch GitHub omitted are reported in ``unavailable_paths`` and
+    Files whose patch GitHub omitted are kept as explicit unavailable paths and
     never silently dropped.
     """
-    return prepare_fallback_diff(files).assemble(
-        only_path=only_path, max_chars=max_chars, start_char=start_char
-    )
-
-
-def prepare_fallback_diff(files: list[ChangedFile]) -> PreparedDiff:
-    """Frame per-file patches once, retaining explicit unavailable paths."""
     chunks: list[_DiffChunk] = []
     unavailable: list[str] = []
     for changed_file in files:

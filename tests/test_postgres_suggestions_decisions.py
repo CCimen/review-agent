@@ -21,7 +21,9 @@ from review_agent_tools.review import (  # noqa: E402
 )
 from review_agent_tools.domain.finding import (  # noqa: E402
     DecisionKind,
+    FindingDecision,
     FindingInput,
+    resolve_decision,
     suppression_is_active,
 )
 from review_agent_tools.postgres import (  # noqa: E402
@@ -32,6 +34,7 @@ from review_agent_tools.postgres import (  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from tests import support  # noqa: E402
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -137,7 +140,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
         return replace(finding, **overrides)
 
     def start(self) -> postgres_review_runs.ReviewRunId:
-        result = review_run_application.start_postgres_review(
+        result = support.start_postgres_review(
             self.runtime,
             review_run_application.PostgresRunRequest(
                 provider="github",
@@ -153,7 +156,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, postgres_review_runs.StartedRun)
-        review_run_application.register_postgres_changed_files(
+        support.register_postgres_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=(
@@ -434,42 +437,71 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
         )
         target = batch.items[0]
 
-        decision = review_finding_application.append_postgres_governance_decision(
-            self.runtime,
-            finding_id=target.finding_id,
-            occurrence_id=target.occurrence_id,
+        def append_decision(
+            *,
+            decision: str,
+            reason: str,
+            source_comment_id: int,
+            now: datetime,
+            expires_days: int | None = None,
+        ) -> FindingDecision:
+            """Append through the store writer the GitHub feedback path calls."""
+            with self.runtime.transaction() as connection:
+                return postgres_decisions.append_decision_with_audit(
+                    connection,
+                    finding_id=target.finding_id,
+                    occurrence_id=target.occurrence_id,
+                    definition=resolve_decision(
+                        decision=decision,
+                        reason=reason,
+                        actor="reviewer@example.com",
+                        expires_days=expires_days,
+                        now=now,
+                    ),
+                    audit=postgres_decisions.DecisionAudit(
+                        actor_user_id="501",
+                        actor_login="reviewer",
+                        author_association="MEMBER",
+                        authorization_version="sha256:" + ("d" * 64),
+                        source_comment_id=source_comment_id,
+                        source_comment_url=(
+                            f"https://github.example/comments/{source_comment_id}"
+                        ),
+                    ),
+                )
+
+        def active_suppression(
+            *, context_hash: str, now: datetime | None = None
+        ) -> FindingDecision | None:
+            """Apply the live suppression policy to the latest stored decision."""
+            with self.runtime.transaction() as connection:
+                stored = postgres_decisions.latest_suppression_decisions(
+                    connection,
+                    finding_ids=(target.finding_id,),
+                    current_run_id=batch.run_id,
+                ).get(target.finding_id)
+            if stored is None or not suppression_is_active(
+                decision=stored.latest.decision,
+                decision_context_hash=stored.latest.context_hash,
+                current_context_hash=context_hash,
+                expires_at=stored.latest.expires_at,
+                intentional_evidence_current=stored.intentional_evidence_current,
+                now=now or datetime.now(timezone.utc),
+            ):
+                return None
+            return stored.latest
+
+        decision = append_decision(
             decision="false_positive",
             reason="The guard is provided by the caller.",
-            actor="reviewer@example.com",
+            source_comment_id=9901,
             expires_days=30,
-            audit=review_finding_application.DecisionAudit(
-                actor_user_id="501",
-                actor_login="reviewer",
-                author_association="MEMBER",
-                authorization_version="sha256:" + ("d" * 64),
-                source_comment_id=9901,
-                source_comment_url="https://github.example/comments/9901",
-            ),
             now=decision_time + timedelta(hours=1),
         )
 
         self.assertEqual(decision.context_hash, "c" * 40)
-        self.assertIsNotNone(
-            review_finding_application.load_postgres_active_suppression(
-                self.runtime,
-                finding_id=target.finding_id,
-                run_id=batch.run_id,
-                context_hash="c" * 40,
-            )
-        )
-        self.assertIsNone(
-            review_finding_application.load_postgres_active_suppression(
-                self.runtime,
-                finding_id=target.finding_id,
-                run_id=batch.run_id,
-                context_hash="e" * 40,
-            )
-        )
+        self.assertIsNotNone(active_suppression(context_hash="c" * 40))
+        self.assertIsNone(active_suppression(context_hash="e" * 40))
         suggestion_result = (
             review_finding_application.record_postgres_findings_with_suggestions(
                 self.runtime,
@@ -487,22 +519,12 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
         )
 
         with self.assertRaises(postgres_decisions.DecisionAuditConflict):
-            review_finding_application.append_postgres_governance_decision(
-                self.runtime,
-                finding_id=target.finding_id,
-                occurrence_id=target.occurrence_id,
+            append_decision(
                 decision="accepted_risk",
                 reason="Accepted for this exact context.",
-                actor="reviewer@example.com",
+                source_comment_id=9901,
                 expires_days=30,
-                audit=review_finding_application.DecisionAudit(
-                    actor_user_id="501",
-                    actor_login="reviewer",
-                    author_association="MEMBER",
-                    authorization_version="sha256:" + ("d" * 64),
-                    source_comment_id=9901,
-                    source_comment_url="https://github.example/comments/9901",
-                ),
+                now=datetime.now(timezone.utc),
             )
 
         with self.runtime.transaction() as connection:
@@ -513,29 +535,14 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(counts, (1, 1))
 
-        review_finding_application.append_postgres_governance_decision(
-            self.runtime,
-            finding_id=target.finding_id,
-            occurrence_id=target.occurrence_id,
+        append_decision(
             decision="reopen",
             reason="The finding must be reviewed again.",
-            actor="reviewer@example.com",
-            audit=review_finding_application.DecisionAudit(
-                actor_user_id="501",
-                actor_login="reviewer",
-                author_association="MEMBER",
-                authorization_version="sha256:" + ("d" * 64),
-                source_comment_id=9902,
-                source_comment_url="https://github.example/comments/9902",
-            ),
+            source_comment_id=9902,
             now=decision_time,
         )
         self.assertIsNone(
-            review_finding_application.load_postgres_active_suppression(
-                self.runtime,
-                finding_id=target.finding_id,
-                run_id=batch.run_id,
-                context_hash="c" * 40,
-                now=decision_time + timedelta(hours=2),
+            active_suppression(
+                context_hash="c" * 40, now=decision_time + timedelta(hours=2)
             )
         )

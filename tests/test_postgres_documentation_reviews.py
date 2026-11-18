@@ -32,6 +32,7 @@ from review_agent_tools.postgres import documentation_reviews, review_runs  # no
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from tests import support  # noqa: E402
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 BASE, COMPARISON, HEAD = "b" * 40, "c" * 40, "a" * 40
@@ -108,7 +109,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
     def start(
         self, *, purpose: ReviewPurpose = ReviewPurpose.DOCUMENTATION
     ) -> ReviewRunId:
-        started = review_run_application.start_postgres_review(
+        started = support.start_postgres_review(
             self.runtime,
             review_run_application.PostgresRunRequest(
                 provider="github",
@@ -135,7 +136,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
         from tests.test_documentation_preflight import POLICY, policy
 
         run_id = self.start()
-        review_run_application.register_postgres_changed_files(
+        support.register_postgres_changed_files(
             self.runtime, run_id=run_id,
             files=(review_run_application.PostgresChangedFile(path="tests/api.py", change_status="modified"),),
             changed_files_reported=1, registration_complete=True,
@@ -170,7 +171,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
         from review_agent_tools.review.tool_runtime import GatewaySourceSession
         from tests.test_documentation_preflight import POLICY, policy
         run_id = self.start()
-        review_run_application.register_postgres_changed_files(self.runtime, run_id=run_id,
+        support.register_postgres_changed_files(self.runtime, run_id=run_id,
             files=(review_run_application.PostgresChangedFile(path="tests/api.py", change_status="modified"),),
             changed_files_reported=1, registration_complete=True)
         with self.runtime.transaction() as connection:
@@ -238,7 +239,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
 
         run_id = self.start()
         observed = replace(result_fixture(), run_id=run_id)
-        review_run_application.register_postgres_changed_files(
+        support.register_postgres_changed_files(
             self.runtime,
             run_id=run_id,
             files=(

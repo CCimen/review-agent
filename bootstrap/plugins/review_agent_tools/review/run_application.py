@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Generic, Literal, TypeVar, cast
 import psycopg
 from psycopg.rows import TupleRow
 
-from .. import changed_files, failure_codes
+from .. import failure_codes
 from ..domain.review import (
     ChangedFileDefinition,
     DiffPage,
@@ -19,7 +19,6 @@ from ..domain.review import (
     FileSide as PostgresFileSide,
     JsonObject,
     PullRequestId,
-    ReviewDomainError,
     ReviewMode,
     ReviewPurpose,
     ReviewPhase,
@@ -114,14 +113,6 @@ class PostgresChangedFile:
     previous_path: str | None = None
     domain: FileDomain = FileDomain.GENERAL
     review_mode: ReviewMode = ReviewMode.NORMAL
-
-
-@dataclass(frozen=True, slots=True)
-class PostgresFileRead:
-    path: str
-    side: PostgresFileSide
-    start_line: int
-    end_line: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,15 +247,6 @@ def fail_run_after_publication_in_transaction(
     )
 
 
-def mark_superseded_in_transaction(
-    connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
-) -> postgres_review_runs.ReviewRun:
-    """Supersede one review and its optional durable job atomically."""
-    run = postgres_review_runs.mark_superseded(connection, run_id)
-    postgres_jobs.reconcile_run_jobs(connection, run_ids=(run.id,), status=run.status)
-    return run
-
-
 def fail_claimed_job_in_transaction(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -359,41 +341,6 @@ def mark_stale_runs_failed_in_transaction(
     )
 
 
-def start_postgres_review(
-    runtime: PostgreSQLRuntime, request: PostgresRunRequest
-) -> postgres_review_runs.RunStart:
-    """Compose the first exact PostgreSQL review in one short transaction."""
-    with runtime.transaction() as connection:
-        pull_request_id, subject_id = _ensure_review_scope(connection, request)
-        return start_run_in_transaction(
-            connection,
-            pull_request_id=pull_request_id,
-            review_subject_id=subject_id,
-            request_key=request.request_key,
-            trigger_comment_id=request.trigger_comment_id,
-            trigger_user=request.trigger_user,
-        )
-
-
-def admit_postgres_review(
-    runtime: PostgreSQLRuntime,
-    request: PostgresRunRequest,
-    *,
-    priority: int,
-    max_attempts: int,
-    active_job_limit: int,
-) -> AdmittedReview:
-    """Persist the exact run and its queue record in one transaction."""
-    with runtime.transaction() as connection:
-        return admit_postgres_review_in_transaction(
-            connection,
-            request,
-            priority=priority,
-            max_attempts=max_attempts,
-            active_job_limit=active_job_limit,
-        )
-
-
 def admit_postgres_review_in_transaction(
     connection: psycopg.Connection[TupleRow],
     request: PostgresRunRequest,
@@ -404,7 +351,7 @@ def admit_postgres_review_in_transaction(
     reuse_completed_documentation: bool = False,
 ) -> AdmittedReview:
     """Admit one review through an existing caller-owned transaction."""
-    pull_request_id, subject_id = _ensure_review_scope(connection, request)
+    pull_request_id, subject_id = ensure_review_scope(connection, request)
     if reuse_completed_documentation:
         if request.purpose is not ReviewPurpose.DOCUMENTATION:
             raise ReviewRunError("completed-result reuse is only available for automatic documentation")
@@ -442,7 +389,7 @@ def admit_postgres_review_in_transaction(
     return AdmittedReview(run=run, job=job)
 
 
-def _ensure_review_scope(
+def ensure_review_scope(
     connection: psycopg.Connection[TupleRow], request: PostgresRunRequest
 ) -> tuple[PullRequestId, ReviewSubjectId]:
     """Resolve and persist the repository, pull request, and exact subject."""
@@ -490,30 +437,6 @@ def _resolve_changed_file_registration(
     return resolved, resolve_changed_file_count(changed_files_reported)
 
 
-def register_postgres_changed_files(
-    runtime: PostgreSQLRuntime,
-    *,
-    run_id: ReviewRunId,
-    files: Sequence[PostgresChangedFile],
-    changed_files_reported: int,
-    registration_complete: bool,
-) -> postgres_coverage.CoverageRegistration:
-    """Persist one pre-fetched changed-file batch in one short transaction."""
-    if len(files) > changed_files.GITHUB_PR_FILES_LIMIT:
-        raise ReviewDomainError("changed-file batch exceeds the supported limit")
-    resolved, resolved_reported = _resolve_changed_file_registration(
-        files, changed_files_reported
-    )
-    with runtime.transaction() as connection:
-        return postgres_coverage.insert_changed_files(
-            connection,
-            run_id=run_id,
-            files=resolved,
-            changed_files_reported=resolved_reported,
-            registration_complete=registration_complete,
-        )
-
-
 def register_live_changed_files(
     runtime: PostgreSQLRuntime,
     subject: RunSubject,
@@ -551,54 +474,6 @@ def register_live_changed_files(
         )
         return postgres_coverage.file_index_summary(
             connection, run_id=ReviewRunId(subject.run_id)
-        )
-
-
-def record_postgres_diff_observation(
-    runtime: PostgreSQLRuntime,
-    *,
-    run_id: ReviewRunId,
-    paths: Sequence[str],
-    state: DiffState,
-    unavailable_reason: str = "",
-) -> int:
-    """Persist one pre-fetched diff outcome without a network callback."""
-    if len(paths) > changed_files.GITHUB_PR_FILES_LIMIT:
-        raise ReviewDomainError("diff observation exceeds the supported limit")
-    observation = resolve_diff_observation(
-        paths=paths,
-        state=state,
-        unavailable_reason=unavailable_reason,
-    )
-    with runtime.transaction() as connection:
-        return postgres_coverage.record_diff_observation(
-            connection,
-            run_id=run_id,
-            observation=observation,
-        )
-
-
-def record_postgres_file_reads(
-    runtime: PostgreSQLRuntime,
-    *,
-    run_id: ReviewRunId,
-    reads: Sequence[PostgresFileRead],
-) -> postgres_coverage.FileReadBatch:
-    """Persist pre-resolved source ranges without changing diff coverage."""
-    if len(reads) > changed_files.GITHUB_PR_FILES_LIMIT:
-        raise ReviewDomainError("source-read batch exceeds the supported limit")
-    resolved = tuple(
-        resolve_file_read(
-            path=item.path,
-            side=item.side,
-            start_line=item.start_line,
-            end_line=item.end_line,
-        )
-        for item in reads
-    )
-    with runtime.transaction() as connection:
-        return postgres_coverage.insert_file_reads(
-            connection, run_id=run_id, reads=resolved
         )
 
 

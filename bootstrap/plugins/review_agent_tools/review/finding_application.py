@@ -14,7 +14,6 @@ from .. import memory_validation, suggestion_validation
 from ..domain.finding import (
     MAX_FINDINGS_PER_REVIEW,
     FindingDefinition,
-    FindingDecision,
     FindingDomainError,
     FindingId,
     FindingInput,
@@ -22,13 +21,11 @@ from ..domain.finding import (
     RepeatFinding,
     resolve_context_hash,
     resolve_finding,
-    resolve_decision,
     resolve_finding_path,
-    resolve_fingerprint_query,
     require_unique_finding_identities,
     suppression_is_active,
 )
-from ..domain.review import RepositoryId, ReviewRunId
+from ..domain.review import ReviewRunId
 from ..postgres import (
     decisions as postgres_decisions,
     findings as postgres_findings,
@@ -42,7 +39,6 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
 HeadFileLoader = Callable[[str, int, int], str | None]
 RecordedFinding = dict[str, object]
 PostgresFindingBatch: TypeAlias = postgres_findings.FindingBatch
-DecisionAudit: TypeAlias = postgres_decisions.DecisionAudit
 
 
 class ReviewFindingError(ValueError):
@@ -156,32 +152,6 @@ def record_postgres_findings(
             run_id=run_id,
             expected_head_sha=resolve_context_hash(head_sha),
             definitions=definitions,
-        )
-
-
-def resolve_postgres_fingerprint(
-    runtime: PostgreSQLRuntime,
-    *,
-    repository_id: RepositoryId,
-    value: str,
-) -> str:
-    """Resolve a fingerprint only within the caller's stable repository identity."""
-    query = resolve_fingerprint_query(value)
-    with runtime.transaction() as connection:
-        return postgres_findings.resolve_fingerprint(
-            connection, repository_id=repository_id, query=query
-        )
-
-
-def load_postgres_repeat_history(
-    runtime: PostgreSQLRuntime,
-    *,
-    run_id: ReviewRunId,
-) -> tuple[RepeatFinding, ...]:
-    """Load bounded prior occurrence context for one exact pull request."""
-    with runtime.transaction() as connection:
-        return postgres_findings.repeat_history(
-            connection, run_id=run_id, limit=MAX_FINDINGS_PER_REVIEW
         )
 
 
@@ -472,97 +442,6 @@ def record_live_findings(
         items=tuple(items),
         suggestions_recorded=result.suggestions_recorded,
     )
-
-
-def _validated_decision_audit(audit: DecisionAudit) -> DecisionAudit:
-    actor_user_id = audit.actor_user_id.strip()
-    if not actor_user_id or len(actor_user_id) > 200:
-        raise ReviewFindingError("decision audit actor_user_id is invalid")
-    actor_login = audit.actor_login.strip() if audit.actor_login else None
-    author_association = (
-        audit.author_association.strip() if audit.author_association else None
-    )
-    if actor_login and len(actor_login) > 200:
-        raise ReviewFindingError("decision audit actor_login is invalid")
-    if author_association and len(author_association) > 80:
-        raise ReviewFindingError("decision audit author_association is invalid")
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", audit.authorization_version):
-        raise ReviewFindingError("decision audit authorization_version is invalid")
-    if isinstance(audit.source_comment_id, bool) or audit.source_comment_id < 1:
-        raise ReviewFindingError("decision audit source_comment_id is invalid")
-    source_url = audit.source_comment_url.strip() if audit.source_comment_url else None
-    if source_url and ("\x00" in source_url or len(source_url) > 1_000):
-        raise ReviewFindingError("decision audit source_comment_url is invalid")
-    return DecisionAudit(
-        actor_user_id=actor_user_id,
-        actor_login=actor_login,
-        author_association=author_association,
-        authorization_version=audit.authorization_version,
-        source_comment_id=audit.source_comment_id,
-        source_comment_url=source_url,
-    )
-
-
-def append_postgres_governance_decision(
-    runtime: PostgreSQLRuntime,
-    *,
-    finding_id: FindingId,
-    occurrence_id: FindingOccurrenceId,
-    decision: str,
-    reason: str,
-    actor: str,
-    audit: DecisionAudit,
-    expires_days: int | None = None,
-    adr_id: str = "",
-    now: datetime | None = None,
-) -> FindingDecision:
-    """Append one context-derived human decision and its audit atomically."""
-    moment = now or datetime.now(timezone.utc)
-    definition = resolve_decision(
-        decision=decision,
-        reason=reason,
-        actor=actor,
-        adr_id=adr_id,
-        expires_days=expires_days,
-        now=moment,
-    )
-    clean_audit = _validated_decision_audit(audit)
-    with runtime.transaction() as connection:
-        return postgres_decisions.append_decision_with_audit(
-            connection,
-            finding_id=finding_id,
-            occurrence_id=occurrence_id,
-            definition=definition,
-            audit=clean_audit,
-        )
-
-
-def load_postgres_active_suppression(
-    runtime: PostgreSQLRuntime,
-    *,
-    finding_id: FindingId,
-    run_id: ReviewRunId,
-    context_hash: str,
-    now: datetime | None = None,
-) -> FindingDecision | None:
-    """Return an unexpired suppressive decision for the exact current context."""
-    current_context_hash = resolve_context_hash(context_hash)
-    with runtime.transaction() as connection:
-        decision = postgres_decisions.latest_suppression_decisions(
-            connection,
-            finding_ids=(finding_id,),
-            current_run_id=run_id,
-        ).get(finding_id)
-    if decision is None:
-        return None
-    return decision.latest if suppression_is_active(
-        decision=decision.latest.decision,
-        decision_context_hash=decision.latest.context_hash,
-        current_context_hash=current_context_hash,
-        expires_at=decision.latest.expires_at,
-        intentional_evidence_current=decision.intentional_evidence_current,
-        now=now or datetime.now(timezone.utc),
-    ) else None
 
 
 def load_live_context(

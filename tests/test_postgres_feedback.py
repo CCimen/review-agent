@@ -56,6 +56,7 @@ from review_agent_tools.postgres import decisions as postgres_decisions  # noqa:
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from tests import support  # noqa: E402
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 
@@ -169,7 +170,7 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
         decision_status: str | None = None,
         decision_applies_to: tuple[str, ...] = ("src/api/**",),
     ) -> publications.StoredPublication:
-        started = review_run_application.start_postgres_review(
+        started = support.start_postgres_review(
             self.runtime,
             review_run_application.PostgresRunRequest(
                 provider="github",
@@ -185,7 +186,7 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
             ),
         )
         assert isinstance(started, review_runs.StartedRun)
-        review_run_application.register_postgres_changed_files(
+        support.register_postgres_changed_files(
             self.runtime,
             run_id=started.run.id,
             files=(

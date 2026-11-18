@@ -13,11 +13,11 @@ from review_agent_tools.domain import review as review_domain  # noqa: E402
 
 class ReviewRendererTests(unittest.TestCase):
     def test_review_header_identifies_the_exact_commit_without_findings(self) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example/repository", pr_number=12, head_sha="a" * 40,
             findings=[], closed=[], still_present=[], partially_resolved=[],
             new_refs=[], not_checked_refs=[], coverage=self.coverage(),
-        )
+        ).markdown
         visible = rendered.split("<!--", 1)[0]
         self.assertIn("**Reviewed commit:**", visible)
         self.assertIn("https://github.com/example/repository/commit/" + "a" * 40, visible)
@@ -57,36 +57,36 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
     def test_low_findings_stay_open_when_nothing_more_urgent_exists(self) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example/repository", pr_number=12, head_sha="a" * 40,
             findings=[self.finding(severity="Low", category="correctness")],
             closed=[], still_present=[], partially_resolved=[], new_refs=[],
             not_checked_refs=[], coverage=self.coverage(),
-        )
+        ).markdown
         self.assertIn("\n\n### F1 · Low (P3): Example finding", rendered)
         self.assertNotIn("Low-priority findings", rendered)
 
     def test_quality_only_review_keeps_the_current_finding_count(self) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example/repository", pr_number=12, head_sha="a" * 40,
             findings=[self.finding(severity="Low", category="maintainability")],
             closed=[], still_present=[], partially_resolved=[], new_refs=[],
             not_checked_refs=[], coverage=self.coverage(),
-        )
+        ).markdown
         self.assertIn("There is 1 current finding: 1 Low (P3).", rendered)
         self.assertIn("<strong>Code quality and readability (1)</strong> · Low (P3): F1", rendered)
         self.assertNotIn("No current findings", rendered)
         self.assertNotIn("safe to merge", rendered)
 
     def test_repeat_review_keeps_quality_count_with_severity_totals(self) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example/repository", pr_number=12, head_sha="a" * 40,
             findings=[self.finding(
                 local_reference="F4", severity="Low", category="maintainability",
             )],
             closed=[], still_present=[], partially_resolved=[], new_refs=["F4"],
             not_checked_refs=[], coverage=self.coverage(), previous_review_number=1,
-        )
+        ).markdown
         totals, comparison = rendered.split("\n\n**Compared with Review 1:**", 1)
         self.assertIn("1 Low (P3). Code quality and readability: 1 improvement.", totals)
         self.assertEqual(comparison.split("\n", 1)[0], " F4 is new")
@@ -155,7 +155,7 @@ class ReviewRendererTests(unittest.TestCase):
     def test_partial_review_keeps_the_result_visible_and_details_collapsed(
         self,
     ) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example/repository",
             pr_number=12,
             head_sha="a" * 40,
@@ -198,7 +198,7 @@ class ReviewRendererTests(unittest.TestCase):
             },
             review_number=2,
             previous_review_number=1,
-        )
+        ).markdown
         visible = rendered.split("<details>", 1)[0]
         self.assertNotIn("private/module.py", visible)
         self.assertNotIn("The updated guard", visible)
@@ -432,7 +432,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertTrue(rendered.endswith("</details>"))
 
     def test_review_reports_the_exact_repository_decision_snapshot(self) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -450,7 +450,7 @@ class ReviewRendererTests(unittest.TestCase):
                 "snapshot_hash": "sha256:" + "c" * 64,
                 "decision_ids": ["ADR-0042"],
             },
-        )
+        ).markdown
 
         self.assertIn("Repository decisions: loaded `ADR-0042`", rendered)
         self.assertIn("decision_status=loaded", rendered)
@@ -473,7 +473,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertNotIn("0 supporting files", line)
 
     def test_visible_finding_omits_internal_disproof_checks(self) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -489,7 +489,7 @@ class ReviewRendererTests(unittest.TestCase):
             new_refs=["F1"],
             not_checked_refs=[],
             review_number=1,
-        )
+        ).markdown
 
         self.assertIn("Evidence text.", rendered)
         self.assertIn("**Impact:** Impact text.", rendered)
@@ -587,7 +587,7 @@ class ReviewRendererTests(unittest.TestCase):
             for index in range(1, 12)
         ]
 
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -599,7 +599,7 @@ class ReviewRendererTests(unittest.TestCase):
             not_checked_refs=[],
             coverage=self.coverage(changed_paths=11, changed_paths_with_diff=11),
             review_number=2,
-        )
+        ).markdown
 
         self.assertEqual(rendered.count("**Next:** Address the current findings."), 1)
         self.assertEqual(rendered.count("post `/review` as a new top-level"), 1)
@@ -632,7 +632,7 @@ class ReviewRendererTests(unittest.TestCase):
             ),
         ]
 
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -643,7 +643,7 @@ class ReviewRendererTests(unittest.TestCase):
             new_refs=["F1", "F2"],
             not_checked_refs=[],
             coverage=self.coverage(),
-        )
+        ).markdown
 
         self.assertEqual(rendered.count("> [!TIP]"), 1)
         self.assertIn(
@@ -706,7 +706,7 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
     def test_fix_brief_preserves_incomplete_and_not_rechecked_context(self) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -717,7 +717,7 @@ class ReviewRendererTests(unittest.TestCase):
             new_refs=[],
             not_checked_refs=["F3", "F2"],
             coverage=self.coverage(state="incomplete", changed_paths_with_diff=2),
-        )
+        ).markdown
 
         self.assertIn(
             "Changed-file diff context: incomplete. The findings below are actionable",
@@ -732,7 +732,7 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
     def test_inconclusive_review_never_uses_clean_result_sentence(self) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -752,7 +752,7 @@ class ReviewRendererTests(unittest.TestCase):
             coverage=self.coverage(state="incomplete", changed_paths_with_diff=2),
             review_number=2,
             previous_review_number=1,
-        )
+        ).markdown
 
         self.assertNotIn("I did not identify any current in-scope findings", rendered)
         self.assertIn("prior findings were not rechecked", rendered)
@@ -765,7 +765,7 @@ class ReviewRendererTests(unittest.TestCase):
     def test_incomplete_review_without_prior_findings_does_not_invent_recheck_work(
         self,
     ) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -776,7 +776,7 @@ class ReviewRendererTests(unittest.TestCase):
             new_refs=[],
             not_checked_refs=[],
             coverage=self.coverage(state="incomplete", changed_paths_with_diff=2),
-        )
+        ).markdown
 
         self.assertIn(
             "**Next:** Inspect the remaining changes locally. Post `/review` again to request another review.",
@@ -785,7 +785,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertNotIn("recheck the prior findings", rendered)
 
     def test_model_prose_is_literal_and_mentions_are_neutralized(self) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -806,7 +806,7 @@ class ReviewRendererTests(unittest.TestCase):
             new_refs=["F1"],
             not_checked_refs=[],
             coverage=self.coverage(),
-        )
+        ).markdown
         visible = rendered.split("```text\nTask:", 1)[0]
 
         self.assertNotIn("![pixel](", visible)
@@ -861,7 +861,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertIn("F2 is new", summary)
 
     def test_review_number_heading_does_not_autolink_github_issue(self) -> None:
-        rendered = review_renderer.render_review_markdown(
+        rendered = review_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -872,7 +872,7 @@ class ReviewRendererTests(unittest.TestCase):
             new_refs=[],
             not_checked_refs=[],
             review_number=5,
-        )
+        ).markdown
 
         self.assertIn("Review 5", rendered)
         self.assertNotIn("Review #5", rendered)

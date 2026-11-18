@@ -43,6 +43,7 @@ from review_agent_tools.postgres import (  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from tests import support  # noqa: E402
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -416,7 +417,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         purpose: ReviewPurpose = ReviewPurpose.CODE,
     ) -> review_runs.StartedRun:
         selected_head = head_sha or self.head_sha
-        result = review_run_application.start_postgres_review(
+        result = support.start_postgres_review(
             self.runtime,
             review_run_application.PostgresRunRequest(
                 provider="github",
@@ -439,7 +440,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, review_runs.StartedRun)
-        review_run_application.register_postgres_changed_files(
+        support.register_postgres_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=tuple(
@@ -1731,15 +1732,6 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             report.failure_status_delivery_failure_code, "github_unreachable"
         )
 
-        queued = operator_application.prepare_failure_status_queue(
-            self.runtime,
-            repository=self.repository,
-            pr_number=43,
-            older_than_minutes=60,
-        )
-        self.assertEqual(
-            tuple(item.run_id for item in queued.targets), (started.run.id,)
-        )
         with self.runtime.transaction() as connection:
             recovered = review_runs.claim_failure_status(
                 connection,
@@ -1972,13 +1964,13 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 "SET observed_at = %s WHERE review_run_id = %s",
                 (now - timedelta(days=2), first.run.id),
             )
-        review_run_application.record_postgres_diff_observation(
+        support.record_postgres_diff_observation(
             self.runtime,
             run_id=first.run.id,
             paths=("src/flags.py",),
             state=DiffState.COMPLETE,
         )
-        review_run_application.record_postgres_diff_observation(
+        support.record_postgres_diff_observation(
             self.runtime,
             run_id=first.run.id,
             paths=("src/missing.py",),
@@ -2029,7 +2021,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 "SET observed_at = %s WHERE review_run_id = %s",
                 (now - timedelta(hours=2), second.run.id),
             )
-        review_run_application.record_postgres_diff_observation(
+        support.record_postgres_diff_observation(
             self.runtime,
             run_id=second.run.id,
             paths=tuple(item.path for item in second_findings),

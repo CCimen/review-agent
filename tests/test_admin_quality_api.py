@@ -16,17 +16,17 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent.review import decision_application  # noqa: E402
-from review_agent.postgres.team_access import AccessRequest
-from review_agent.admin.quality_api import create_router  # noqa: E402
+from review_agent.review import decisions as review_decisions  # noqa: E402
+from review_agent.postgres.team_access import AccessRequest  # noqa: E402
+from review_agent.console.api.quality import create_router  # noqa: E402
 from review_agent.domain.finding import (  # noqa: E402
     DecisionKind,
     FindingDecisionId,
     FindingOccurrenceId,
 )
-from review_agent.postgres import admin_quality  # noqa: E402
+from review_agent.postgres import quality_feedback  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import test_postgres_reporting_cli  # noqa: E402
 
@@ -63,7 +63,7 @@ class AdminQualityAPITests(unittest.TestCase):
         self,
     ) -> None:
         now = datetime(2026, 9, 8, tzinfo=timezone.utc)
-        result = decision_application.OperatorDecisionResult(
+        result = review_decisions.OperatorDecisionResult(
             id=FindingDecisionId(1),
             fingerprint="a" * 64,
             occurrence_id=FindingOccurrenceId(42),
@@ -76,7 +76,7 @@ class AdminQualityAPITests(unittest.TestCase):
             expires_at=now,
         )
         with patch(
-            "review_agent.admin.quality_api.admin_application.decide_finding",
+            "review_agent.console.api.quality.console_application.decide_finding",
             return_value=result,
         ) as decide:
             response = self.client.post(
@@ -187,7 +187,7 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
         self.helper.publish_run(other_run, other, key_character="8")
 
         with self.runtime.transaction() as connection:
-            page = admin_quality.review_findings(
+            page = quality_feedback.review_findings(
                 connection, run_id=int(first_run.run.id)
             )
 
@@ -199,7 +199,7 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
             page.items[0].occurrence_id, int(later.items[0].occurrence_id)
         )
         self.assertNotEqual(page.items[0].fingerprint, other.items[0].fingerprint)
-        exact = decision_application.show_finding(
+        exact = review_decisions.show_finding(
             self.runtime,
             repository=self.helper.repository,
             fingerprint=first.items[0].fingerprint,
@@ -207,9 +207,9 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
         )
         self.assertEqual(exact.finding.occurrence_id, first.items[0].occurrence_id)
         self.assertEqual(exact.finding.title, "Safe mode defaults to disabled")
-        decision = decision_application.decide_finding(
+        decision = review_decisions.decide_finding(
             self.runtime,
-            decision_application.OperatorDecisionRequest(
+            review_decisions.OperatorDecisionRequest(
                 repository=self.helper.repository,
                 fingerprint=first.items[0].fingerprint,
                 occurrence_id=int(first.items[0].occurrence_id),
@@ -247,7 +247,7 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
                     ),
                 ).fetchall()
             )
-        decision_application.triage_review_feedback(
+        review_decisions.triage_review_feedback(
             self.runtime,
             feedback_id=feedback_ids[1],
             status="actionable",
@@ -261,10 +261,10 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
         )
 
         with self.runtime.transaction() as connection:
-            truncated = admin_quality.feedback_backlog(
+            truncated = quality_feedback.feedback_backlog(
                 connection, repository=self.helper.repository, limit=1, offset=0
             )
-            next_page = admin_quality.feedback_backlog(
+            next_page = quality_feedback.feedback_backlog(
                 connection, repository=self.helper.repository, limit=1, offset=1
             )
 
@@ -284,9 +284,9 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
         fingerprint = finding.items[0].fingerprint
         stored_ids: list[int] = []
         for index in range(5):
-            stored = decision_application.decide_finding(
+            stored = review_decisions.decide_finding(
                 self.runtime,
-                decision_application.OperatorDecisionRequest(
+                review_decisions.OperatorDecisionRequest(
                     repository=self.helper.repository,
                     fingerprint=fingerprint,
                     occurrence_id=occurrence_id,
@@ -297,13 +297,13 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
             )
             stored_ids.append(int(stored.id))
 
-        latest = decision_application.show_finding(
+        latest = review_decisions.show_finding(
             self.runtime,
             repository=self.helper.repository,
             fingerprint=fingerprint,
             decision_limit=3,
         )
-        older = decision_application.show_finding(
+        older = review_decisions.show_finding(
             self.runtime,
             repository=self.helper.repository,
             fingerprint=fingerprint,

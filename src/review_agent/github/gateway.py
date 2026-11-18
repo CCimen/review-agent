@@ -12,7 +12,9 @@ import urllib.parse
 import psycopg
 from psycopg.rows import TupleRow
 
-from .. import capacity, changed_files, memory_validation, schemas
+from .. import capacity
+from . import changed_files
+from ..domain import review_validation
 from ..code_graph.contract import (
     ARCHIVE_MAX_BYTES,
     GraphError,
@@ -33,14 +35,14 @@ from ..postgres import (
     webhook_deliveries,
 )
 from ..postgres.runtime import PostgreSQLRuntime
-from ..source_control import (
+from .client import (
     GitHubReadClient,
     GitHubReadError,
     PullSnapshot,
     read_pull_snapshot,
 )
-from ..feedback_contract import usage_lines
-from ..review.identity import (
+from ..domain.feedback_commands import usage_lines
+from ..publication.identity import (
     FEEDBACK_COMMAND_NOT_RECOGNIZED,
     FEEDBACK_NO_CURRENT_REVIEW,
     FEEDBACK_NOT_CURRENT_REVIEW,
@@ -124,8 +126,8 @@ def _source_path(value: object) -> str:
     if not isinstance(value, str):
         raise GitHubGatewayProtocolError("path must be text")
     try:
-        return memory_validation.normalize_path(value)
-    except memory_validation.ReviewMemoryError as exc:
+        return review_validation.normalize_path(value)
+    except review_validation.ReviewMemoryError as exc:
         raise GitHubGatewayProtocolError(str(exc)) from exc
 
 
@@ -419,7 +421,7 @@ class ReviewSourceRequest:
                 raise GitHubGatewayProtocolError("side is not supported by this source operation")
             start_line = _positive(value.get("start_line"), "start_line")
             max_lines = _positive(value.get("max_lines"), "max_lines")
-            if max_lines > schemas.SOURCE_PAGE_MAX_LINES:
+            if max_lines > capacity.SOURCE_PAGE_MAX_LINES:
                 raise GitHubGatewayProtocolError("max_lines exceeds the source page limit")
             max_chars = _positive(value.get("max_chars"), "max_chars")
             if not (

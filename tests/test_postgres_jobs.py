@@ -20,15 +20,16 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent import failure_codes, operator_application  # noqa: E402
+from review_agent.domain import failure_codes  # noqa: E402
+from review_agent.operations import inspection  # noqa: E402
 from review_agent.review import (  # noqa: E402
     contract as review_contract,
-    parts_application as review_parts_application,
-    run_application as review_run_application,
+    parts as review_parts,
+    runs as review_runs,
     source_initialization as review_source_initialization,
 )
 from review_agent.github.source import ReviewSourceBytes  # noqa: E402
-from review_agent.model_runtime.window import ModelWindow  # noqa: E402
+from review_agent.hermes.window import ModelWindow  # noqa: E402
 from review_agent.review.tool_runtime import GatewaySourceSession  # noqa: E402
 from review_agent.domain.review import (  # noqa: E402
     ReviewPartPlan,
@@ -38,14 +39,20 @@ from review_agent.domain.review import (  # noqa: E402
     ReviewStatus,
     resolve_review_subject,
 )
-from review_agent.postgres import github_app, jobs, registry, reporting, review_runs  # noqa: E402
+from review_agent.postgres import (  # noqa: E402
+    github_app,
+    jobs,
+    registry,
+    reporting,
+    review_runs as postgres_review_runs,
+)
 from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
 )
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
-from review_agent.model_runtime.hermes_chat import HermesChatClient  # noqa: E402
+from review_agent.hermes.chat import HermesChatClient  # noqa: E402
 from review_agent.review.turn import ReviewTurnError  # noqa: E402
 from review_agent.worker import (  # noqa: E402
     ReviewWorker,
@@ -112,9 +119,9 @@ class PostgreSQLJobTests(unittest.TestCase):
                 def cancel_during_source(**_kwargs: object) -> SimpleNamespace:
                     with self.runtime.transaction() as connection:
                         if status is ReviewStatus.SUPERSEDED:
-                            terminal = review_runs.mark_superseded(connection, run.run.id)
+                            terminal = postgres_review_runs.mark_superseded(connection, run.run.id)
                         else:
-                            terminal = review_runs.fail_run(connection, run.run.id,
+                            terminal = postgres_review_runs.fail_run(connection, run.run.id,
                                 failure_code=failure_codes.DOCUMENTATION_DISABLED)
                         jobs.reconcile_run_jobs(connection, run_ids=(run.run.id,), status=terminal.status)
                     return SimpleNamespace(repository="team/service-935", pr_number=number,
@@ -129,7 +136,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                 self.assertFalse(stop.is_set())
                 client.review.assert_not_called()
                 with self.runtime.transaction() as connection:
-                    self.assertEqual(review_runs.get_run(connection, run.run.id).status, status)
+                    self.assertEqual(postgres_review_runs.get_run(connection, run.run.id).status, status)
                     self.assertEqual(jobs.get_job(connection, claimed.job.id).status,
                                      jobs.ReviewJobStatus.FAILED if status is ReviewStatus.FAILED
                                      else jobs.ReviewJobStatus.SUPERSEDED)
@@ -232,9 +239,9 @@ class PostgreSQLJobTests(unittest.TestCase):
         subject: registry.ReviewSubject,
         *,
         request_key: str,
-    ) -> review_runs.RunStart:
+    ) -> postgres_review_runs.RunStart:
         with self.runtime.transaction() as connection:
-            return review_runs.start_run(
+            return postgres_review_runs.start_run(
                 connection,
                 pull_request_id=pull_request.id,
                 review_subject_id=subject.id,
@@ -249,9 +256,9 @@ class PostgreSQLJobTests(unittest.TestCase):
         request_key: str,
         priority: int = 0,
         max_attempts: int = 3,
-    ) -> tuple[review_runs.RunStart, jobs.JobEnqueue]:
+    ) -> tuple[postgres_review_runs.RunStart, jobs.JobEnqueue]:
         with self.runtime.transaction() as connection:
-            run = review_run_application.start_run_in_transaction(
+            run = review_runs.start_run_in_transaction(
                 connection,
                 pull_request_id=pull_request.id,
                 review_subject_id=subject.id,
@@ -283,8 +290,8 @@ class PostgreSQLJobTests(unittest.TestCase):
     @staticmethod
     def admission_request(
         *, provider_id: int, pr_number: int, request_key: str, head: str
-    ) -> review_run_application.PostgresRunRequest:
-        return review_run_application.PostgresRunRequest(
+    ) -> review_runs.PostgresRunRequest:
+        return review_runs.PostgresRunRequest(
             provider="github",
             provider_repository_id=provider_id,
             repository=f"team/service-{provider_id}",
@@ -302,7 +309,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         subject = self.subject(pull_request, head_character="a")
         start = Barrier(2)
 
-        def accept_once(_: int) -> tuple[review_runs.RunStart, jobs.JobEnqueue]:
+        def accept_once(_: int) -> tuple[postgres_review_runs.RunStart, jobs.JobEnqueue]:
             start.wait(timeout=5)
             return self.accept_job(
                 pull_request,
@@ -421,11 +428,11 @@ class PostgreSQLJobTests(unittest.TestCase):
             new_subject,
             request_key="github:issue-comment:7102",
         )
-        assert isinstance(new_run, review_runs.StartedRun)
+        assert isinstance(new_run, postgres_review_runs.StartedRun)
         assert isinstance(second, jobs.EnqueuedJob)
 
         with self.runtime.transaction() as connection:
-            prior_run = review_runs.get_run(connection, old_run.run.id)
+            prior_run = postgres_review_runs.get_run(connection, old_run.run.id)
             prior_job = jobs.get_job(connection, first.job.id)
             current_job = jobs.get_job(connection, second.job.id)
         self.assertEqual(prior_run.status.value, "superseded")
@@ -534,7 +541,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             request_key="github:issue-comment:7301",
         )
 
-        with self.assertRaises(review_runs.DuplicateReviewRequest):
+        with self.assertRaises(postgres_review_runs.DuplicateReviewRequest):
             self.accept_job(
                 pull_request,
                 second_subject,
@@ -552,7 +559,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         assert isinstance(accepted, jobs.EnqueuedJob)
 
         with self.runtime.transaction() as connection:
-            review_run_application.fail_run_in_transaction(
+            review_runs.fail_run_in_transaction(
                 connection,
                 started.run.id,
                 failure_code="stale_timeout",
@@ -667,7 +674,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         assert first is not None
 
         with self.runtime.transaction() as connection:
-            retried = review_run_application.fail_claimed_job_in_transaction(
+            retried = review_runs.fail_claimed_job_in_transaction(
                 connection,
                 job_id=first.id,
                 lease_owner="worker-retry",
@@ -692,7 +699,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         self.assertEqual(second.attempt_count, 2)
 
         with self.runtime.transaction() as connection:
-            terminal = review_run_application.fail_claimed_job_in_transaction(
+            terminal = review_runs.fail_claimed_job_in_transaction(
                 connection,
                 job_id=second.id,
                 lease_owner="worker-terminal",
@@ -704,7 +711,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                 # A maximum-length cause still fits the composed run detail.
                 attempt_failure_detail="overloaded " * 40,
             )
-            run = review_runs.get_run(connection, started.run.id)
+            run = postgres_review_runs.get_run(connection, started.run.id)
             diagnostics = reporting.run_diagnostics(connection, run_id=started.run.id)
         self.assertEqual(terminal.job.status, jobs.ReviewJobStatus.FAILED)
         self.assertEqual(run.status, ReviewStatus.FAILED)
@@ -821,7 +828,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             worker.run()
 
         with self.runtime.transaction() as connection:
-            first = review_runs.get_run(connection, first_run.run.id)
+            first = postgres_review_runs.get_run(connection, first_run.run.id)
             second = jobs.get_job(connection, second_job.job.id)
         self.assertEqual(first.status, ReviewStatus.FAILED)
         self.assertEqual(second.review_run_id, second_run.run.id)
@@ -946,7 +953,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         assert leased is not None
 
         with self.runtime.transaction() as connection:
-            outcome = review_run_application.fail_claimed_job_in_transaction(
+            outcome = review_runs.fail_claimed_job_in_transaction(
                 connection,
                 job_id=leased.id,
                 lease_owner="worker-last-attempt",
@@ -955,8 +962,8 @@ class PostgreSQLJobTests(unittest.TestCase):
                 retryable=True,
                 retry_delay=timedelta(seconds=1),
             )
-            run = review_runs.get_run(connection, started.run.id)
-            failure_status = review_runs.failure_status_target(
+            run = postgres_review_runs.get_run(connection, started.run.id)
+            failure_status = postgres_review_runs.failure_status_target(
                 connection, started.run.id
             )
         self.assertEqual(outcome.job.status, jobs.ReviewJobStatus.DEAD_LETTER)
@@ -979,9 +986,9 @@ class PostgreSQLJobTests(unittest.TestCase):
                 lease_duration=timedelta(minutes=2),
             )
             assert leased is not None
-            review_runs.mark_superseded(connection, started.run.id)
+            postgres_review_runs.mark_superseded(connection, started.run.id)
             with self.assertRaises(jobs.ReviewJobLeaseLost) as caught:
-                review_run_application.fail_claimed_job_in_transaction(
+                review_runs.fail_claimed_job_in_transaction(
                     connection,
                     job_id=leased.id,
                     lease_owner="worker-terminal-run",
@@ -1035,12 +1042,12 @@ class PostgreSQLJobTests(unittest.TestCase):
                 """,
                 (first.id if first else 0, second.id if second else 0),
             )
-            review_run_application.fail_run_in_transaction(
+            review_runs.fail_run_in_transaction(
                 connection,
                 terminal_run.run.id,
                 failure_code=failure_codes.REVIEW_FAILED,
             )
-            recovered = review_run_application.recover_expired_jobs_in_transaction(
+            recovered = review_runs.recover_expired_jobs_in_transaction(
                 connection,
                 limit=10,
             )
@@ -1080,11 +1087,11 @@ class PostgreSQLJobTests(unittest.TestCase):
                 """,
                 (reclaimed.id,),
             )
-            exhausted = review_run_application.recover_expired_jobs_in_transaction(
+            exhausted = review_runs.recover_expired_jobs_in_transaction(
                 connection,
                 limit=1,
             )
-            run = review_runs.get_run(connection, retry_run.run.id)
+            run = postgres_review_runs.get_run(connection, retry_run.run.id)
         self.assertEqual(exhausted.jobs[0].status, jobs.ReviewJobStatus.DEAD_LETTER)
         self.assertEqual(run.status, ReviewStatus.FAILED)
         self.assertEqual(run.failure_code, failure_codes.JOB_RETRY_EXHAUSTED)
@@ -1110,8 +1117,8 @@ class PostgreSQLJobTests(unittest.TestCase):
                 ReviewPhase.RENDERING,
                 ReviewPhase.PUBLISHING,
             ):
-                review_runs.advance_phase(connection, started.run.id, phase)
-            review_run_application.complete_run_in_transaction(
+                postgres_review_runs.advance_phase(connection, started.run.id, phase)
+            review_runs.complete_run_in_transaction(
                 connection,
                 started.run.id,
                 findings_count=0,
@@ -1157,7 +1164,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                 "WHERE id = %s",
                 (leased.id,),
             )
-            failed = review_run_application.mark_stale_runs_failed_in_transaction(
+            failed = review_runs.mark_stale_runs_failed_in_transaction(
                 connection,
                 cutoff=datetime(2026, 8, 24, tzinfo=timezone.utc),
                 repository=None,
@@ -1165,7 +1172,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             )
             queued_job = jobs.get_job(connection, queued_accepted.job.id)
             expired_job = jobs.get_job(connection, leased.id)
-            recovered = review_run_application.recover_expired_jobs_in_transaction(
+            recovered = review_runs.recover_expired_jobs_in_transaction(
                 connection,
                 limit=1,
             )
@@ -1304,11 +1311,11 @@ class PostgreSQLJobTests(unittest.TestCase):
     def test_capacity_admission_is_exact_across_concurrent_requests(self) -> None:
         start = Barrier(2)
 
-        def admit(index: int) -> review_run_application.AdmittedReview | str:
+        def admit(index: int) -> review_runs.AdmittedReview | str:
             start.wait(timeout=5)
             try:
                 with self.runtime.transaction() as connection:
-                    return review_run_application.admit_postgres_review_in_transaction(
+                    return review_runs.admit_postgres_review_in_transaction(
                         connection,
                         self.admission_request(
                             provider_id=1100 + index,
@@ -1371,7 +1378,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         request_key: str,
         parts: int,
         max_attempts: int = 3,
-    ) -> tuple[review_runs.RunStart, tuple[jobs.ReviewJob, ...]]:
+    ) -> tuple[postgres_review_runs.RunStart, tuple[jobs.ReviewJob, ...]]:
         run, _ = self.accept_job(
             pull_request,
             self.subject(pull_request, head_character="a"),
@@ -1517,11 +1524,11 @@ class PostgreSQLJobTests(unittest.TestCase):
                             "lease_expires_at = statement_timestamp() WHERE id = %s",
                             (part.id,),
                         )
-                        review_run_application.recover_expired_jobs_in_transaction(
+                        review_runs.recover_expired_jobs_in_transaction(
                             connection, limit=10
                         )
                     else:
-                        review_run_application.fail_claimed_job_in_transaction(
+                        review_runs.fail_claimed_job_in_transaction(
                             connection,
                             job_id=part.id,
                             lease_owner="worker-last-attempt",
@@ -1535,7 +1542,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                         "WHERE review_run_id = %s ORDER BY part",
                         (run.run.id,),
                     ).fetchall()
-                    failed = review_runs.get_run(connection, run.run.id)
+                    failed = postgres_review_runs.get_run(connection, run.run.id)
                 self.assertEqual(failed.status, ReviewStatus.FAILED)
                 self.assertEqual(
                     statuses, [(0, "failed"), (1, "dead_letter"), (2, "failed")]
@@ -1545,7 +1552,7 @@ class PostgreSQLJobTests(unittest.TestCase):
 
     def planned_review(
         self, *, provider_id: int
-    ) -> tuple[ReviewRunId, jobs.WorkerLeaseSession, review_run_application.RunSubject]:
+    ) -> tuple[ReviewRunId, jobs.WorkerLeaseSession, review_runs.RunSubject]:
         """A leased main job whose changed files are registered and not yet split."""
         pull = self.pull_request(provider_id=provider_id, number=90)
         run, _ = self.accept_job(
@@ -1557,7 +1564,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             self.runtime,
             run_id=run.run.id,
             files=tuple(
-                review_run_application.PostgresChangedFile(path=path, change_status="modified")
+                review_runs.PostgresChangedFile(path=path, change_status="modified")
                 for part in self.PART_FILES
                 for path in part
             ),
@@ -1569,11 +1576,11 @@ class PostgreSQLJobTests(unittest.TestCase):
                 connection, lease_owner="planner", lease_duration=timedelta(minutes=2)
             )
             assert main is not None
-            review_runs.advance_phase(connection, run.run.id, ReviewPhase.FETCHING_PR)
+            postgres_review_runs.advance_phase(connection, run.run.id, ReviewPhase.FETCHING_PR)
         return (
             run.run.id,
             jobs.WorkerLeaseSession(main.id, main.lease_generation),
-            review_run_application.RunSubject(
+            review_runs.RunSubject(
                 repository=f"team/service-{provider_id}", pr_number=90, run_id=int(run.run.id)
             ),
         )
@@ -1592,7 +1599,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         run_id, lease, _ = self.planned_review(provider_id=1320)
         plan = ReviewPartPlan(parts=self.PART_FILES, unassigned=())
 
-        created = review_parts_application.split_review(
+        created = review_parts.split_review(
             self.runtime, run_id=run_id, lease=lease, plan=plan
         )
 
@@ -1607,14 +1614,14 @@ class PostgreSQLJobTests(unittest.TestCase):
                 "WHERE review_run_id = %s ORDER BY path",
                 (run_id,),
             ).fetchall()
-            phase = review_runs.get_run(connection, run_id).phase
+            phase = postgres_review_runs.get_run(connection, run_id).phase
         self.assertEqual(created, 2)
         self.assertEqual(queue, [(0, "queued", 0), (1, "queued", 0), (2, "queued", 0)])
         self.assertEqual(owners, [("api/a.py", 1), ("api/b.py", 1), ("web/c.py", 2)])
         self.assertEqual(phase, ReviewPhase.COLLECTING_DIFF)
         # The released planning lease cannot split the review a second time.
         with self.assertRaises(jobs.ReviewJobLeaseLost):
-            review_parts_application.split_review(
+            review_parts.split_review(
                 self.runtime, run_id=run_id, lease=lease, plan=plan
             )
 
@@ -1692,14 +1699,14 @@ class PostgreSQLJobTests(unittest.TestCase):
 
     def test_a_part_reports_only_after_its_own_attempt_read_its_files(self) -> None:
         run_id, lease, subject = self.planned_review(provider_id=1321)
-        review_parts_application.split_review(
+        review_parts.split_review(
             self.runtime,
             run_id=run_id,
             lease=lease,
             plan=ReviewPartPlan(parts=self.PART_FILES, unassigned=()),
         )
         part, part_lease = self.claim_lease("first-attempt")
-        briefing = review_parts_application.begin_part(
+        briefing = review_parts.begin_part(
             self.runtime, run_id=run_id, lease=part_lease
         )
         self.assertEqual(
@@ -1707,14 +1714,14 @@ class PostgreSQLJobTests(unittest.TestCase):
             (1, 2, 2, ()),
         )
         # One own file, and a file the other part owns.
-        review_run_application.record_live_diff_result(
+        review_runs.record_live_diff_result(
             self.runtime,
             subject,
-            review_run_application.DiffExposure(exposed_paths=("api/a.py", "web/c.py")),
+            review_runs.DiffExposure(exposed_paths=("api/a.py", "web/c.py")),
             part=1,
         )
-        with self.assertRaises(review_parts_application.PartReadingIncomplete) as incomplete:
-            review_parts_application.stage_report(
+        with self.assertRaises(review_parts.PartReadingIncomplete) as incomplete:
+            review_parts.stage_report(
                 self.runtime, run_id=run_id, lease=part_lease, report={"findings": [], "notes": []}
             )
         self.assertEqual((incomplete.exception.unread, incomplete.exception.assigned), (1, 2))
@@ -1726,7 +1733,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                 "lease_expires_at = statement_timestamp() WHERE id = %s",
                 (part.id,),
             )
-            review_run_application.recover_expired_jobs_in_transaction(connection, limit=10)
+            review_runs.recover_expired_jobs_in_transaction(connection, limit=10)
         # The other part has waited longer and is claimed first.
         self.assertEqual(self.claim_lease("other-part")[0].part, 2)
         retry, retry_lease = self.claim_lease("second-attempt")
@@ -1743,28 +1750,28 @@ class PostgreSQLJobTests(unittest.TestCase):
         # Even a retry that skips review_agent_begin cannot hand in what its
         # predecessor read.
         self.assertEqual(states()[0], ("api/a.py", "complete"))
-        with self.assertRaises(review_parts_application.PartReadingIncomplete) as inherited:
-            review_parts_application.stage_report(
+        with self.assertRaises(review_parts.PartReadingIncomplete) as inherited:
+            review_parts.stage_report(
                 self.runtime, run_id=run_id, lease=retry_lease, report={"findings": [], "notes": []}
             )
         self.assertEqual((inherited.exception.unread, inherited.exception.assigned), (2, 2))
         self.assertEqual(
             states(), [("api/a.py", "unseen"), ("api/b.py", "unseen"), ("web/c.py", "unseen")]
         )
-        review_run_application.record_live_diff_result(
+        review_runs.record_live_diff_result(
             self.runtime,
             subject,
-            review_run_application.DiffExposure(exposed_paths=("api/a.py", "api/b.py")),
+            review_runs.DiffExposure(exposed_paths=("api/a.py", "api/b.py")),
             part=1,
         )
         # Beginning again in the same attempt keeps what it has read.
-        review_parts_application.begin_part(self.runtime, run_id=run_id, lease=retry_lease)
+        review_parts.begin_part(self.runtime, run_id=run_id, lease=retry_lease)
         self.assertEqual(
             states(), [("api/a.py", "complete"), ("api/b.py", "complete"), ("web/c.py", "unseen")]
         )
         report = {"findings": [], "notes": ["save() can now return None"]}
         self.assertEqual(
-            review_parts_application.stage_report(
+            review_parts.stage_report(
                 self.runtime, run_id=run_id, lease=retry_lease, report=report
             ),
             1,
@@ -1774,7 +1781,7 @@ class PostgreSQLJobTests(unittest.TestCase):
 
     def test_the_final_session_is_told_which_part_reports_it_has_not_received(self) -> None:
         run_id, lease, subject = self.planned_review(provider_id=1322)
-        review_parts_application.split_review(
+        review_parts.split_review(
             self.runtime,
             run_id=run_id,
             lease=lease,
@@ -1783,17 +1790,17 @@ class PostgreSQLJobTests(unittest.TestCase):
         earlier: list[tuple[int, ...]] = []
         for number, paths in enumerate(self.PART_FILES, start=1):
             _, part_lease = self.claim_lease(f"part-{number}")
-            briefing = review_parts_application.begin_part(
+            briefing = review_parts.begin_part(
                 self.runtime, run_id=run_id, lease=part_lease
             )
             earlier.append(tuple(report.part for report in briefing.earlier))
-            review_run_application.record_live_diff_result(
+            review_runs.record_live_diff_result(
                 self.runtime,
                 subject,
-                review_run_application.DiffExposure(exposed_paths=paths),
+                review_runs.DiffExposure(exposed_paths=paths),
                 part=number,
             )
-            review_parts_application.stage_report(
+            review_parts.stage_report(
                 self.runtime,
                 run_id=run_id,
                 lease=part_lease,
@@ -1805,18 +1812,18 @@ class PostgreSQLJobTests(unittest.TestCase):
         final, final_lease = self.claim_lease("final")
         self.assertEqual(final.part, 0)
         self.assertEqual(
-            review_parts_application.unread_reports(self.runtime, run_id=run_id, lease=final_lease),
+            review_parts.unread_reports(self.runtime, run_id=run_id, lease=final_lease),
             (1, 2),
         )
         self.assertEqual(
-            review_parts_application.load_report(self.runtime, run_id=run_id, part=1),
+            review_parts.load_report(self.runtime, run_id=run_id, part=1),
             {"findings": [], "notes": ["note from part 1"]},
         )
-        review_parts_application.confirm_report_read(
+        review_parts.confirm_report_read(
             self.runtime, run_id=run_id, lease=final_lease, part=1
         )
         self.assertEqual(
-            review_parts_application.unread_reports(self.runtime, run_id=run_id, lease=final_lease),
+            review_parts.unread_reports(self.runtime, run_id=run_id, lease=final_lease),
             (2,),
         )
 
@@ -1869,21 +1876,21 @@ class PostgreSQLJobTests(unittest.TestCase):
                 (accepted.job.id,),
             )
 
-        reports = operator_application.list_review_jobs(self.runtime, limit=10)
+        reports = inspection.list_review_jobs(self.runtime, limit=10)
         self.assertEqual(len(reports), 1)
         self.assertEqual(reports[0].repository, "team/service-1400")
-        released = operator_application.retry_review_job(
+        released = inspection.retry_review_job(
             self.runtime, job_id=accepted.job.id
         )
         self.assertLess(
             released.available_at, accepted.job.available_at + timedelta(hours=1)
         )
 
-        cancelled = operator_application.cancel_review_job(
+        cancelled = inspection.cancel_review_job(
             self.runtime, job_id=accepted.job.id
         )
         with self.runtime.transaction() as connection:
-            run = review_runs.get_run(connection, started.run.id)
+            run = postgres_review_runs.get_run(connection, started.run.id)
         self.assertEqual(cancelled.status, jobs.ReviewJobStatus.FAILED)
         self.assertEqual(run.status, ReviewStatus.FAILED)
         self.assertEqual(run.failure_code, failure_codes.OPERATOR_CANCELLED)

@@ -18,14 +18,14 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from review_agent.review import (  # noqa: E402
     contract as review_contract,
-    run_application as review_run_application,
+    runs as review_runs,
 )
-from review_agent.admin.run_api import create_router  # noqa: E402
+from review_agent.console.api.runs import create_router  # noqa: E402
 from review_agent.domain.review import JsonObject, resolve_review_subject  # noqa: E402
-from review_agent.admin import run_actions as admin_run_actions  # noqa: E402
+from review_agent.console import run_actions as console_run_actions  # noqa: E402
 from review_agent.postgres import jobs, registry  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 
 
@@ -111,7 +111,7 @@ class AdminRunActionTests(unittest.TestCase):
                     ),
                 ),
             )
-            run = review_run_application.start_run_in_transaction(
+            run = review_runs.start_run_in_transaction(
                 connection,
                 pull_request_id=pull_request.id,
                 review_subject_id=subject.id,
@@ -130,11 +130,11 @@ class AdminRunActionTests(unittest.TestCase):
     def request(
         self,
         job: jobs.ReviewJob,
-        action: admin_run_actions.RunAction,
+        action: console_run_actions.RunAction,
         *,
         generation: int | None = None,
-    ) -> admin_run_actions.ActionRequest:
-        return admin_run_actions.ActionRequest(
+    ) -> console_run_actions.ActionRequest:
+        return console_run_actions.ActionRequest(
             action=action,
             expected_job_id=job.id,
             expected_lease_generation=(
@@ -168,14 +168,14 @@ class AdminRunActionTests(unittest.TestCase):
             failure_code="job_retryable_execution",
         )
         with self.runtime.transaction() as connection:
-            admin_run_actions.apply_action(
+            console_run_actions.apply_action(
                 connection,
                 run_id=current.review_run_id,
                 request=self.request(
-                    current, admin_run_actions.RunAction.RELEASE_RETRY
+                    current, console_run_actions.RunAction.RELEASE_RETRY
                 ),
             )
-            controls = admin_run_actions.controls(
+            controls = console_run_actions.controls(
                 connection, run_id=current.review_run_id
             )
             run_count = connection.execute(
@@ -186,7 +186,7 @@ class AdminRunActionTests(unittest.TestCase):
         self.assertEqual(controls.job.lease_generation, current.lease_generation)
         self.assertEqual(run_count, (1,))
         self.assertEqual(
-            controls.audit[0].action, admin_run_actions.RunAction.RELEASE_RETRY
+            controls.audit[0].action, console_run_actions.RunAction.RELEASE_RETRY
         )
 
     def test_cancel_terminalizes_the_exact_running_run_and_job_with_one_audit(
@@ -194,12 +194,12 @@ class AdminRunActionTests(unittest.TestCase):
     ) -> None:
         current = self.queued_job(suffix=2)
         with self.runtime.transaction() as connection:
-            admin_run_actions.apply_action(
+            console_run_actions.apply_action(
                 connection,
                 run_id=current.review_run_id,
-                request=self.request(current, admin_run_actions.RunAction.CANCEL),
+                request=self.request(current, console_run_actions.RunAction.CANCEL),
             )
-            controls = admin_run_actions.controls(
+            controls = console_run_actions.controls(
                 connection, run_id=current.review_run_id
             )
         assert controls.job is not None
@@ -208,24 +208,24 @@ class AdminRunActionTests(unittest.TestCase):
         self.assertEqual(len(controls.audit), 1)
         self.assertEqual(
             controls.audit[0].actor,
-            self.request(current, admin_run_actions.RunAction.CANCEL).actor,
+            self.request(current, console_run_actions.RunAction.CANCEL).actor,
         )
 
     def test_stale_generation_rejects_without_mutation_or_audit(self) -> None:
         current = self.queued_job(suffix=3)
-        with self.assertRaises(admin_run_actions.AdminRunActionStale):
+        with self.assertRaises(console_run_actions.AdminRunActionStale):
             with self.runtime.transaction() as connection:
-                admin_run_actions.apply_action(
+                console_run_actions.apply_action(
                     connection,
                     run_id=current.review_run_id,
                     request=self.request(
                         current,
-                        admin_run_actions.RunAction.CANCEL,
+                        console_run_actions.RunAction.CANCEL,
                         generation=current.lease_generation + 1,
                     ),
                 )
         with self.runtime.transaction() as connection:
-            controls = admin_run_actions.controls(
+            controls = console_run_actions.controls(
                 connection, run_id=current.review_run_id
             )
         assert controls.job is not None
@@ -243,15 +243,15 @@ class AdminRunActionTests(unittest.TestCase):
                 "WHERE id = %s",
                 (current.review_run_id,),
             )
-            admin_run_actions.apply_action(
+            console_run_actions.apply_action(
                 connection,
                 run_id=current.review_run_id,
                 request=replace(
-                    self.request(current, admin_run_actions.RunAction.MARK_STALLED),
+                    self.request(current, console_run_actions.RunAction.MARK_STALLED),
                     stale_after_minutes=15,
                 ),
             )
-            controls = admin_run_actions.controls(
+            controls = console_run_actions.controls(
                 connection, run_id=current.review_run_id
             )
         self.assertEqual(controls.run.status.value, "failed")
@@ -289,16 +289,16 @@ class AdminRunActionTests(unittest.TestCase):
                 "WHERE id = %s",
                 (queued.review_run_id,),
             )
-            controls = admin_run_actions.controls(
+            controls = console_run_actions.controls(
                 connection, run_id=queued.review_run_id
             )
             waiting_main = jobs.get_job(connection, main.id)
-            with self.assertRaises(admin_run_actions.AdminRunActionError):
-                admin_run_actions.apply_action(
+            with self.assertRaises(console_run_actions.AdminRunActionError):
+                console_run_actions.apply_action(
                     connection,
                     run_id=queued.review_run_id,
                     request=replace(
-                        self.request(waiting_main, admin_run_actions.RunAction.MARK_STALLED),
+                        self.request(waiting_main, console_run_actions.RunAction.MARK_STALLED),
                         stale_after_minutes=15,
                     ),
                 )

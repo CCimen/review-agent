@@ -14,8 +14,8 @@ import sys
 from threading import Lock
 from typing import Literal
 
-from ..changed_files import IndexState
-from ..diff_render import PreparedDiff
+from ..github.changed_files import IndexState
+from ..domain.diff import PreparedDiff
 
 logger = logging.getLogger(__name__)
 

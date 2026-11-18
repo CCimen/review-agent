@@ -15,7 +15,7 @@ PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent.postgres import webhook_deliveries  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")

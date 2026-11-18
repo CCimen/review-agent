@@ -17,9 +17,9 @@ from review_agent.domain import repository_decisions as decision_domain  # noqa:
 from review_agent.postgres import repository_decisions  # noqa: E402
 from review_agent.postgres.review_runs import ReviewRunId  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.review import (  # noqa: E402
-    run_application as review_run_application,
+    runs as review_runs,
 )
 from tests import support  # noqa: E402
 
@@ -34,7 +34,7 @@ class PostgreSQLRepositoryDecisionTests(unittest.TestCase):
             connection.execute("DROP SCHEMA IF EXISTS review_agent CASCADE")
         with psycopg.connect(DSN) as connection:
             runner.apply_migrations(connection)
-        self.runtime = review_run_application.PostgreSQLRuntime(
+        self.runtime = review_runs.PostgreSQLRuntime(
             PostgresDatabaseUrl(DSN)
         )
         self.runtime.open()
@@ -45,7 +45,7 @@ class PostgreSQLRepositoryDecisionTests(unittest.TestCase):
     def start_run(self) -> ReviewRunId:
         result = support.start_postgres_review(
             self.runtime,
-            review_run_application.PostgresRunRequest(
+            review_runs.PostgresRunRequest(
                 provider="github",
                 provider_repository_id=123,
                 repository="example-org/example-repository",

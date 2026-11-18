@@ -42,21 +42,21 @@ def register(ctx: ToolRegistry) -> None:
     # Import concrete owners after package initialization so submodules can import
     # package-owned contracts without creating a static package import cycle.
     capacity = import_module(f"{__name__}.capacity")
-    result_chars, turn_chars = import_module(f"{__name__}.model_runtime.window").default_budget()
+    result_chars, turn_chars = import_module(f"{__name__}.hermes.window").default_budget()
     limits = capacity.configure(
         result_max_chars=_installed_result_max_chars(),
         result_chars=result_chars,
         turn_chars=turn_chars,
     )
-    schemas = import_module(f"{__name__}.schemas")
+    schemas = import_module(f"{__name__}.tools.schemas")
     schemas.apply_capacity(limits)
-    source_tools = import_module(f"{__name__}.review.source_tools")
-    memory_tools = import_module(f"{__name__}.review.memory_tools")
-    delivery_tool = import_module(f"{__name__}.review.delivery_tool")
-    part_tools = import_module(f"{__name__}.review.part_tools")
-    graph_tool = import_module(f"{__name__}.review.code_graph_tool")
-    runtime_api = import_module(f"{__name__}.model_runtime.hermes_runtime_api")
-    docs_tools = import_module(f"{__name__}.documentation.tools")
+    source_tools = import_module(f"{__name__}.tools.source")
+    finding_tools = import_module(f"{__name__}.tools.findings")
+    deliver_tool = import_module(f"{__name__}.tools.deliver")
+    part_tools = import_module(f"{__name__}.tools.parts")
+    related_code_tool = import_module(f"{__name__}.tools.related_code")
+    runtime_api = import_module(f"{__name__}.hermes.runtime_api")
+    docs_tools = import_module(f"{__name__}.tools.documentation")
     docs_findings = import_module(f"{__name__}.documentation.findings")
     ctx.register_platform_handler("api_server", getattr(runtime_api, "wire_api"))
 
@@ -111,19 +111,19 @@ def register(ctx: ToolRegistry) -> None:
         name="review_agent_related_code",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_RELATED_CODE"),
-        handler=getattr(graph_tool, "related_code"),
+        handler=getattr(related_code_tool, "related_code"),
     )
     ctx.register_tool(
         name="review_agent_memory_context",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_MEMORY_CONTEXT"),
-        handler=getattr(memory_tools, "review_memory_context"),
+        handler=getattr(finding_tools, "review_memory_context"),
     )
     ctx.register_tool(
         name="review_agent_memory_record",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_MEMORY_RECORD"),
-        handler=getattr(memory_tools, "review_memory_record"),
+        handler=getattr(finding_tools, "review_memory_record"),
     )
     ctx.register_tool(
         name="review_agent_part_report",
@@ -135,5 +135,5 @@ def register(ctx: ToolRegistry) -> None:
         name="review_agent_deliver",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_DELIVER"),
-        handler=getattr(delivery_tool, "review_deliver"),
+        handler=getattr(deliver_tool, "review_deliver"),
     )

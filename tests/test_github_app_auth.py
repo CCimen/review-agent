@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from review_agent.domain.review import RepositoryId  # noqa: E402
-from review_agent import source_control  # noqa: E402
+from review_agent.github import client as github_client  # noqa: E402
 from review_agent.github import app_auth  # noqa: E402
 from review_agent.postgres import github_app  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
@@ -596,7 +596,7 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
     def test_cross_origin_redirect_is_rejected(self) -> None:
         self.assertTrue(
             any(
-                type(handler) is source_control.SameOriginHttpsRedirectHandler
+                type(handler) is github_client.SameOriginHttpsRedirectHandler
                 for handler in self.service._opener.handlers
             )
         )

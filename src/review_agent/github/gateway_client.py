@@ -11,7 +11,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from .. import capacity, changed_files
+from .. import capacity
+from . import changed_files
 from ..domain.review import ReviewPurpose
 from ..code_graph.contract import (
     ARCHIVE_MAX_BYTES,
@@ -19,7 +20,7 @@ from ..code_graph.contract import (
     GraphIdentity,
     GraphSubject,
 )
-from ..source_control import SameOriginHttpsRedirectHandler
+from ..https import SameOriginHttpsRedirectHandler
 from .gateway import (
     ACKNOWLEDGE_FEEDBACK_PATH,
     ACKNOWLEDGE_REVIEW_PATH,

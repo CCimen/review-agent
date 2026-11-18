@@ -7,7 +7,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent import diff_render  # noqa: E402
+from review_agent.domain import diff as domain_diff  # noqa: E402
 
 
 def _cf(**over: object) -> dict[str, object]:
@@ -29,7 +29,7 @@ def _cf(**over: object) -> dict[str, object]:
 
 class SynthesizeFileDiffTests(unittest.TestCase):
     def test_modified_file_has_git_header_and_patch(self):
-        out = diff_render.synthesize_file_diff(_cf())
+        out = domain_diff.synthesize_file_diff(_cf())
         assert out is not None
         self.assertTrue(out.startswith("diff --git a/src/a.py b/src/a.py\n"))
         self.assertIn("--- a/src/a.py\n", out)
@@ -39,7 +39,7 @@ class SynthesizeFileDiffTests(unittest.TestCase):
         self.assertIn(" b/src/a.py", out.splitlines()[0])
 
     def test_added_file_uses_dev_null_old_side(self):
-        out = diff_render.synthesize_file_diff(
+        out = domain_diff.synthesize_file_diff(
             _cf(status="added", patch="@@ -0,0 +1 @@\n+x")
         )
         assert out is not None
@@ -48,7 +48,7 @@ class SynthesizeFileDiffTests(unittest.TestCase):
         self.assertIn("+++ b/src/a.py\n", out)
 
     def test_removed_file_uses_dev_null_new_side(self):
-        out = diff_render.synthesize_file_diff(
+        out = domain_diff.synthesize_file_diff(
             _cf(status="removed", patch="@@ -1 +0,0 @@\n-x")
         )
         assert out is not None
@@ -56,7 +56,7 @@ class SynthesizeFileDiffTests(unittest.TestCase):
         self.assertIn("+++ /dev/null\n", out)
 
     def test_renamed_with_content_uses_old_and_new_paths(self):
-        out = diff_render.synthesize_file_diff(
+        out = domain_diff.synthesize_file_diff(
             _cf(status="renamed", previous_path="src/old.py", path="src/new.py")
         )
         assert out is not None
@@ -65,7 +65,7 @@ class SynthesizeFileDiffTests(unittest.TestCase):
         self.assertIn("+++ b/src/new.py\n", out)
 
     def test_rename_only_renders_header_without_hunks(self):
-        out = diff_render.synthesize_file_diff(
+        out = domain_diff.synthesize_file_diff(
             _cf(
                 status="renamed",
                 previous_path="src/old.py",
@@ -82,7 +82,7 @@ class SynthesizeFileDiffTests(unittest.TestCase):
         self.assertNotIn("@@", out)
 
     def test_missing_patch_returns_none(self):
-        out = diff_render.synthesize_file_diff(
+        out = domain_diff.synthesize_file_diff(
             _cf(patch=None, patch_available=False, patch_state="missing")
         )
         self.assertIsNone(out)
@@ -93,7 +93,7 @@ class SuggestibleRightSideRangeTests(unittest.TestCase):
         patch = "@@ -8 +8 @@\n-old\n+new"
 
         self.assertTrue(
-            diff_render.is_suggestible_right_side_range(
+            domain_diff.is_suggestible_right_side_range(
                 patch, start_line=8, end_line=8
             )
         )
@@ -102,7 +102,7 @@ class SuggestibleRightSideRangeTests(unittest.TestCase):
         patch = "@@ -3,0 +4,2 @@\n+first\n+second"
 
         self.assertTrue(
-            diff_render.is_suggestible_right_side_range(
+            domain_diff.is_suggestible_right_side_range(
                 patch, start_line=4, end_line=5
             )
         )
@@ -118,12 +118,12 @@ class SuggestibleRightSideRangeTests(unittest.TestCase):
         )
 
         self.assertTrue(
-            diff_render.is_suggestible_right_side_range(
+            domain_diff.is_suggestible_right_side_range(
                 patch, start_line=10, end_line=11
             )
         )
         self.assertFalse(
-            diff_render.is_suggestible_right_side_range(
+            domain_diff.is_suggestible_right_side_range(
                 patch, start_line=12, end_line=13
             )
         )
@@ -132,7 +132,7 @@ class SuggestibleRightSideRangeTests(unittest.TestCase):
         patch = "@@ -1 +1 @@\n-old\n+new\n\\ No newline at end of file"
 
         self.assertTrue(
-            diff_render.is_suggestible_right_side_range(
+            domain_diff.is_suggestible_right_side_range(
                 patch, start_line=1, end_line=1
             )
         )
@@ -150,12 +150,12 @@ class SuggestibleRightSideRangeTests(unittest.TestCase):
         )
 
         self.assertTrue(
-            diff_render.is_suggestible_right_side_range(
+            domain_diff.is_suggestible_right_side_range(
                 patch, start_line=21, end_line=21
             )
         )
         self.assertFalse(
-            diff_render.is_suggestible_right_side_range(
+            domain_diff.is_suggestible_right_side_range(
                 patch, start_line=2, end_line=20
             )
         )
@@ -164,7 +164,7 @@ class SuggestibleRightSideRangeTests(unittest.TestCase):
         patch = "@@ -4,2 +3,0 @@\n-old\n-lines"
 
         self.assertFalse(
-            diff_render.is_suggestible_right_side_range(
+            domain_diff.is_suggestible_right_side_range(
                 patch, start_line=3, end_line=3
             )
         )
@@ -175,7 +175,7 @@ class SuggestibleRightSideRangeTests(unittest.TestCase):
         for start_line, end_line in [(0, 1), (2, 1), (2, 2), (True, 1)]:
             with self.subTest(start_line=start_line, end_line=end_line):
                 self.assertFalse(
-                    diff_render.is_suggestible_right_side_range(
+                    domain_diff.is_suggestible_right_side_range(
                         patch, start_line=start_line, end_line=end_line
                     )
                 )
@@ -192,7 +192,7 @@ class SuggestibleRightSideRangeTests(unittest.TestCase):
         for patch in malformed:
             with self.subTest(patch=patch):
                 self.assertFalse(
-                    diff_render.is_suggestible_right_side_range(
+                    domain_diff.is_suggestible_right_side_range(
                         patch, start_line=1, end_line=1
                     )
                 )
@@ -201,7 +201,7 @@ class SuggestibleRightSideRangeTests(unittest.TestCase):
         patch = "@@ -1 +1 @@\n-old\n+new\n@@ -10,2 +10,2 @@\n context"
 
         self.assertFalse(
-            diff_render.is_suggestible_right_side_range(
+            domain_diff.is_suggestible_right_side_range(
                 patch, start_line=1, end_line=1
             )
         )
@@ -211,7 +211,7 @@ class AssembleFallbackDiffTests(unittest.TestCase):
     def test_fully_packed_file_is_exposed_not_truncated_when_more_remain(self):
         a = _cf(path="a.py", patch="@@ " + "x" * 600)
         b = _cf(path="b.py", patch="@@ " + "y" * 600)
-        result = diff_render.prepare_fallback_diff(
+        result = domain_diff.prepare_fallback_diff(
             [a, b]  # type: ignore[list-item]
         ).assemble(
             only_path=None,
@@ -225,7 +225,7 @@ class AssembleFallbackDiffTests(unittest.TestCase):
 
     def test_single_oversized_file_is_truncated_not_exposed(self):
         big = _cf(path="big.py", patch="@@ " + "z" * 2000)
-        result = diff_render.prepare_fallback_diff(
+        result = domain_diff.prepare_fallback_diff(
             [big]  # type: ignore[list-item]
         ).assemble(
             only_path=None,
@@ -236,7 +236,7 @@ class AssembleFallbackDiffTests(unittest.TestCase):
 
     def test_only_path_oversized_is_truncated_not_exposed(self):
         big = _cf(path="big.py", patch="@@ " + "z" * 2000)
-        result = diff_render.prepare_fallback_diff(
+        result = domain_diff.prepare_fallback_diff(
             [big]  # type: ignore[list-item]
         ).assemble(
             only_path="big.py",
@@ -256,7 +256,7 @@ class AssembleRenderedDiffTests(unittest.TestCase):
             "src/app.py", "+exact\n"
         )
 
-        result = diff_render.prepare_rendered_diff(text).assemble(
+        result = domain_diff.prepare_rendered_diff(text).assemble(
             only_path="src/app.py", max_chars=10_000
         )
 
@@ -271,7 +271,7 @@ class AssembleRenderedDiffTests(unittest.TestCase):
             "similarity index 100%\n"
         )
 
-        result = diff_render.prepare_rendered_diff(text).assemble(
+        result = domain_diff.prepare_rendered_diff(text).assemble(
             only_path="src/newé name.py", max_chars=10_000
         )
 
@@ -286,10 +286,10 @@ class AssembleRenderedDiffTests(unittest.TestCase):
             "rename to src/new.py\n"
         )
 
-        result = diff_render.prepare_rendered_diff(text).assemble(
+        result = domain_diff.prepare_rendered_diff(text).assemble(
             only_path=None, max_chars=10_000
         )
-        old = diff_render.prepare_rendered_diff(text).assemble(
+        old = domain_diff.prepare_rendered_diff(text).assemble(
             only_path="src/old.py", max_chars=10_000
         )
 
@@ -300,7 +300,7 @@ class AssembleRenderedDiffTests(unittest.TestCase):
         path = "foo b/bar.py"
         text = self._block(path)
 
-        result = diff_render.prepare_rendered_diff(text).assemble(
+        result = domain_diff.prepare_rendered_diff(text).assemble(
             only_path=path, max_chars=10_000
         )
 
@@ -311,7 +311,7 @@ class AssembleRenderedDiffTests(unittest.TestCase):
         first = self._block("a.py", "+" + "a" * 600 + "\n")
         second = self._block("b.py", "+" + "b" * 600 + "\n")
 
-        result = diff_render.prepare_rendered_diff(first + second).assemble(
+        result = domain_diff.prepare_rendered_diff(first + second).assemble(
             only_path=None, max_chars=1000
         )
 
@@ -323,7 +323,7 @@ class AssembleRenderedDiffTests(unittest.TestCase):
     def test_rendered_single_oversized_path_is_truncated(self):
         text = self._block("big.py", "+" + "z" * 2000 + "\n")
 
-        result = diff_render.prepare_rendered_diff(text).assemble(
+        result = domain_diff.prepare_rendered_diff(text).assemble(
             only_path="big.py", max_chars=1000
         )
 
@@ -333,7 +333,7 @@ class AssembleRenderedDiffTests(unittest.TestCase):
         self.assertLessEqual(len(result.text), 1000)
         self.assertEqual(result.next_start_char, 1000)
 
-        continuation = diff_render.prepare_rendered_diff(text).assemble(
+        continuation = domain_diff.prepare_rendered_diff(text).assemble(
             only_path="big.py",
             max_chars=5000,
             start_char=result.next_start_char,

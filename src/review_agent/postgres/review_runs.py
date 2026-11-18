@@ -13,7 +13,7 @@ from psycopg import errors
 from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 
-from .. import failure_codes
+from ..domain import failure_codes
 from ..domain.review import (
     FailureStatusDelivery,
     JsonObject,

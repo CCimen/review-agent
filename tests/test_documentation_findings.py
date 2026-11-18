@@ -19,11 +19,11 @@ from review_agent.domain.documentation_review import (  # noqa: E402
 )
 from review_agent.domain.finding import FindingContent  # noqa: E402
 from review_agent.domain.review import ReviewPurpose, ReviewRunId  # noqa: E402
-from review_agent.feedback_commands import (
+from review_agent.domain.feedback_commands import (
     parse_review_feedback_command,
     review_command_purpose,
 )  # noqa: E402
-from review_agent.memory_validation import ReviewMemoryError  # noqa: E402
+from review_agent.domain.review_validation import ReviewMemoryError  # noqa: E402
 from review_agent.postgres.documentation_reviews import coverage_reasons  # noqa: E402
 from review_agent.domain.repository_decision_context import (  # noqa: E402
     not_configured,

@@ -30,7 +30,7 @@ def _load_package() -> None:
 _load_package()
 
 from review_agent import admission  # noqa: E402
-from review_agent.github_webhook import verify_signature  # noqa: E402
+from review_agent.github.webhook import verify_signature  # noqa: E402
 from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,

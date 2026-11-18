@@ -16,10 +16,10 @@ import psycopg
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent import github_webhook  # noqa: E402
+from review_agent.github import webhook as github_webhook  # noqa: E402
 from review_agent.review import (  # noqa: E402
     contract as review_contract,
-    run_application as review_run_application,
+    runs as review_runs,
 )
 from review_agent.github import app_auth, app_processor  # noqa: E402
 from review_agent.github.app_auth import (  # noqa: E402
@@ -39,16 +39,16 @@ from review_agent.github.publication import GitHubIssueCommentGateway  # noqa: E
 from review_agent.postgres import (  # noqa: E402
     github_app,
     deployment_settings,
-    review_runs,
+    review_runs as postgres_review_runs,
     jobs,
     registry,
     webhook_deliveries,
 )
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.deployment_settings import DeploymentSettings  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
-from review_agent.source_control import (  # noqa: E402
+from review_agent.github.client import (  # noqa: E402
     GitHubReadClient,
     GitHubReadError,
 )
@@ -424,7 +424,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
             older = webhook_deliveries.get_delivery(connection, first)
             self.assertEqual(older.failure_code, "documentation_coalesced")
             self.assertIsNotNone(older.normalized_payload)
-            scope = review_runs.get_run_scope(connection, result.run_id)
+            scope = postgres_review_runs.get_run_scope(connection, result.run_id)
             self.assertEqual(scope.run.purpose.value, "documentation")
             self.assertEqual(scope.head_sha, github.head_sha)
             receipt = connection.execute("SELECT trigger_kind, policy_json FROM review_agent.documentation_admissions WHERE review_run_id = %s", (result.run_id,)).fetchone()
@@ -449,7 +449,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
             control = self.processor(github).process_next(lease_owner="draft-control")
             self.assertEqual(control.reason, "documentation_pull_ineligible")
         with self.runtime.transaction() as connection:
-            run = review_runs.get_run(connection, original.run_id)
+            run = postgres_review_runs.get_run(connection, original.run_id)
             self.assertEqual(run.status.value, "running")
             receipt = connection.execute("SELECT delivery_id, promoted_delivery_id FROM review_agent.documentation_admissions WHERE review_run_id = %s", (run.id,)).fetchone()
             self.assertEqual(receipt, (automatic, manual))
@@ -467,7 +467,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         closed = self.processor(github).process_next(lease_owner="closed-control")
         self.assertEqual(closed.reason, "documentation_pull_ineligible")
         with self.runtime.transaction() as connection:
-            self.assertEqual(review_runs.get_run(connection, original.run_id).failure_code, "documentation_ineligible")
+            self.assertEqual(postgres_review_runs.get_run(connection, original.run_id).failure_code, "documentation_ineligible")
 
     def test_leased_automatic_event_cannot_admit_after_a_newer_update(self) -> None:
         self.enable_documentation()
@@ -487,7 +487,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         from dataclasses import replace
         from review_agent.domain.documentation_review import DocumentationOutcome
         from review_agent.postgres import documentation_reviews
-        from review_agent.review.publication_application import (
+        from review_agent.publication.publish import (
             prepare_postgres_documentation_publication,
             publish_postgres_publication,
         )
@@ -527,7 +527,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
             newer = self.processor(github).process_next(lease_owner="new-base")
             self.assertNotEqual(newer.run_id, completed_run)
         with self.runtime.transaction() as connection:
-            scope = review_runs.get_run_scope(connection, newer.run_id)
+            scope = postgres_review_runs.get_run_scope(connection, newer.run_id)
             self.assertEqual(scope.base_sha, github.base_sha)
             self.assertEqual(scope.head_sha, github.head_sha)
 
@@ -584,19 +584,22 @@ class GitHubAppProcessorTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             connection.execute("UPDATE review_agent.repositories SET documentation_mode = 'manual'")
             documentation_admissions.cancel_ineligible(connection, effective_mode=DocumentationMode.MANUAL)
-            self.assertEqual(review_runs.get_run(connection, automatic_runs[0]).status.value, "running")
-            self.assertEqual(review_runs.get_run(connection, automatic_runs[1]).status.value, "failed")
-            self.assertTrue(all(review_runs.get_run(connection, run).status.value == "running" for run in explicit_runs))
+            self.assertEqual(postgres_review_runs.get_run(connection, automatic_runs[0]).status.value, "running")
+            self.assertEqual(postgres_review_runs.get_run(connection, automatic_runs[1]).status.value, "failed")
+            self.assertTrue(all(postgres_review_runs.get_run(connection, run).status.value == "running" for run in explicit_runs))
             self.assertEqual(webhook_deliveries.get_delivery(connection, pending).status.value, "ignored")
             revision = deployment_settings.latest(connection)
             deployment_settings.save(connection, settings=DeploymentSettings(model="test-review-model", documentation_review_enabled=False),
                 expected_revision=revision.id, actor="operator:test", reason="Stop documentation")
-            self.assertEqual(review_runs.get_run(connection, automatic_runs[0]).failure_code, "documentation_disabled")
-            self.assertEqual(review_runs.get_run(connection, explicit_runs[0]).failure_code, "documentation_disabled")
-            self.assertEqual(review_runs.get_run(connection, explicit_runs[1]).status.value, "running")
-            failure = review_runs.claim_next_failure_status(connection, lease_owner="failure-publisher", lease_duration=timedelta(minutes=5))
+            self.assertEqual(postgres_review_runs.get_run(connection, automatic_runs[0]).failure_code, "documentation_disabled")
+            self.assertEqual(postgres_review_runs.get_run(connection, explicit_runs[0]).failure_code, "documentation_disabled")
+            self.assertEqual(postgres_review_runs.get_run(connection, explicit_runs[1]).status.value, "running")
+            failure = postgres_review_runs.claim_next_failure_status(connection, lease_owner="failure-publisher", lease_duration=timedelta(minutes=5))
             assert failure is not None
-        from review_agent.github.publication_gateway import PublicationGatewayRequest, ReviewPublicationGateway
+        from review_agent.github.publication_gateway import (
+            PublicationGatewayRequest,
+            ReviewPublicationGateway,
+        )
         writer = Mock()
         publication_gateway = ReviewPublicationGateway(postgres=self.runtime, tokens=cast(GitHubAppTokenService, self.tokens), profile="default-standard", github_factory=lambda _: writer)
         with self.assertRaises(GitHubGatewayRejected) as rejected:
@@ -969,9 +972,9 @@ class GitHubAppProcessorTests(unittest.TestCase):
             second = self.processor(github).process_next(lease_owner="worker-2")
             assert first is not None and first.run_id is not None
             with self.runtime.transaction() as connection:
-                review_run_application.fail_run_in_transaction(
+                review_runs.fail_run_in_transaction(
                     connection,
-                    review_run_application.ReviewRunId(first.run_id),
+                    review_runs.ReviewRunId(first.run_id),
                     failure_code="stale_timeout",
                 )
             third_delivery = self.register("issue_comment", self.review_payload())
@@ -1032,7 +1035,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
             first = self.processor().process_next(lease_owner="worker-1")
             assert first is not None and first.run_id is not None
             with self.runtime.transaction() as connection:
-                frozen = review_runs.find_request_config(connection, "github:issue-comment:6001")
+                frozen = postgres_review_runs.find_request_config(connection, "github:issue-comment:6001")
                 deployment_settings.save(connection, settings=DeploymentSettings(model="next-model"), expected_revision=0, actor="admin:test", reason="select a new model")
             self.register("issue_comment", self.review_payload())
             repeated = self.processor().process_next(lease_owner="worker-2")
@@ -1043,8 +1046,8 @@ class GitHubAppProcessorTests(unittest.TestCase):
             newest = self.processor().process_next(lease_owner="worker-3")
             self.assertNotEqual(newest.run_id if newest else None, first.run_id)
             with self.runtime.transaction() as connection:
-                self.assertEqual(review_runs.find_request_config(connection, "github:issue-comment:6001"), frozen)
-                selected = review_runs.find_request_config(connection, "github:issue-comment:6002")
+                self.assertEqual(postgres_review_runs.find_request_config(connection, "github:issue-comment:6001"), frozen)
+                selected = postgres_review_runs.find_request_config(connection, "github:issue-comment:6002")
             self.assertEqual(review_contract.queued_contract(selected).model, "next-model")
 
     def test_review_admission_expires_after_its_deadline(self) -> None:
@@ -1104,7 +1107,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
             first = self.processor().process_next(lease_owner="webhook-1")
             self.assertIsNotNone(first.run_id if first else None)
             with self.runtime.transaction() as connection:
-                frozen = review_runs.find_request_config(
+                frozen = postgres_review_runs.find_request_config(
                     connection, "github:issue-comment:6001"
                 )
                 self.assertEqual(frozen["model_route"]["team_id"], team_id)
@@ -1135,7 +1138,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
             self.assertEqual(repeated.run_id if repeated else None, first.run_id)
             with self.runtime.transaction() as connection:
                 self.assertEqual(
-                    review_runs.find_request_config(
+                    postgres_review_runs.find_request_config(
                         connection, "github:issue-comment:6001"
                     ),
                     frozen,

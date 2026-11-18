@@ -13,8 +13,8 @@ sys.path.insert(0, str(PLUGIN))
 
 
 
-MIGRATION = PLUGIN / "postgres_migrations" / "001_initial.sql"
-MIGRATIONS = tuple(sorted((PLUGIN / "postgres_migrations").glob("*.sql")))
+MIGRATION = PLUGIN / "postgres" / "migrations" / "001_initial.sql"
+MIGRATIONS = tuple(sorted((PLUGIN / "postgres" / "migrations").glob("*.sql")))
 CONTAINER = os.environ.get("REVIEW_AGENT_POSTGRES_CONTAINER", "")
 
 

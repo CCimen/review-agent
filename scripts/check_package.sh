@@ -37,7 +37,7 @@ from pkgutil import walk_packages
 import sys
 
 import review_agent
-from review_agent.postgres_migrations import runner
+from review_agent.postgres.migrations import runner
 
 source = Path(sys.argv[1])
 tracked = set(Path(sys.argv[2]).read_text(encoding="utf-8").split())
@@ -60,7 +60,7 @@ print(f"Files: {len(shipped)}, the tracked package with plugin.yaml")
 packaged = [(item.name, item.checksum) for item in runner.discover_migrations()]
 checkout = [
     (item.name, item.checksum)
-    for item in runner.discover_migrations(source / "postgres_migrations")
+    for item in runner.discover_migrations(source / "postgres" / "migrations")
 ]
 if packaged != checkout:
     raise SystemExit("installed migrations differ from the checkout")
@@ -71,8 +71,8 @@ if find_spec("fastapi") is not None or find_spec("aiohttp") is not None:
 # Everything but the console and the Hermes runtime API is core: the worker,
 # admission, the publisher, the GitHub gateway, operator commands and the stores.
 optional = (
-    "review_agent.admin",
-    "review_agent.model_runtime.hermes_runtime_api",
+    "review_agent.console",
+    "review_agent.hermes.runtime_api",
 )
 core = [
     module.name
@@ -85,10 +85,10 @@ print(f"Core: {len(core)} modules import without the optional groups")
 PY
 
 install "$WHEEL[admin]"
-"$PYTHON" -c "import review_agent.admin.api"
+"$PYTHON" -c "import review_agent.console.app"
 printf '%s\n' "Console API imports with the admin group"
 install "$WHEEL[hermes]"
-"$PYTHON" -c "import review_agent.model_runtime.hermes_runtime_api"
+"$PYTHON" -c "import review_agent.hermes.runtime_api"
 printf '%s\n' "Hermes runtime API imports with the hermes group"
 
 printf '%s\n' "Package checks passed."

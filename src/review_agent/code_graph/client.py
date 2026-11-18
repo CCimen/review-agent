@@ -14,7 +14,7 @@ from .contract import (
     GraphError,
     GraphIdentity,
 )
-from ..source_control import SameOriginHttpsRedirectHandler
+from ..https import SameOriginHttpsRedirectHandler
 
 
 def request_graph(

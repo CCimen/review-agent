@@ -12,11 +12,11 @@ import psycopg
 from psycopg.rows import TupleRow
 
 from ..review import contract as review_contract
-from ..review import feedback_application as review_feedback_application
+from ..review import feedback as review_feedback
 from ..domain.feedback import FeedbackStatus
 from ..domain.review import JsonObject, JsonValue, ReviewPurpose
-from ..feedback_commands import restore_review_feedback_command
-from ..memory_validation import ReviewMemoryError
+from ..domain.feedback_commands import restore_review_feedback_command
+from ..domain.review_validation import ReviewMemoryError
 from ..postgres import (
     decisions as postgres_decisions,
     feedback as postgres_feedback,
@@ -28,7 +28,7 @@ from ..postgres import (
     webhook_deliveries,
 )
 from ..postgres.runtime import PostgreSQLRuntime
-from ..review.run_application import (
+from ..review.runs import (
     PostgresRunRequest,
     admit_postgres_review_in_transaction,
 )
@@ -578,7 +578,7 @@ class GitHubAppProcessor:
         else:
             try:
                 command = restore_review_feedback_command(payload.get("command"))
-                result = review_feedback_application.record_postgres_feedback(
+                result = review_feedback.record_postgres_feedback(
                     self._postgres,
                     event_id=f"github:issue-comment:{authorized.comment_id}",
                     repository=authorized.repository,
@@ -595,7 +595,7 @@ class GitHubAppProcessor:
                         f"{authorized.pr_number}#issuecomment-{authorized.comment_id}"
                     ),
                 )
-            except (ReviewMemoryError, review_feedback_application.ReviewFeedbackError) as exc:
+            except (ReviewMemoryError, review_feedback.ReviewFeedbackError) as exc:
                 raise _Reject("invalid_normalized_payload") from exc
             except (
                 postgres_decisions.DecisionStoreError,

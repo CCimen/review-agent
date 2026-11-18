@@ -149,7 +149,7 @@ def authorized_transaction(
 
 
 def lock_access_change(connection: psycopg.Connection[TupleRow]) -> None:
-    # Match admin/accounts.py's account mutation lock. Membership and ownership changes
+    # Match console/accounts.py's account mutation lock. Membership and ownership changes
     # must also serialize with console writes authorized under the previous state.
     connection.execute(
         "LOCK TABLE review_agent.admin_users IN SHARE ROW EXCLUSIVE MODE"

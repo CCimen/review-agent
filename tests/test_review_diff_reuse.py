@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from review_agent.review import source_tools as tools  # noqa: E402
+from review_agent.tools import source as tools  # noqa: E402
 from review_agent.github.gateway import (  # noqa: E402
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
@@ -46,7 +46,7 @@ class ReviewDiffReuseTests(unittest.TestCase):
         ))
         self.snapshot = self.context.enter_context(patch.object(tools, "review_run_snapshot", return_value=self.pull))
         self.context.enter_context(patch.object(tools, "postgres_runtime"))
-        self.record = self.context.enter_context(patch.object(tools.review_run_application, "record_live_diff_result"))
+        self.record = self.context.enter_context(patch.object(tools.review_runs, "record_live_diff_result"))
 
     def read(self, path: str, start: int = 0) -> dict[str, object]:
         return json.loads(tools.pr_diff.__wrapped__({
@@ -170,7 +170,7 @@ class ReviewDiffReuseTests(unittest.TestCase):
     def test_partial_index_is_refetched_without_claiming_absent_path_is_unchanged(self) -> None:
         self.pull["changed_files"] = 4
         self.context.enter_context(patch.object(
-            tools.review_run_application, "lookup_live_run_file", return_value=SimpleNamespace(item=None)
+            tools.review_runs, "lookup_live_run_file", return_value=SimpleNamespace(item=None)
         ))
         self.read("a.py")
         result = self.read("unknown.py")
@@ -291,7 +291,7 @@ class DiffCacheBoundsTests(unittest.TestCase):
     def test_concurrent_runs_remain_isolated_while_evicting(self) -> None:
         cache = tools.ReviewDiffCache(max_entries=3)
         keys = [tools.DiffSnapshotKey("example/project", 1, run, 7, 3, "a" * 40, "b" * 40, 1) for run in range(8)]
-        values = [tools.DiffSnapshot(tools.diff_render.prepare_rendered_diff(
+        values = [tools.DiffSnapshot(tools.domain_diff.prepare_rendered_diff(
             f"diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -0,0 +1 @@\n+{key.run_id}\n"
         )) for key in keys]
 
@@ -307,7 +307,7 @@ class DiffCacheBoundsTests(unittest.TestCase):
 
     def test_evicts_oldest_snapshot_on_byte_or_entry_limit(self) -> None:
         key = tools.DiffSnapshotKey("example/project", 1, 91, 7, 3, "a" * 40, "b" * 40, 1)
-        value = tools.DiffSnapshot(tools.diff_render.prepare_rendered_diff(
+        value = tools.DiffSnapshot(tools.domain_diff.prepare_rendered_diff(
             "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -0,0 +1 @@\n+" + "x" * 4000
         ))
         for cache in (tools.ReviewDiffCache(max_entries=1), tools.ReviewDiffCache(max_bytes=9000)):

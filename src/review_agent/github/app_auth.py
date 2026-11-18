@@ -21,12 +21,11 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 from ..postgres import github_app
 from ..postgres.runtime import PostgreSQLRuntime
-from ..source_control import (
+from ..https import (
     SameOriginHttpsRedirectHandler,
     https_api_origin,
-    is_github_rate_limit_error,
-    github_retry_at,
 )
+from .client import is_github_rate_limit_error, github_retry_at
 
 
 _TOKEN_REFRESH_MARGIN: Final = timedelta(minutes=5)

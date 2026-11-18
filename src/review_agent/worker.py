@@ -18,20 +18,21 @@ from typing import cast
 
 
 from .documentation import preflight as documentation_preflight
-from . import failure_codes, settings
+from .domain import failure_codes
+from . import settings
 from .review import (
     contract as review_contract,
-    run_application as review_run_application,
+    runs as review_runs,
 )
 from .domain.review import JsonObject, ReviewPurpose
-from .model_runtime.hermes_chat import HermesChatClient
+from .hermes.chat import HermesChatClient
 from .github.gateway import GitHubGatewayRejected, GitHubGatewayRetryable
 from .github.gateway_client import ReviewGitHubGatewayClient
 from .review.tool_runtime import GatewaySourceSession, ToolInputError
 from .review.turn import ClaimedReview, ReviewTurnError
-from .postgres import jobs, parts as postgres_parts, review_runs
+from .postgres import jobs, parts as postgres_parts, review_runs as postgres_review_runs
 from .postgres.runtime import TRANSIENT_DATABASE_ERRORS, PostgreSQLRuntime
-from .worker_telemetry import (
+from .postgres.telemetry import (
     TokenUsage,
     WorkerTelemetry,
     record_usage,
@@ -229,7 +230,7 @@ class ReviewWorker:
             )
             if job is None:
                 return None
-            scope = review_runs.get_run_scope(connection, job.review_run_id)
+            scope = postgres_review_runs.get_run_scope(connection, job.review_run_id)
             return ClaimedReview(
                 job=job,
                 repository=scope.repository,
@@ -252,7 +253,7 @@ class ReviewWorker:
         # failure cannot create a tight recovery loop in this process.
         self._next_recovery_at = now + self._policy.recovery_interval.total_seconds()
         with self._runtime.transaction() as connection:
-            review_run_application.recover_expired_jobs_in_transaction(
+            review_runs.recover_expired_jobs_in_transaction(
                 connection, limit=self._policy.recovery_batch_size
             )
 
@@ -300,7 +301,7 @@ class ReviewWorker:
         except review_contract.ReviewContractError as exc:
             try:
                 with self._runtime.transaction() as connection:
-                    review_run_application.fail_claimed_job_in_transaction(
+                    review_runs.fail_claimed_job_in_transaction(
                         connection,
                         job_id=claimed.job.id,
                         lease_owner=self._lease_owner,
@@ -353,7 +354,7 @@ class ReviewWorker:
                 )
                 terminal_documentation = result.frozen
                 if terminal_documentation:
-                    from .review.publication_application import (
+                    from .publication.publish import (
                         prepare_postgres_documentation_publication,
                     )
 
@@ -376,13 +377,13 @@ class ReviewWorker:
                 f"Review source unavailable: {exc.reason}",
                 retryable=True, code="source_unavailable", detail=exc.reason,
             )
-        except (GitHubGatewayRejected, ToolInputError, review_run_application.ReviewRunError) as exc:
+        except (GitHubGatewayRejected, ToolInputError, review_runs.ReviewRunError) as exc:
             failure = ReviewTurnError(
                 f"Review preflight rejected: {exc}",
                 retryable=False, code="preflight_rejected",
                 detail=type(exc).__name__,
             )
-        except (jobs.ReviewJobLeaseLost, review_run_application.ReviewRunTerminal):
+        except (jobs.ReviewJobLeaseLost, review_runs.ReviewRunTerminal):
             lease_lost.set()
         finally:
             heartbeat_stop.set()
@@ -422,7 +423,7 @@ class ReviewWorker:
             )
         try:
             with self._runtime.transaction() as connection:
-                outcome = review_run_application.fail_claimed_job_in_transaction(
+                outcome = review_runs.fail_claimed_job_in_transaction(
                     connection,
                     job_id=claimed.job.id,
                     lease_owner=self._lease_owner,

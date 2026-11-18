@@ -318,7 +318,7 @@ class DeploymentConfigTests(unittest.TestCase):
         self.assertNotIn("/opt/review-agent-bootstrap/install.sh", reviewer_section)
 
     def test_admin_service_serves_the_frontend_the_image_installs(self):
-        from review_agent.admin import api
+        from review_agent.console import app as console_app
 
         environment = {
             "REVIEW_AGENT_DATABASE_URL": "postgresql://localhost/not_connected",
@@ -329,21 +329,21 @@ class DeploymentConfigTests(unittest.TestCase):
             image_dist.mkdir()
             with (
                 patch.dict(os.environ, environment),
-                patch.object(api, "create_app") as create,
-                patch.object(api, "IMAGE_STATIC_DIR", image_dist),
+                patch.object(console_app, "create_app") as create,
+                patch.object(console_app, "IMAGE_STATIC_DIR", image_dist),
             ):
                 # An image frontend on the same machine does not capture an
                 # API that runs from a checkout.
-                api.app_from_environment()
-                with patch.object(api, "source_checkout", return_value=None):
-                    api.app_from_environment()
+                console_app.app_from_environment()
+                with patch.object(console_app, "source_checkout", return_value=None):
+                    console_app.app_from_environment()
         checkout, image = (call.kwargs["static_dir"] for call in create.call_args_list)
         # A checkout serves the frontend built beside src/; an installed
         # package serves the directory the Dockerfile copies the build to.
         self.assertEqual(ROOT / "admin" / "dist", checkout)
         self.assertEqual(image_dist, image)
         self.assertIn(
-            f"COPY --from=frontend /build/dist {api.IMAGE_STATIC_DIR}\n",
+            f"COPY --from=frontend /build/dist {console_app.IMAGE_STATIC_DIR}\n",
             read("admin/Dockerfile"),
         )
 

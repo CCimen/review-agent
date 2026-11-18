@@ -16,7 +16,7 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 from review_agent import capacity  # noqa: E402
 from review_agent.domain import repository_decision_context  # noqa: E402
 from review_agent.repository_context import (  # noqa: E402
-    decision_context as repository_decision_loader,
+    decisions as repository_decision_loader,
 )
 from review_agent.github.gateway import GitHubGatewayRetryable  # noqa: E402
 from review_agent.github.source import ReviewFilePage  # noqa: E402

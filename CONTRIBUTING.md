@@ -50,8 +50,8 @@ export REVIEW_AGENT_ADMIN_PUBLIC_URL=http://127.0.0.1:5173
 
 REVIEW_AGENT_RUNTIME_DATABASE_URL=postgresql://review_agent_runtime:local-runtime-password@127.0.0.1:55432/postgres \
   python3 tools/review_agent_admin.py database prepare
-python3 -m review_agent.admin_auth --email admin@example.com
-uvicorn review_agent.admin.api:app_from_environment --factory --port 8090
+python3 -m review_agent.console.auth --email admin@example.com
+uvicorn review_agent.console.app:app_from_environment --factory --port 8090
 ```
 
 In a second terminal:
@@ -74,7 +74,7 @@ with `docker rm --force review-agent-dev-db`.
 | `src/review_agent/` | The application: one Python package, `review_agent`, loaded by Hermes as a plugin and by every service |
 | `tools/` | Entrypoints for the services and operator commands; each starts code from the package |
 | `bootstrap/` | What the image installs into Hermes: installer, managed configuration, reviewer profiles |
-| `admin/` | The admin console frontend (React); its API lives in the package's `admin/` |
+| `admin/` | The admin console frontend (React); its API lives in the package's `console/` |
 | `tests/` | Unit tests and the PostgreSQL contract tests; `tests/support.py` seeds review runs for them |
 | `scripts/` | Checks that CI runs, and release tooling |
 | `examples/`, `install/`, `skills/` | The Helm chart, example configuration, the install plan schema, and the install skill |
@@ -86,28 +86,42 @@ Inside the package:
 
 | Path | Responsibility |
 | --- | --- |
-| `admission.py`, `github_webhook.py` | Receive and verify GitHub webhooks |
-| `github/` | The private gateway that holds the App key, the delivery worker, source reads and publication |
-| `worker.py`, `publisher.py` | The review worker and the publisher processes |
-| `review/` | The code review: model tools, run lifecycle, findings, rendering, publication planning, the review contract |
-| `documentation/` | Documentation review |
+| `__init__.py` | The Hermes plugin entry: `register()` wires the model tools |
+| `settings.py`, `deployment_settings.py`, `capacity.py`, `https.py`, `build_info.py` | Shared by several packages: environment settings, operator policy defaults, per-response budgets and page limits, same-origin HTTPS redirect handling, image build metadata |
+| `admission.py`, `worker.py`, `publisher.py` | The webhook intake, review worker and publisher processes |
+| `domain/` | Pure rules and value types with no I/O: review subject, finding, publication, feedback commands, diff, suggestions, failure codes |
+| `postgres/` | PostgreSQL stores, one module per table family. `runtime.py` owns the pool, `telemetry.py` records process presence, and `migrations/` holds the runner and the SQL |
+| `github/` | Everything that talks to GitHub: App credentials, the read client, webhook verification, the private gateway that holds the App key and its client, the delivery worker, publication delivery |
+| `hermes/` | Everything specific to the Hermes runtime: chat and control clients, runtime API, model accounts, quota, context window, the provider gateway |
 | `repository_context/` | A repository's `.review-agent/` package: guidance, decisions, validation |
-| `code_graph/` | The optional code graph service |
-| `model_runtime/` | Hermes integration: runtime API, model accounts, quota, context window |
-| `admin/`, `admin_auth.py` | The admin console backend. `admin_auth.py` wires sign-in and the account routes; `admin/accounts.py` holds accounts and sessions, `admin/registration.py` and `admin/account_admin.py` their use cases, and the `*_api.py` modules the rest of the HTTP API |
-| `domain/` | Pure rules and value types with no I/O |
-| `postgres/`, `postgres_migrations/` | PostgreSQL persistence, one module per concern, and the schema migrations |
-| `operator_application.py`, `operator_setup.py` | Operator command use cases, `doctor` and App registration |
-| `settings.py`, `deployment_settings.py`, `schemas.py` and the other top-level modules | Configuration, tool schemas and helpers shared by several packages |
+| `code_graph/` | The optional code graph service, cache, indexer and client |
+| `review/` | Code-review use cases: run lifecycle, findings, parts, decisions, feedback, the review contract |
+| `documentation/` | Documentation-review use cases: scope, preflight, findings, configuration |
+| `publication/` | Turning a finished review into GitHub output: plan, render, partition, publish |
+| `tools/` | The tools the review model calls, with their JSON schemas. Not the repository's `tools/` directory of entrypoints |
+| `operations/` | Operator use cases: inspection and recovery in `inspection.py`; `doctor`, the smoke test and App registration in `readiness.py` |
+| `console/` | The admin console backend. `app.py` builds the FastAPI app, `auth.py` wires sign-in and the account routes, `accounts.py` holds accounts and sessions, `registration.py` and `account_admin.py` their use cases, `application.py` the console's other use cases, and `api/` one HTTP module per area |
 
-Two modules stay at the top of the package because they are started by module
-path: `admin_auth` (`python -m review_agent.admin_auth`) and
-`provider_gateway` (`compose.providers.yaml`).
+One noun names a concept in every layer: `domain/finding.py` holds the values,
+`postgres/findings.py` the store, `review/findings.py` the use cases and
+`tools/findings.py` the model tools.
 
-Dependencies point mostly one way: entrypoints call the application modules,
-which call `postgres/` and the gateway, and everything may use `domain/`. The
-split is by topic, not a strict layering: `postgres/` modules still import
-review and documentation code in places.
+Three modules are started by module path, so their paths are part of what a
+deployment names: `review_agent.console.app` (the console image's `uvicorn`
+command), `review_agent.console.auth` (`python -m review_agent.console.auth`)
+and `review_agent.hermes.provider_gateway` (`compose.providers.yaml`).
+
+Imports inside the package are relative. Hermes loads the same files as
+`hermes_plugins.review_agent_tools`, so an absolute `review_agent` import
+there would load a second copy.
+
+Dependencies point mostly one way: `domain/`, then `postgres/`, then the
+adapters (`github/`, `hermes/`, `repository_context/`, `code_graph/`), then the
+use cases (`review/`, `documentation/`, `publication/`, `operations/`), then
+what calls them (`tools/`, `console/`, the process modules and the
+entrypoints). The top-level modules are shared configuration. This is a
+direction, not a strict layering: some imports still point upward, most of
+them to `review/contract.py`.
 
 ## Sign off commits
 

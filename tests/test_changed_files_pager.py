@@ -10,8 +10,8 @@ from unittest.mock import Mock
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent import changed_files  # noqa: E402
-from review_agent.review import source_tools as review_source_tools  # noqa: E402
+from review_agent.github import changed_files  # noqa: E402
+from review_agent.tools import source as source_tools  # noqa: E402
 from review_agent.github.source import ReviewSourceBytes  # noqa: E402
 
 
@@ -151,7 +151,7 @@ class ChangedFilesIntegrationTests(unittest.TestCase):
 
     def test_changed_files_paginates_past_300(self):
         master = _files(350)
-        files = review_source_tools.load_changed_files(self._source(master))
+        files = source_tools.load_changed_files(self._source(master))
         self.assertEqual(len(files), 350)
         # Stable downstream contract: path + trusted context hash fields preserved.
         self.assertEqual(files[0]["path"], "src/file_0000.py")
@@ -172,7 +172,7 @@ class ChangedFilesIntegrationTests(unittest.TestCase):
                 "changes": 2,
             }
         ]
-        files = review_source_tools.load_changed_files(self._source(master))
+        files = source_tools.load_changed_files(self._source(master))
         self.assertEqual(files[0]["context_hash_source"], "patch")
         import hashlib
 

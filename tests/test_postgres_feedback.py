@@ -15,15 +15,15 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent import operator_application  # noqa: E402
+from review_agent.operations import inspection  # noqa: E402
 from review_agent.domain import repository_decision_context  # noqa: E402
 from review_agent.review import (  # noqa: E402
-    decision_application,
-    feedback_application as review_feedback_application,
+    decisions as review_decisions,
+    feedback as review_feedback,
 )
 from review_agent.review import (  # noqa: E402
-    finding_application as review_finding_application,
-    run_application as review_run_application,
+    findings as review_findings,
+    runs as review_runs,
 )
 from review_agent.domain.finding import (  # noqa: E402
     FindingId,
@@ -43,16 +43,20 @@ from review_agent.domain.publication import (  # noqa: E402
     resolve_publication_plan,
 )
 from review_agent.domain.review import ReviewPhase  # noqa: E402
-from review_agent.feedback_commands import (  # noqa: E402
+from review_agent.domain.feedback_commands import (  # noqa: E402
     parse_review_feedback_command,
 )
 from review_agent.postgres import feedback as postgres_feedback  # noqa: E402
 from review_agent.postgres import quality_triage as postgres_quality_triage  # noqa: E402
 from review_agent.postgres import repository_decisions  # noqa: E402
-from review_agent.postgres import publications, reporting, review_runs  # noqa: E402
+from review_agent.postgres import (  # noqa: E402
+    publications,
+    reporting,
+    review_runs as postgres_review_runs,
+)
 from review_agent.postgres import decisions as postgres_decisions  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
@@ -105,10 +109,10 @@ class PostgreSQLFeedbackAdmissionTests(unittest.TestCase):
         assert command is not None
 
         with self.assertRaisesRegex(
-            review_feedback_application.ReviewFeedbackError,
+            review_feedback.ReviewFeedbackError,
             "authorization_version",
         ):
-            review_feedback_application.record_postgres_feedback(
+            review_feedback.record_postgres_feedback(
                 runtime,
                 event_id="github:issue-comment:500",
                 repository="example-org/example-repository",
@@ -170,7 +174,7 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
     ) -> publications.StoredPublication:
         started = support.start_postgres_review(
             self.runtime,
-            review_run_application.PostgresRunRequest(
+            review_runs.PostgresRunRequest(
                 provider="github",
                 provider_repository_id=981,
                 repository="example-org/example-repository",
@@ -183,12 +187,12 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
                 request_key=request_key,
             ),
         )
-        assert isinstance(started, review_runs.StartedRun)
+        assert isinstance(started, postgres_review_runs.StartedRun)
         support.register_postgres_changed_files(
             self.runtime,
             run_id=started.run.id,
             files=(
-                review_run_application.PostgresChangedFile(
+                review_runs.PostgresChangedFile(
                     path="src/api/resources.py",
                     change_status="modified",
                 ),
@@ -227,13 +231,13 @@ on_change = ["Run the cross-scope authorization test."]
                     run_id=started.run.id,
                     context=context,
                 )
-        batch = review_finding_application.record_postgres_findings(
+        batch = review_findings.record_postgres_findings(
             self.runtime,
             run_id=started.run.id,
             head_sha=head_sha,
             findings=(self.finding(),) if with_finding else (),
             changed_files=(
-                review_finding_application.ChangedFile(
+                review_findings.ChangedFile(
                     path="src/api/resources.py",
                     context_hash="c" * 40,
                     context_hash_source="blob",
@@ -247,7 +251,7 @@ on_change = ["Run the cross-scope authorization test."]
                 ReviewPhase.REVIEWING,
                 ReviewPhase.RENDERING,
             ):
-                review_runs.advance_phase(connection, started.run.id, phase)
+                postgres_review_runs.advance_phase(connection, started.run.id, phase)
 
         publication_key = "sha256:" + (key_character * 64)
         finding_inputs = ()
@@ -310,7 +314,7 @@ on_change = ["Run the cross-scope authorization test."]
                 publication_id=prepared.id,
                 posting_started_at=claim.publication.posting_started_at,
             )
-            review_runs.complete_run(
+            postgres_review_runs.complete_run(
                 connection,
                 started.run.id,
                 findings_count=len(batch.items),
@@ -326,7 +330,7 @@ on_change = ["Run the cross-scope authorization test."]
     ):
         command = parse_review_feedback_command(body)
         assert command is not None
-        return review_feedback_application.record_postgres_feedback(
+        return review_feedback.record_postgres_feedback(
             self.runtime,
             event_id=event_id,
             repository="example-org/example-repository",
@@ -573,7 +577,7 @@ on_change = ["Run the cross-scope authorization test."]
         )
         assert feedback.feedback_id is not None
 
-        pending = decision_application.triage_review_feedback(
+        pending = review_decisions.triage_review_feedback(
             self.runtime,
             feedback_id=feedback.feedback_id,
             status="insufficient",
@@ -585,7 +589,7 @@ on_change = ["Run the cross-scope authorization test."]
             actor="github:operator",
             reason="No reproducible failure or incident reference was supplied.",
         )
-        actionable = decision_application.triage_review_feedback(
+        actionable = review_decisions.triage_review_feedback(
             self.runtime,
             feedback_id=feedback.feedback_id,
             status="actionable",
@@ -621,7 +625,7 @@ on_change = ["Run the cross-scope authorization test."]
                 ),
             ],
         )
-        exported = operator_application.export_repository(
+        exported = inspection.export_repository(
             self.runtime,
             repository="example-org/example-repository",
             row_limit=100,
@@ -649,7 +653,7 @@ on_change = ["Run the cross-scope authorization test."]
         assert missed.feedback_id is not None
 
         with self.assertRaises(postgres_quality_triage.QualityFeedbackNotFound):
-            decision_application.triage_review_feedback(
+            review_decisions.triage_review_feedback(
                 self.runtime,
                 feedback_id=2_147_483_647,
                 status="insufficient",
@@ -665,7 +669,7 @@ on_change = ["Run the cross-scope authorization test."]
         with self.assertRaises(
             postgres_quality_triage.QualityFeedbackNotTriageable
         ):
-            decision_application.triage_review_feedback(
+            review_decisions.triage_review_feedback(
                 self.runtime,
                 feedback_id=scope.feedback_id,
                 status="insufficient",

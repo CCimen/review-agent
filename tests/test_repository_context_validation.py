@@ -12,7 +12,7 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 from review_agent.domain import repository_guidance_context  # noqa: E402
 from review_agent.repository_context import (  # noqa: E402
     validation as repository_context_validation,
-    guidance_context as repository_guidance_loader,
+    guidance as repository_guidance_loader,
 )
 from review_agent.domain import repository_decisions  # noqa: E402
 

@@ -23,7 +23,7 @@ def _load_package() -> None:
         Path(__file__).resolve().parents[1] / "src",
     )
     for candidate in candidates:
-        if (candidate / "review_agent" / "operator_setup.py").is_file():
+        if (candidate / "review_agent" / "operations" / "readiness.py").is_file():
             sys.path.insert(0, str(candidate))
             return
     raise SystemExit("Could not locate the review_agent package")
@@ -32,11 +32,11 @@ def _load_package() -> None:
 _load_package()
 
 from review_agent.documentation import scope as documentation_scope  # noqa: E402
-from review_agent import (  # noqa: E402
-    operator_application,
-    operator_input,
-    operator_setup,
+from review_agent.operations import (  # noqa: E402
+    inspection,
+    readiness as operations_readiness,
 )
+from review_agent.domain import input_checks  # noqa: E402
 from review_agent.repository_context import (  # noqa: E402
     validation as repository_context_validation,
 )
@@ -56,7 +56,7 @@ from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntimeRole,
 )
 from review_agent.settings import ReviewAgentSettings  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -365,7 +365,7 @@ def _repository_json(
 def _installation_inventory(
     runtime: PostgreSQLRuntime, *, limit: int, after_id: int
 ) -> int:
-    installations = operator_application.list_github_app_installations(
+    installations = inspection.list_github_app_installations(
         runtime,
         limit=limit,
         after_provider_installation_id=after_id,
@@ -386,7 +386,7 @@ def _installation_inventory(
 def _repository_inventory(
     runtime: PostgreSQLRuntime, *, limit: int, after_id: int
 ) -> int:
-    repositories = operator_application.list_github_app_repositories(
+    repositories = inspection.list_github_app_repositories(
         runtime,
         limit=limit,
         after_provider_repository_id=after_id,
@@ -407,7 +407,7 @@ def _repository_inventory(
 
 
 def _queue_inventory(runtime: PostgreSQLRuntime) -> int:
-    snapshot = operator_application.queue_health(runtime)
+    snapshot = inspection.queue_health(runtime)
     progress: dict[str, dict[str, object]] = {}
     for queue in snapshot.progress:
         values: dict[str, object] = {
@@ -465,7 +465,7 @@ def _doctor() -> int:
     runtime: PostgreSQLRuntime | None = None
     try:
         runtime = _runtime()
-        report = operator_setup.doctor(
+        report = operations_readiness.doctor(
             os.environ,
             runtime=runtime,
             gateway=_operator_client(),
@@ -488,7 +488,7 @@ def _smoke_test(args: argparse.Namespace) -> int:
     runtime: PostgreSQLRuntime | None = None
     try:
         runtime = _runtime()
-        report = operator_setup.smoke_test(
+        report = operations_readiness.smoke_test(
             os.environ,
             runtime=runtime,
             gateway=_operator_client(),
@@ -497,7 +497,7 @@ def _smoke_test(args: argparse.Namespace) -> int:
         )
     except (
         GitHubGatewayRetryable,
-        operator_setup.OperatorCapacityUnavailable,
+        operations_readiness.OperatorCapacityUnavailable,
         PostgreSQLRuntimeError,
         psycopg.Error,
     ):
@@ -521,7 +521,7 @@ def _repository_change(args: argparse.Namespace) -> int:
         return os.EX_TEMPFAIL
     try:
         if args.repository_command == "enable":
-            access = operator_application.enable_github_app_repository(
+            access = inspection.enable_github_app_repository(
                 runtime,
                 provider_repository_id=args.repository_id,
                 profile=args.profile,
@@ -529,7 +529,7 @@ def _repository_change(args: argparse.Namespace) -> int:
                 reason=args.reason,
             )
         else:
-            access = operator_application.disable_github_app_repository(
+            access = inspection.disable_github_app_repository(
                 runtime,
                 provider_repository_id=args.repository_id,
                 actor=args.actor,
@@ -540,7 +540,7 @@ def _repository_change(args: argparse.Namespace) -> int:
         return os.EX_TEMPFAIL
     except (
         github_app.GitHubAppStateError,
-        operator_input.OperatorInputError,
+        input_checks.OperatorInputError,
         registry.RegistryError,
         psycopg.Error,
         ValueError,
@@ -599,7 +599,7 @@ def _database_command(args: argparse.Namespace) -> int:
 def _database_prepare_command() -> int:
     try:
         settings = ReviewAgentSettings.from_environment()
-        contract = operator_setup.validate_database_configuration(settings)
+        contract = operations_readiness.validate_database_configuration(settings)
         owner_url = settings.postgres_database_url
         runtime_url = settings.postgres_runtime_database_url
         with psycopg.connect(owner_url) as connection:
@@ -653,7 +653,7 @@ def _database_retention_command(args: argparse.Namespace) -> int:
         _json_error(code="database_unavailable", retryable=True)
         return os.EX_TEMPFAIL
     try:
-        receipt = operator_application.prune_receipt_history(
+        receipt = inspection.prune_receipt_history(
             runtime,
             target=target,
             before=args.before,
@@ -665,7 +665,7 @@ def _database_retention_command(args: argparse.Namespace) -> int:
     except (PostgreSQLRuntimeError, psycopg.OperationalError):
         _json_error(code="database_unavailable", retryable=True)
         return os.EX_TEMPFAIL
-    except (operator_input.OperatorInputError, ValueError):
+    except (input_checks.OperatorInputError, ValueError):
         _json_error(code="invalid_retention_request", retryable=False)
         return os.EX_USAGE
     except psycopg.Error:
@@ -710,9 +710,9 @@ def _job_command(args: argparse.Namespace) -> int:
             statuses = (
                 tuple(jobs.ReviewJobStatus(value) for value in args.status)
                 if args.status
-                else operator_application.ACTIVE_JOB_STATUSES
+                else inspection.ACTIVE_JOB_STATUSES
             )
-            reports = operator_application.list_review_jobs(
+            reports = inspection.list_review_jobs(
                 runtime, statuses=statuses, limit=_page_limit(args.limit)
             )
             _json(
@@ -735,9 +735,9 @@ def _job_command(args: argparse.Namespace) -> int:
             )
             return 0
         job = (
-            operator_application.retry_review_job(runtime, job_id=args.job_id)
+            inspection.retry_review_job(runtime, job_id=args.job_id)
             if args.job_command == "retry"
-            else operator_application.cancel_review_job(runtime, job_id=args.job_id)
+            else inspection.cancel_review_job(runtime, job_id=args.job_id)
         )
         _json(
             {
@@ -752,7 +752,7 @@ def _job_command(args: argparse.Namespace) -> int:
         return os.EX_TEMPFAIL
     except (
         jobs.ReviewJobError,
-        operator_input.OperatorInputError,
+        input_checks.OperatorInputError,
         psycopg.Error,
         ValueError,
     ):
@@ -769,8 +769,8 @@ def _sync_installation(args: argparse.Namespace) -> int:
         _json_error(code="database_unavailable", retryable=True)
         return os.EX_TEMPFAIL
     try:
-        authenticator = operator_setup.github_app_authenticator(os.environ)
-        result = operator_application.sync_github_app_installation(
+        authenticator = operations_readiness.github_app_authenticator(os.environ)
+        result = inspection.sync_github_app_installation(
             runtime,
             authenticator,
             provider_installation_id=args.installation_id,
@@ -790,7 +790,7 @@ def _sync_installation(args: argparse.Namespace) -> int:
         app_auth.GitHubAppTokenPermanent,
         app_inventory.GitHubAppInventoryPermanent,
         github_app.GitHubAppStateError,
-        operator_input.OperatorInputError,
+        input_checks.OperatorInputError,
         registry.RegistryError,
         psycopg.Error,
         ValueError,
@@ -819,8 +819,8 @@ def _onboard_repository(args: argparse.Namespace) -> int:
         return os.EX_TEMPFAIL
     try:
         settings = ReviewAgentSettings.from_environment()
-        authenticator = operator_setup.github_app_authenticator(os.environ)
-        result = operator_application.onboard_github_app_repository(
+        authenticator = operations_readiness.github_app_authenticator(os.environ)
+        result = inspection.onboard_github_app_repository(
             runtime,
             authenticator,
             repository=args.repository,
@@ -841,7 +841,7 @@ def _onboard_repository(args: argparse.Namespace) -> int:
         app_auth.GitHubAppTokenPermanent,
         app_inventory.GitHubAppInventoryPermanent,
         github_app.GitHubAppStateError,
-        operator_input.OperatorInputError,
+        input_checks.OperatorInputError,
         registry.RegistryError,
         psycopg.Error,
         ValueError,
@@ -871,8 +871,8 @@ def _approve_installation(args: argparse.Namespace) -> int:
         _json_error(code="database_unavailable", retryable=True)
         return os.EX_TEMPFAIL
     try:
-        authenticator = operator_setup.github_app_authenticator(os.environ)
-        installation = operator_application.approve_github_app_installation(
+        authenticator = operations_readiness.github_app_authenticator(os.environ)
+        installation = inspection.approve_github_app_installation(
             runtime,
             authenticator,
             provider_installation_id=args.installation_id,
@@ -893,7 +893,7 @@ def _approve_installation(args: argparse.Namespace) -> int:
         app_auth.GitHubAppTokenPermanent,
         app_inventory.GitHubAppInventoryPermanent,
         github_app.GitHubAppStateError,
-        operator_input.OperatorInputError,
+        input_checks.OperatorInputError,
         psycopg.Error,
         ValueError,
     ):
@@ -952,10 +952,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     if args.command == "capabilities":
-        _json(operator_setup.capabilities().to_json_obj())
+        _json(operations_readiness.capabilities().to_json_obj())
         return 0
     if args.command == "preflight":
-        report = operator_setup.preflight(os.environ)
+        report = operations_readiness.preflight(os.environ)
         _json(report.to_json_obj())
         return 0 if report.ready else 1
     if args.command == "doctor":
@@ -970,7 +970,7 @@ def main(argv: list[str] | None = None) -> int:
         return _read_inventory(_queue_inventory)
     if args.command == "github-app" and args.github_app_command == "registration-url":
         try:
-            url = operator_setup.github_app_registration_url(
+            url = operations_readiness.github_app_registration_url(
                 owner=args.owner,
                 owner_type=args.owner_type,
                 public_url=args.public_url,

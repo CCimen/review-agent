@@ -24,17 +24,17 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent.review import (  # noqa: E402
     contract as review_contract,
-    run_application as review_run_application,
+    runs as review_runs,
 )
-from review_agent.source_control import SameOriginHttpsRedirectHandler  # noqa: E402
+from review_agent.https import SameOriginHttpsRedirectHandler  # noqa: E402
 from review_agent.domain.review import ReviewRunId  # noqa: E402
 from review_agent.postgres import jobs  # noqa: E402
-from review_agent.worker_telemetry import TokenUsage  # noqa: E402
+from review_agent.postgres.telemetry import TokenUsage  # noqa: E402
 from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLUnavailable,
 )
-from review_agent.model_runtime.hermes_chat import (  # noqa: E402
+from review_agent.hermes.chat import (  # noqa: E402
     HermesChatClient,
     HermesChatSettings,
     parse_usage,
@@ -71,8 +71,8 @@ class WorkerBoundaryTests(unittest.TestCase):
         from review_agent.documentation import (
             preflight as documentation_preflight,
         )
-        from review_agent.review import (
-            publication_application as review_publication_application,
+        from review_agent.publication import (
+            publish as publication_publish,
         )
         from review_agent.domain.review import ReviewPurpose
 
@@ -87,7 +87,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                     stop_event=threading.Event(), source_client=Mock())
                 with (
                     patch.object(documentation_preflight, "run_preflight", return_value=Mock(frozen=frozen)) as preflight,
-                    patch.object(review_publication_application, "prepare_postgres_documentation_publication") as publish,
+                    patch.object(publication_publish, "prepare_postgres_documentation_publication") as publish,
                     patch.object(jobs, "get_job", return_value=replace(claimed.job, status=jobs.ReviewJobStatus.SUCCEEDED)),
                 ):
                     worker._execute(claimed)
@@ -259,8 +259,8 @@ class WorkerBoundaryTests(unittest.TestCase):
         )
         with (
             patch.object(jobs, "get_job", return_value=replace(claimed.job, status=jobs.ReviewJobStatus.SUCCEEDED)),
-            patch.object(review_run_application, "fail_claimed_job_in_transaction") as fail,
-            self.assertLogs("review_agent.worker_telemetry", level="WARNING"),
+            patch.object(review_runs, "fail_claimed_job_in_transaction") as fail,
+            self.assertLogs("review_agent.postgres.telemetry", level="WARNING"),
         ):
             worker._execute(claimed)
         fail.assert_not_called()
@@ -629,7 +629,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             patch.object(jobs, "heartbeat_job", side_effect=heartbeat),
             patch.object(jobs, "get_job", return_value=claimed.job),
             patch.object(
-                review_run_application,
+                review_runs,
                 "fail_claimed_job_in_transaction",
                 return_value=Mock(
                     job=Mock(status=jobs.ReviewJobStatus.QUEUED),
@@ -774,7 +774,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             patch.object(worker, "_recover_if_due"),
             patch.object(worker, "_claim", side_effect=claim),
             patch.object(
-                review_run_application,
+                review_runs,
                 "fail_claimed_job_in_transaction",
             ) as fail_job,
             self.assertLogs("review_agent.worker", level="WARNING"),
@@ -807,7 +807,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         )
 
         with patch.object(
-            review_run_application,
+            review_runs,
             "fail_claimed_job_in_transaction",
         ) as fail_job:
             worker._execute(claimed)
@@ -839,7 +839,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 side_effect=review_contract.ReviewContractError("receipt unreadable"),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "fail_claimed_job_in_transaction",
             ) as fail_job,
         ):

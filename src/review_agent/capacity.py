@@ -8,7 +8,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 
 from .domain.review import MAX_REVIEW_PARTS
-from .model_runtime.window import ModelWindow
+from .hermes.window import ModelWindow
 
 
 DEFAULT_RESULT_MAX_CHARS = 160_000
@@ -18,6 +18,10 @@ _TEXT_PAGE_DIVISOR = _JSON_WORST_CASE_EXPANSION + 1
 MIN_RESULT_MAX_CHARS = MIN_TEXT_PAGE_CHARS * _TEXT_PAGE_DIVISOR
 # The review procedure issues at most this many diff calls in one response.
 PARALLEL_DIFF_CALLS = 4
+# Page limits the tool schemas declare and the GitHub gateway enforces.
+CHANGED_FILE_PAGE_MAX_ITEMS = 200
+DIFF_BATCH_MAX_PATHS = 50
+SOURCE_PAGE_MAX_LINES = 400
 
 
 class CapacityError(ValueError):

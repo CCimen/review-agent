@@ -10,7 +10,7 @@ from psycopg.rows import TupleRow, class_row
 from psycopg.types.json import Jsonb
 
 from ..domain.access import Role
-from ..model_runtime.accounts import (
+from ..hermes.accounts import (
     AccountAvailability,
     ManagedRuntimeStatus,
     ModelProvider,

@@ -18,11 +18,12 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent import operator_application, operator_input  # noqa: E402
+from review_agent.operations import inspection  # noqa: E402
+from review_agent.domain import input_checks  # noqa: E402
 from review_agent.review import (  # noqa: E402
-    decision_application,
-    finding_application as review_finding_application,
-    run_application as review_run_application,
+    decisions as review_decisions,
+    findings as review_findings,
+    runs as review_runs,
 )
 from review_agent.domain.finding import FindingInput  # noqa: E402
 from review_agent.domain.publication import (  # noqa: E402
@@ -35,14 +36,14 @@ from review_agent.domain.publication import (  # noqa: E402
 from review_agent.domain.review import DiffState, ReviewPhase, ReviewPurpose  # noqa: E402
 from review_agent.postgres import (  # noqa: E402
     publications,
-    quality_reporting,
+    quality_report,
     registry,
     reporting,
-    review_runs,
+    review_runs as postgres_review_runs,
     webhook_deliveries,
 )
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
@@ -110,7 +111,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
     def test_queue_inventory_exposes_waiting_webhook_and_missing_consumer(self) -> None:
         from unittest.mock import Mock
-        from review_agent import operator_setup
+        from review_agent.operations import readiness
 
         self.register_webhook()
         with self.runtime.transaction() as connection:
@@ -133,7 +134,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(inventory["webhooks"]["due"], 1)
         self.assertEqual(inventory["webhooks"]["live_workers"], 0)
         self.assertGreaterEqual(inventory["webhooks"]["oldest_due_age_seconds"], 300)
-        report = operator_setup.doctor(
+        report = readiness.doctor(
             {}, runtime=self.runtime, gateway=Mock(), hermes_probe=lambda: True
         )
         queue_check = next(check for check in report.checks if check.name == "queues")
@@ -143,7 +144,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_queue_report_preserves_cooldowns_and_includes_failure_notice_delivery(self) -> None:
         from unittest.mock import Mock
         from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
-        from review_agent import operator_setup
+        from review_agent.operations import readiness
         from review_agent.review import contract as review_contract
         from review_agent.postgres import jobs
 
@@ -188,7 +189,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 connection, review_run_id=queued.run.id, priority=0,
                 max_attempts=3, active_job_limit=10,
             )
-            review_runs.fail_run(connection, failed.run.id, failure_code="review_failed")
+            postgres_review_runs.fail_run(connection, failed.run.id, failure_code="review_failed")
             connection.execute(
                 """UPDATE review_agent.model_accounts
                    SET quota_wait_until = statement_timestamp() + interval '1 hour'
@@ -204,7 +205,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                    SET failure_status_delivery_available_at = statement_timestamp() + interval '1 hour'
                    WHERE id = %s""", (failed.run.id,),
             )
-        snapshot = operator_application.queue_health(self.runtime)
+        snapshot = inspection.queue_health(self.runtime)
         queues = {queue.kind: queue for queue in snapshot.progress}
         self.assertEqual(snapshot.publication_queue.pending, 2)
         self.assertEqual(queues["review"].cooldown_waiting, 1)
@@ -218,13 +219,13 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 self.assertEqual(queues[kind].delayed, delayed_count)
                 self.assertIsNone(queues[kind].oldest_due_at)
                 self.assertGreater(queues[kind].next_available_at, snapshot.generated_at)
-        report = operator_setup.doctor(
+        report = readiness.doctor(
             {}, runtime=self.runtime, gateway=Mock(), hermes_probe=lambda: True
         )
         self.assertEqual(next(check for check in report.checks if check.name == "queues").status, "ready")
 
     def test_review_history_distinguishes_review_retry_and_expired_worker(self) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
         from review_agent.review import contract as review_contract
         from review_agent.postgres import jobs
         from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
@@ -244,7 +245,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 "UPDATE review_agent.review_jobs SET available_at = statement_timestamp() + interval '1 hour' WHERE review_run_id = %s",
                 (run.run.id,),
             )
-        waiting = admin_application.review_detail(
+        waiting = console_application.review_detail(
             self.runtime, access=self.admin_access, run_id=int(run.run.id)
         )
         self.assertEqual(waiting.item.state, "queued")
@@ -258,7 +259,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                                         lease_duration=timedelta(minutes=5),
                                         priority_aging_interval=timedelta(minutes=5))
             self.assertIsNotNone(claim)
-        active = admin_application.review_detail(
+        active = console_application.review_detail(
             self.runtime, access=self.admin_access, run_id=int(run.run.id)
         )
         self.assertEqual(active.item.state, "running")
@@ -272,7 +273,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                        lease_expires_at = statement_timestamp() - interval '1 minute'
                    WHERE review_run_id = %s""", (run.run.id,),
             )
-        expired = admin_application.review_detail(
+        expired = console_application.review_detail(
             self.runtime, access=self.admin_access, run_id=int(run.run.id)
         )
         self.assertEqual(expired.item.state, "stalled")
@@ -280,7 +281,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_a_review_split_into_parts_stays_one_request_with_its_activity_and_usage(
         self,
     ) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
         from review_agent.review import contract as review_contract
         from review_agent.postgres import jobs
         from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
@@ -321,7 +322,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     (job_id, tokens, tokens),
                 )
 
-        history = admin_application.history(self.runtime, access=self.admin_access)
+        history = console_application.history(self.runtime, access=self.admin_access)
         self.assertEqual([item.id for item in history.items], [run.run.id])
         item = history.items[0]
         # The main job waits in the queue while a part holds the live lease.
@@ -331,7 +332,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             (2, 2, 40),
         )
         now = datetime.now(timezone.utc)
-        totals = admin_application.usage(
+        totals = console_application.usage(
             self.runtime, access=self.admin_access, start=now - timedelta(days=1),
             end=now + timedelta(days=1), dimension="repository",
         ).totals
@@ -341,13 +342,13 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         # The main job only waits for its parts; the second part is the queued work.
         review_queue = next(
-            queue for queue in operator_application.queue_health(self.runtime).progress
+            queue for queue in inspection.queue_health(self.runtime).progress
             if queue.kind == "review"
         )
         self.assertEqual((review_queue.waiting, review_queue.leased), (1, 1))
 
     def test_review_history_keeps_publication_retry_and_recovery_in_delivery(self) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
 
         run = self.start(pr_number=94, request_suffix="progress-publication")
         publication = self.prepare_publication(
@@ -361,7 +362,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 failure_code="github_rate_limited", retryable=True,
                 retry_delay=timedelta(hours=1),
             )
-        delayed = admin_application.review_detail(
+        delayed = console_application.review_detail(
             self.runtime, access=self.admin_access, run_id=int(run.run.id)
         )
         self.assertEqual(delayed.item.state, "publishing")
@@ -379,7 +380,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                        delivery_lease_expires_at = statement_timestamp() - interval '1 minute'
                    WHERE id = %s""", (publication.id,),
             )
-        expired = admin_application.review_detail(
+        expired = console_application.review_detail(
             self.runtime, access=self.admin_access, run_id=int(run.run.id)
         )
         self.assertEqual(expired.item.state, "stalled")
@@ -416,11 +417,11 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         policy_revision: str = "profile@1",
         resolved_config: dict[str, object] | None = None,
         purpose: ReviewPurpose = ReviewPurpose.CODE,
-    ) -> review_runs.StartedRun:
+    ) -> postgres_review_runs.StartedRun:
         selected_head = head_sha or self.head_sha
         result = support.start_postgres_review(
             self.runtime,
-            review_run_application.PostgresRunRequest(
+            review_runs.PostgresRunRequest(
                 provider="github",
                 provider_repository_id=self.provider_repository_id,
                 repository=self.repository,
@@ -440,12 +441,12 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 purpose=purpose,
             ),
         )
-        assert isinstance(result, review_runs.StartedRun)
+        assert isinstance(result, postgres_review_runs.StartedRun)
         support.register_postgres_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=tuple(
-                review_run_application.PostgresChangedFile(
+                review_runs.PostgresChangedFile(
                     path=path, change_status="modified"
                 )
                 for path in paths
@@ -457,20 +458,20 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
     def record_finding(
         self,
-        run: review_runs.StartedRun,
+        run: postgres_review_runs.StartedRun,
         *,
         findings: tuple[FindingInput, ...] | None = None,
         context_hash: str = "c" * 40,
         head_sha: str | None = None,
-    ) -> review_finding_application.PostgresFindingBatch:
+    ) -> review_findings.PostgresFindingBatch:
         selected = findings if findings is not None else (self.finding(),)
-        return review_finding_application.record_postgres_findings(
+        return review_findings.record_postgres_findings(
             self.runtime,
             run_id=run.run.id,
             head_sha=head_sha or self.head_sha,
             findings=selected,
             changed_files=tuple(
-                review_finding_application.ChangedFile(
+                review_findings.ChangedFile(
                     path=path,
                     context_hash=context_hash,
                     context_hash_source="blob",
@@ -481,8 +482,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
     def prepare_publication(
         self,
-        run: review_runs.StartedRun,
-        batch: review_finding_application.PostgresFindingBatch,
+        run: postgres_review_runs.StartedRun,
+        batch: review_findings.PostgresFindingBatch,
         *,
         key_character: str,
     ) -> publications.Publication:
@@ -493,7 +494,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ReviewPhase.RENDERING,
         ):
             with self.runtime.transaction() as connection:
-                review_runs.advance_phase(connection, run.run.id, phase)
+                postgres_review_runs.advance_phase(connection, run.run.id, phase)
         publication_key = "sha256:" + (key_character * 64)
         plan = resolve_publication_plan(
             publication_key=publication_key,
@@ -536,8 +537,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
     def publish_run(
         self,
-        run: review_runs.StartedRun,
-        batch: review_finding_application.PostgresFindingBatch,
+        run: postgres_review_runs.StartedRun,
+        batch: review_findings.PostgresFindingBatch,
         *,
         key_character: str,
     ) -> publications.Publication:
@@ -559,8 +560,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 publication_id=prepared.id,
                 posting_started_at=claim.publication.posting_started_at,
             )
-            review_runs.advance_phase(connection, run.run.id, ReviewPhase.PUBLISHING)
-            review_runs.complete_run(
+            postgres_review_runs.advance_phase(connection, run.run.id, ReviewPhase.PUBLISHING)
+            postgres_review_runs.complete_run(
                 connection, run.run.id, findings_count=len(batch.items)
             )
         return posted
@@ -568,7 +569,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_purpose_filters_keep_counts_and_selected_evidence_separate(
         self,
     ) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
         from review_agent.domain.documentation_scope import (
             ChangedPath,
             DocumentationScope,
@@ -615,18 +616,18 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 semantic_inference_used=False,
             )
 
-        all_requests = admin_application.history(self.runtime, access=self.admin_access)
+        all_requests = console_application.history(self.runtime, access=self.admin_access)
         self.assertEqual(all_requests.total, 2)
         for purpose, expected in (
             (ReviewPurpose.CODE, code),
             (ReviewPurpose.DOCUMENTATION, docs),
         ):
             with self.subTest(purpose=purpose):
-                history = admin_application.history(
+                history = console_application.history(
                     self.runtime, access=self.admin_access, purpose=purpose
                 )
                 self.assertEqual([item.id for item in history.items], [expected.run.id])
-                groups = admin_application.pull_requests(
+                groups = console_application.pull_requests(
                     self.runtime, access=self.admin_access, purpose=purpose
                 )
                 self.assertEqual(
@@ -637,7 +638,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     ),
                     (1, 1, expected.run.id),
                 )
-                overview = admin_application.overview(
+                overview = console_application.overview(
                     self.runtime, access=self.admin_access, purpose=purpose
                 )
                 self.assertEqual(overview.window.requests, 1)
@@ -645,14 +646,14 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     overview.active_requests,
                     int(purpose is ReviewPurpose.DOCUMENTATION),
                 )
-                usage = admin_application.usage(
+                usage = console_application.usage(
                     self.runtime, access=self.admin_access, purpose=purpose
                 )
                 self.assertEqual(usage.totals.requests, 1)
                 self.assertEqual(
                     usage.totals.published_requests, int(purpose is ReviewPurpose.CODE)
                 )
-                quality = admin_application.quality_report(
+                quality = console_application.quality_report(
                     self.runtime,
                     access=self.admin_access,
                     repository=None,
@@ -663,7 +664,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     quality.completed_reviews, int(purpose is ReviewPurpose.CODE)
                 )
 
-        detail = admin_application.review_detail(
+        detail = console_application.review_detail(
             self.runtime,
             access=self.admin_access,
             run_id=docs.run.id,
@@ -683,11 +684,11 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_counts_requests_separately_and_keeps_recovered_failures(
         self,
     ) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
 
         failed = self.start(pr_number=17, request_suffix="admin-failed")
         with self.runtime.transaction() as connection:
-            review_runs.fail_run(
+            postgres_review_runs.fail_run(
                 connection, failed.run.id, failure_code="review_failed"
             )
         for suffix, key in (("first", "d"), ("again", "e")):
@@ -703,7 +704,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 "UPDATE review_agent.review_runs SET started_at = started_at - interval '40 days' WHERE id = %s",
                 (active.run.id,),
             )
-        page = admin_application.repositories(
+        page = console_application.repositories(
             self.runtime, access=self.admin_access, days=7
         )
         self.assertEqual(len(page.items), 1)
@@ -713,7 +714,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             (1, 2, 1),
         )
         self.assertEqual((repo.active_requests, repo.latest_failed_prs), (1, 0))
-        history = admin_application.history(
+        history = console_application.history(
             self.runtime,
             access=self.admin_access,
             days=7,
@@ -723,10 +724,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual([item.id for item in history.items], [failed.run.id])
         self.assertTrue(history.items[0].recovered)
         self.assertFalse(history.items[0].is_latest)
-        first = admin_application.history(
+        first = console_application.history(
             self.runtime, access=self.admin_access, days=7, limit=1
         )
-        second = admin_application.history(
+        second = console_application.history(
             self.runtime,
             access=self.admin_access,
             days=7,
@@ -735,13 +736,13 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         self.assertNotEqual(first.items[0].id, second.items[0].id)
         self.assertEqual(first.items[0].coverage.state.value, "incomplete")
-        active_page = admin_application.history(
+        active_page = console_application.history(
             self.runtime, access=self.admin_access, days=7, status="active"
         )
         self.assertEqual([item.id for item in active_page.items], [active.run.id])
 
     def test_admin_totals_cover_matching_rows_beyond_the_page(self) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
 
         self.start(pr_number=81, request_suffix="totals-one")
         self.start(pr_number=82, request_suffix="totals-two")
@@ -754,17 +755,17 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     full_name="another/repository",
                 ),
             )
-        page = admin_application.repositories(
+        page = console_application.repositories(
             self.runtime, access=self.admin_access, limit=1
         )
         self.assertEqual(page.total, 2)
         self.assertEqual(page.totals.active_requests, 2)
         self.assertEqual(page.items[0].active_requests, 0)
-        beyond = admin_application.repositories(
+        beyond = console_application.repositories(
             self.runtime, access=self.admin_access, limit=1, offset=5
         )
         self.assertEqual((beyond.items, beyond.total), ((), 2))
-        filtered = admin_application.repositories(
+        filtered = console_application.repositories(
             self.runtime, access=self.admin_access, search="example-org"
         )
         self.assertEqual(filtered.total, 1)
@@ -774,10 +775,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 "UPDATE review_agent.review_runs SET started_at = %s",
                 (datetime.now(timezone.utc) - timedelta(seconds=2),),
             )
-        first = admin_application.history(
+        first = console_application.history(
             self.runtime, access=self.admin_access, limit=1
         )
-        second = admin_application.history(
+        second = console_application.history(
             self.runtime, access=self.admin_access, limit=1, before_id=first.next_cursor
         )
         self.assertEqual((first.total, second.total), (2, 2))
@@ -786,7 +787,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_groups_requests_before_pagination_and_preserves_commit_context(
         self,
     ) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
 
         first = None
         last = None
@@ -800,7 +801,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 first = run
             last = run
             with self.runtime.transaction() as connection:
-                review_runs.fail_run(
+                postgres_review_runs.fail_run(
                     connection, run.run.id, failure_code="review_failed"
                 )
         other = self.start(pr_number=92, request_suffix="group-other")
@@ -809,10 +810,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 "UPDATE review_agent.review_runs SET started_at = %s",
                 (datetime.now(timezone.utc) - timedelta(seconds=2),),
             )
-        first_page = admin_application.pull_requests(
+        first_page = console_application.pull_requests(
             self.runtime, access=self.admin_access, limit=1
         )
-        second_page = admin_application.pull_requests(
+        second_page = console_application.pull_requests(
             self.runtime,
             access=self.admin_access,
             limit=1,
@@ -826,11 +827,11 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(group.latest.id, last.run.id)
         self.assertEqual(group.latest.previous_head_sha, "a" * 40)
         self.assertEqual(group.latest.head_sha, "b" * 40)
-        filtered = admin_application.pull_requests(
+        filtered = console_application.pull_requests(
             self.runtime, access=self.admin_access, status="failed"
         )
         self.assertEqual((filtered.total, filtered.items[0].matching_requests), (1, 20))
-        older = admin_application.history(
+        older = console_application.history(
             self.runtime,
             access=self.admin_access,
             repository=self.repository,
@@ -839,7 +840,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             limit=1,
         )
         self.assertEqual(older.items[0].previous_head_sha, older.items[0].head_sha)
-        empty = admin_application.pull_requests(
+        empty = console_application.pull_requests(
             self.runtime, access=self.admin_access, before_id=1
         )
         self.assertEqual((empty.items, empty.total), ((), 2))
@@ -847,9 +848,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_usage_and_publication_time_are_independent_of_request_time(
         self,
     ) -> None:
-        from review_agent.admin import application as admin_application
-        from review_agent.postgres import admin_operations, jobs
-        from review_agent.worker_telemetry import TokenUsage, record_usage
+        from review_agent.console import application as console_application
+        from review_agent.postgres import jobs, operations as postgres_operations
+        from review_agent.postgres.telemetry import TokenUsage, record_usage
 
         run = self.start(pr_number=84, request_suffix="usage-window")
         with self.runtime.transaction() as connection:
@@ -887,10 +888,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         # Bound the report after the recorded event, independent of host/DB clock skew.
         now = posted_at + timedelta(seconds=1)
         with self.runtime.transaction() as connection:
-            report = admin_operations.overview(
+            report = postgres_operations.overview(
                 connection, start=posted_at, end=now, now=now
             )
-            excluded = admin_operations.overview(
+            excluded = postgres_operations.overview(
                 connection, start=run.run.started_at, end=posted_at, now=now
             )
         self.assertEqual(
@@ -914,7 +915,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             (15, 1, 1),
         )
         self.assertIsNotNone(report.window.median_publication_seconds)
-        history = admin_application.history(
+        history = console_application.history(
             self.runtime,
             access=self.admin_access,
             start=now - timedelta(days=30),
@@ -927,13 +928,13 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
             (1, 15),
         )
-        after_request = admin_application.history(
+        after_request = console_application.history(
             self.runtime, access=self.admin_access, start=posted_at, end=now
         )
         self.assertEqual((after_request.items, after_request.total), ((), 0))
         unknown = self.start(pr_number=85, request_suffix="usage-unknown")
         self.assertIsNone(
-            admin_application.history(
+            console_application.history(
                 self.runtime,
                 access=self.admin_access,
                 start=now - timedelta(days=30),
@@ -947,7 +948,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_usage_attributes_requests_and_all_reported_attempts_without_fanout(
         self,
     ) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
         from review_agent.postgres import jobs
         from review_agent.postgres.team_access import AccessRequest
 
@@ -958,7 +959,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.provider_repository_id = 931
         bob = self.start(pr_number=180, request_suffix="usage-bob")
         unknown = self.start(pr_number=181, request_suffix="usage-unknown-user")
-        team = admin_application.create_team(
+        team = console_application.create_team(
             self.runtime,
             access=self.admin_access,
             name="Platform",
@@ -1000,7 +1001,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                         "(job_id, lease_generation, prompt_tokens, completion_tokens, total_tokens) VALUES (%s, %s, %s, %s, %s)",
                         (job.id, generation, prompt, completion, prompt + completion),
                     )
-            review_runs.fail_run(
+            postgres_review_runs.fail_run(
                 connection, failed.run.id, failure_code="review_failed"
             )
         self.publish_run(
@@ -1010,7 +1011,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         end = datetime(2026, 9, 3, tzinfo=timezone.utc)
         # Usage arrives after this request period. It still belongs to these requests.
         for dimension, groups in (("team", 2), ("repository", 2), ("requester", 3)):
-            report = admin_application.usage(
+            report = console_application.usage(
                 self.runtime,
                 access=self.admin_access,
                 start=start,
@@ -1047,7 +1048,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             )
             self.assertEqual(sum(item.requests for item in report.items), 4)
             self.assertEqual(sum(item.total_tokens or 0 for item in report.items), 240)
-        ranked = admin_application.usage(
+        ranked = console_application.usage(
             self.runtime,
             access=self.admin_access,
             start=start,
@@ -1065,7 +1066,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
             ("bob", 1, 4, True),
         )
-        last = admin_application.usage(
+        last = console_application.usage(
             self.runtime,
             access=self.admin_access,
             start=start,
@@ -1078,7 +1079,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertIsNone(last.items[0].requester)
         self.assertIsNone(last.items[0].total_tokens)
         self.assertFalse(last.has_more)
-        scoped = admin_application.usage(
+        scoped = console_application.usage(
             self.runtime,
             access=AccessRequest(self.admin_access.user_id, team.id),
             start=start,
@@ -1088,7 +1089,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(
             [(item.requester, item.requests) for item in scoped.items], [("alice", 2)]
         )
-        filtered = admin_application.usage(
+        filtered = console_application.usage(
             self.runtime,
             access=self.admin_access,
             start=start,
@@ -1107,7 +1108,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         # One person's follow-up: every grouping narrows to what they asked for,
         # whatever case the login was recorded in.
-        by_requester = admin_application.usage(
+        by_requester = console_application.usage(
             self.runtime,
             access=self.admin_access,
             start=start,
@@ -1123,7 +1124,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
             (1, 2, 1),
         )
-        unknown_requester = admin_application.usage(
+        unknown_requester = console_application.usage(
             self.runtime,
             access=self.admin_access,
             start=start,
@@ -1134,7 +1135,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(
             (unknown_requester.totals.requests, unknown_requester.items), (0, ())
         )
-        beyond = admin_application.usage(
+        beyond = console_application.usage(
             self.runtime,
             access=self.admin_access,
             start=start,
@@ -1152,7 +1153,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 "SELECT id, %s, %s FROM review_agent.repositories WHERE full_name = %s",
                 (team.id, self.admin_access.user_id, self.repository),
             )
-        transferred = admin_application.usage(
+        transferred = console_application.usage(
             self.runtime,
             access=AccessRequest(self.admin_access.user_id, team.id),
             start=start,
@@ -1166,12 +1167,12 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_usage_bounds_request_time_and_rechecks_application_authorization(
         self,
     ) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
         from review_agent.postgres.team_access import AccessDenied
 
         run = self.start(pr_number=183, request_suffix="usage-date-boundary")
         start = run.run.started_at
-        included = admin_application.usage(
+        included = console_application.usage(
             self.runtime,
             access=self.admin_access,
             start=start,
@@ -1181,14 +1182,14 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(
             included.totals.requests, 0
         )  # Search is literal, not a SQL pattern.
-        included = admin_application.usage(
+        included = console_application.usage(
             self.runtime,
             access=self.admin_access,
             start=start,
             end=start + timedelta(days=1),
         )
         self.assertEqual(included.totals.requests, 1)
-        excluded = admin_application.usage(
+        excluded = console_application.usage(
             self.runtime,
             access=self.admin_access,
             start=start - timedelta(days=1),
@@ -1202,12 +1203,12 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 (self.admin_access.user_id,),
             )
         with self.assertRaises(AccessDenied):
-            admin_application.usage(self.runtime, access=self.admin_access)
+            console_application.usage(self.runtime, access=self.admin_access)
 
     def test_admin_reader_returns_exact_published_snapshot_and_excludes_drafts(
         self,
     ) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
 
         first = self.start(pr_number=94, request_suffix="reader-published")
         published = self.publish_run(
@@ -1238,7 +1239,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 external_id=12345,
                 posting_started_at=claim.publication.posting_started_at,
             )
-        detail = admin_application.review_detail(
+        detail = console_application.review_detail(
             self.runtime, access=self.admin_access, run_id=int(first.run.id)
         )
         assert detail is not None
@@ -1254,14 +1255,14 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         self.assertFalse(detail.item.is_latest)
         self.assertNotIn(other.run.id, [item.id for item in detail.requests])
-        pending = admin_application.review_detail(
+        pending = console_application.review_detail(
             self.runtime, access=self.admin_access, run_id=int(second.run.id)
         )
         assert pending is not None
         self.assertIsNone(pending.markdown)
         self.assertEqual(pending.publication_links, ())
         self.assertIsNone(
-            admin_application.review_detail(
+            console_application.review_detail(
                 self.runtime, access=self.admin_access, run_id=999999
             )
         )
@@ -1271,7 +1272,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 publication_id=draft.id,
                 posting_started_at=claim.publication.posting_started_at,
             )
-        historical = admin_application.review_detail(
+        historical = console_application.review_detail(
             self.runtime, access=self.admin_access, run_id=int(first.run.id)
         )
         assert historical is not None
@@ -1284,7 +1285,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 "UPDATE review_agent.publications SET rendered_markdown = repeat('x', 200001) WHERE id = %s",
                 (published.id,),
             )
-        bounded = admin_application.review_detail(
+        bounded = console_application.review_detail(
             self.runtime, access=self.admin_access, run_id=int(first.run.id)
         )
         assert bounded is not None and bounded.markdown is not None
@@ -1292,25 +1293,25 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertTrue(bounded.content_truncated)
 
     def test_admin_reader_pages_pr_history_without_losing_selected_review(self) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
 
-        runs: list[review_runs.StartedRun] = []
+        runs: list[postgres_review_runs.StartedRun] = []
         for index in range(22):
             run = self.start(pr_number=96, request_suffix=f"reader-page-{index}")
             runs.append(run)
             with self.runtime.transaction() as connection:
-                review_runs.fail_run(
+                postgres_review_runs.fail_run(
                     connection, run.run.id, failure_code="review_failed"
                 )
         self.start(pr_number=97, request_suffix="reader-page-other")
         selected = int(runs[0].run.id)
-        first = admin_application.review_detail(
+        first = console_application.review_detail(
             self.runtime, access=self.admin_access, run_id=selected
         )
         assert first is not None
         self.assertEqual(len(first.requests), 20)
         self.assertEqual(first.item.id, selected)
-        second = admin_application.review_detail(
+        second = console_application.review_detail(
             self.runtime,
             access=self.admin_access,
             run_id=selected,
@@ -1328,8 +1329,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
     def test_worker_presence_expires_and_events_remain_bounded(self) -> None:
         import threading
-        from review_agent.postgres import admin_operations, jobs
-        from review_agent.worker_telemetry import WorkerTelemetry
+        from review_agent.postgres import jobs, operations as postgres_operations
+        from review_agent.postgres.telemetry import WorkerTelemetry
 
         run = self.start(pr_number=86, request_suffix="worker-presence")
         with self.runtime.transaction() as connection:
@@ -1357,7 +1358,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         ) as telemetry:
             telemetry.event("review_started", run_id=run.run.id, job_id=job.id)
             with self.runtime.transaction() as connection:
-                current = admin_operations.operations(
+                current = postgres_operations.operations(
                     connection, now=datetime.now(timezone.utc)
                 )
                 self.assertEqual(
@@ -1376,7 +1377,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     "UPDATE review_agent.worker_instances SET last_seen_at = statement_timestamp() - interval '91 seconds' WHERE id = %s",
                     (telemetry.id,),
                 )
-                stale = admin_operations.operations(
+                stale = postgres_operations.operations(
                     connection, now=datetime.now(timezone.utc)
                 )
                 self.assertEqual(stale.workers[0].state, "unresponsive")
@@ -1395,14 +1396,14 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     (telemetry.id,),
                 ).fetchone()
                 self.assertEqual(count, (1000,))
-                page = admin_operations.events(
+                page = postgres_operations.events(
                     connection, worker_id=telemetry.id, before_id=None, limit=1
                 )
                 self.assertEqual(page.items[0].event, "review_returned")
                 self.assertIsNotNone(page.next_cursor)
             telemetry.refresh("draining")
         with self.runtime.transaction() as connection:
-            final = admin_operations.operations(
+            final = postgres_operations.operations(
                 connection, now=datetime.now(timezone.utc)
             )
         self.assertEqual(final.workers[0].state, "stopped")
@@ -1428,9 +1429,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 ),
             ),
         )
-        decision_application.decide_finding(
+        review_decisions.decide_finding(
             self.runtime,
-            decision_application.OperatorDecisionRequest(
+            review_decisions.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=prior_batch.items[0].fingerprint,
                 decision="false_positive",
@@ -1461,9 +1462,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             findings=unrelated,
         )
 
-        context = review_finding_application.load_live_context(
+        context = review_findings.load_live_context(
             self.runtime,
-            review_finding_application.FindingContextQuery(
+            review_findings.FindingContextQuery(
                 repository=self.repository,
                 paths=("src/flags.py",),
                 pr_number=60,
@@ -1483,9 +1484,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             [prior_batch.items[1].fingerprint],
         )
 
-        repository_context = review_finding_application.load_live_context(
+        repository_context = review_findings.load_live_context(
             self.runtime,
-            review_finding_application.FindingContextQuery(
+            review_findings.FindingContextQuery(
                 repository=self.repository,
                 paths=(),
             ),
@@ -1526,9 +1527,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             findings=suppressed_findings,
         )
         for item in suppressed.items:
-            decision_application.decide_finding(
+            review_decisions.decide_finding(
                 self.runtime,
-                decision_application.OperatorDecisionRequest(
+                review_decisions.OperatorDecisionRequest(
                     repository=self.repository,
                     fingerprint=item.fingerprint,
                     decision="false_positive",
@@ -1540,7 +1541,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
             )
 
-        listed = operator_application.list_findings(
+        listed = inspection.list_findings(
             self.runtime,
             repository=self.repository,
             limit=2,
@@ -1558,9 +1559,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         batch = self.record_finding(run)
         fingerprint = batch.items[0].fingerprint
 
-        decision = decision_application.decide_finding(
+        decision = review_decisions.decide_finding(
             self.runtime,
-            decision_application.OperatorDecisionRequest(
+            review_decisions.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=fingerprint[:12],
                 decision="false_positive",
@@ -1573,7 +1574,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         self.assertEqual(decision.fingerprint, fingerprint)
 
-        listed = operator_application.list_findings(
+        listed = inspection.list_findings(
             self.runtime,
             repository=self.repository,
             limit=20,
@@ -1584,7 +1585,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertTrue(listed[0].suppressed)
         self.assertEqual(listed[0].latest_decision, decision.decision)
 
-        shown = decision_application.show_finding(
+        shown = review_decisions.show_finding(
             self.runtime,
             repository=self.repository,
             fingerprint=fingerprint[:12],
@@ -1593,7 +1594,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(shown.finding.fingerprint, fingerprint)
         self.assertEqual(tuple(item.id for item in shown.decisions), (decision.id,))
 
-        stats = operator_application.finding_stats(
+        stats = inspection.finding_stats(
             self.runtime,
             repository=self.repository,
             expiring_within_days=60,
@@ -1603,7 +1604,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(stats.active_suppressions, 1)
         self.assertEqual(stats.active_suppressions_nearing_expiry, 1)
 
-        exported = operator_application.export_repository(
+        exported = inspection.export_repository(
             self.runtime,
             repository=self.repository,
             row_limit=1,
@@ -1630,8 +1631,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
                 )
 
-        with self.assertRaises(operator_input.OperatorInputError):
-            operator_application.export_repository(
+        with self.assertRaises(input_checks.OperatorInputError):
+            inspection.export_repository(
                 self.runtime,
                 repository=self.repository,
                 row_limit=0,
@@ -1657,10 +1658,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 ReviewPhase.RENDERING,
                 ReviewPhase.PUBLISHING,
             ):
-                review_runs.advance_phase(connection, completed.run.id, phase)
-            review_runs.complete_run(connection, completed.run.id, findings_count=2)
+                postgres_review_runs.advance_phase(connection, completed.run.id, phase)
+            postgres_review_runs.complete_run(connection, completed.run.id, findings_count=2)
 
-        result = operator_application.mark_stalled_runs(
+        result = inspection.mark_stalled_runs(
             self.runtime,
             repository=self.repository,
             pr_number=41,
@@ -1670,14 +1671,14 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(result.failed_count, 1)
         self.assertEqual(result.runs[0].failure_code, "stale_timeout")
 
-        listed = operator_application.list_runs(
+        listed = inspection.list_runs(
             self.runtime,
             repository=self.repository,
             limit=20,
         )
         self.assertEqual({item.status for item in listed}, {"completed", "failed"})
 
-        stats = operator_application.run_stats(
+        stats = inspection.run_stats(
             self.runtime,
             repository=self.repository,
             days=30,
@@ -1694,25 +1695,25 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             {item.value: item.count for item in stats.by_failure_code},
             {"stale_timeout": 1},
         )
-        coverage = operator_application.coverage(self.runtime, run_id=int(stale.run.id))
+        coverage = inspection.coverage(self.runtime, run_id=int(stale.run.id))
         self.assertEqual(coverage.changed_files_registered, 1)
         self.assertTrue(coverage.coverage_hash.startswith("sha256:"))
 
     def test_failure_status_delivery_exhaustion_is_visible_to_operator(self) -> None:
         started = self.start(pr_number=43, request_suffix="4301")
         with self.runtime.transaction() as connection:
-            review_runs.fail_run(
+            postgres_review_runs.fail_run(
                 connection, started.run.id, failure_code="review_deliver_error"
             )
         for attempt in range(3):
             with self.runtime.transaction() as connection:
-                claim = review_runs.claim_failure_status(
+                claim = postgres_review_runs.claim_failure_status(
                     connection,
                     run_id=started.run.id,
                     lease_owner=f"failed-publisher-{attempt}",
                     lease_duration=timedelta(minutes=1),
                 )
-                review_runs.retry_failure_status(
+                postgres_review_runs.retry_failure_status(
                     connection,
                     run_id=started.run.id,
                     lease_owner=f"failed-publisher-{attempt}",
@@ -1721,7 +1722,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     retry_delay=timedelta(0),
                 )
 
-        listed = operator_application.list_runs(
+        listed = inspection.list_runs(
             self.runtime, repository=self.repository, limit=10, failed_only=True
         )
 
@@ -1734,7 +1735,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
 
         with self.runtime.transaction() as connection:
-            recovered = review_runs.claim_failure_status(
+            recovered = postgres_review_runs.claim_failure_status(
                 connection,
                 run_id=started.run.id,
                 lease_owner="operator-recovery",
@@ -1747,14 +1748,14 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         first = self.start(pr_number=46, request_suffix="4251")
         first_batch = self.record_finding(first)
         with self.runtime.transaction() as connection:
-            review_runs.fail_run(connection, first.run.id, failure_code="test_terminal")
+            postgres_review_runs.fail_run(connection, first.run.id, failure_code="test_terminal")
         second = self.start(pr_number=47, request_suffix="4252")
         second_batch = self.record_finding(second)
         fingerprint = first_batch.items[0].fingerprint
 
-        latest = decision_application.decide_finding(
+        latest = review_decisions.decide_finding(
             self.runtime,
-            decision_application.OperatorDecisionRequest(
+            review_decisions.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=fingerprint,
                 decision="resolved",
@@ -1766,9 +1767,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         self.assertEqual(latest.occurrence_id, second_batch.items[0].occurrence_id)
 
-        local = decision_application.decide_finding(
+        local = review_decisions.decide_finding(
             self.runtime,
-            decision_application.OperatorDecisionRequest(
+            review_decisions.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=fingerprint,
                 decision="reopen",
@@ -1782,10 +1783,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(local.occurrence_id, first_batch.items[0].occurrence_id)
         self.assertNotEqual(local.occurrence_id, latest.occurrence_id)
 
-        with self.assertRaises(operator_input.OperatorInputError):
-            decision_application.decide_finding(
+        with self.assertRaises(input_checks.OperatorInputError):
+            review_decisions.decide_finding(
                 self.runtime,
-                decision_application.OperatorDecisionRequest(
+                review_decisions.OperatorDecisionRequest(
                     repository=self.repository,
                     fingerprint=fingerprint,
                     decision="resolved",
@@ -1810,7 +1811,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 ),
             ),
         )
-        exported = operator_application.export_repository(
+        exported = inspection.export_repository(
             self.runtime,
             repository=self.repository,
             row_limit=1,
@@ -1828,7 +1829,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.register_repository()
         now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
 
-        report = operator_application.quality_report(
+        report = inspection.quality_report(
             self.runtime,
             repository=self.repository,
             days=30,
@@ -1851,7 +1852,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertIsNone(report.oldest_triage_backlog_seconds)
         self.assertEqual(report.cohorts, ())
         with self.assertRaises(reporting.RepositoryNotFound):
-            operator_application.quality_report(
+            inspection.quality_report(
                 self.runtime,
                 repository="example-org/not-registered",
                 days=30,
@@ -1964,9 +1965,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             unavailable_reason="patch_unavailable",
         )
         first_publication = self.publish_run(first, first_batch, key_character="5")
-        decision_application.decide_finding(
+        review_decisions.decide_finding(
             self.runtime,
-            decision_application.OperatorDecisionRequest(
+            review_decisions.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=first_batch.items[0].fingerprint,
                 decision="false_positive",
@@ -2014,9 +2015,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             state=DiffState.COMPLETE,
         )
         second_publication = self.publish_run(second, second_batch, key_character="6")
-        decision_application.decide_finding(
+        review_decisions.decide_finding(
             self.runtime,
-            decision_application.OperatorDecisionRequest(
+            review_decisions.OperatorDecisionRequest(
                 repository=self.repository,
                 fingerprint=second_batch.items[1].fingerprint,
                 decision="false_positive",
@@ -2073,7 +2074,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ).fetchall()
         self.assertGreater(scope_feedback_id, 0)
         actionable_feedback_id = int(missed_rows[1][0])
-        decision_application.triage_review_feedback(
+        review_decisions.triage_review_feedback(
             self.runtime,
             feedback_id=actionable_feedback_id,
             status="actionable",
@@ -2087,7 +2088,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             now=now - timedelta(hours=2),
         )
 
-        report = operator_application.quality_report(
+        report = inspection.quality_report(
             self.runtime,
             repository=self.repository,
             days=30,
@@ -2137,7 +2138,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertTrue(
             all(item.model_provider == "openai-codex" for item in report.cohorts)
         )
-        markdown = quality_reporting.render_markdown(report)
+        markdown = quality_report.render_markdown(report)
         self.assertIn("3 published findings", markdown)
         self.assertIn("profile@2", markdown)
         self.assertIn("Current governed state", markdown)
@@ -2146,7 +2147,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         run = self.start(pr_number=61, request_suffix="4401")
         self.publish_run(run, self.record_finding(run), key_character="d")
 
-        listed = operator_application.list_publications(
+        listed = inspection.list_publications(
             self.runtime,
             repository=self.repository,
             pr_number=61,

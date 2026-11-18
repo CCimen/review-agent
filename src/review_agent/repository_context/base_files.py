@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import re
 from typing import Literal, Protocol
 
-from .. import capacity, schemas
+from .. import capacity
 
 
 _NUMBERED_LINE_RE = re.compile(r"^[0-9]+: ?(.*)$")
@@ -99,7 +99,7 @@ def read_base_file(
             path=path,
             side="base",
             start_line=start_line,
-            max_lines=min(schemas.SOURCE_PAGE_MAX_LINES, max_lines - start_line + 1),
+            max_lines=min(capacity.SOURCE_PAGE_MAX_LINES, max_lines - start_line + 1),
             max_chars=max(
                 capacity.MIN_TEXT_PAGE_CHARS,
                 min(max_chars, capacity.DEFAULT_RESULT_MAX_CHARS),

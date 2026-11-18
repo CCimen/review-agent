@@ -276,7 +276,7 @@ class DocumentationPolicyAPITests(unittest.TestCase):
         from concurrent.futures import ThreadPoolExecutor, TimeoutError
         from threading import Event
         from uuid import UUID
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
         from review_agent.postgres import repository_requests, team_access
         from review_agent.postgres.runtime import PostgreSQLRuntime
         from review_agent.settings import PostgresDatabaseUrl
@@ -302,7 +302,7 @@ class DocumentationPolicyAPITests(unittest.TestCase):
 
         def save():
             entered.set()
-            return admin_application.save_repository_documentation_policy(
+            return console_application.save_repository_documentation_policy(
                 runtime,
                 access=team_access.AccessRequest(UUID(user["id"])),
                 repository_id=repository_id,
@@ -397,7 +397,7 @@ class DocumentationPolicyMigrationTests(unittest.TestCase):
     def test_existing_team_and_repository_upgrade_to_manual_inheritance(self) -> None:
         from pathlib import Path
         from tempfile import TemporaryDirectory
-        from review_agent.postgres_migrations import runner
+        from review_agent.postgres.migrations import runner
 
         with TemporaryDirectory() as directory:
             old = Path(directory)

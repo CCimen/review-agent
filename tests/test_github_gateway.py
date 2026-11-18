@@ -64,11 +64,11 @@ from review_agent.code_graph.contract import (  # noqa: E402
     GraphIdentity,
     GraphPolicy,
 )
-from review_agent.source_control import (  # noqa: E402
+from review_agent.github.client import (  # noqa: E402
     GitHubReadError,
     PullSnapshot,
-    SameOriginHttpsRedirectHandler,
 )
+from review_agent.https import SameOriginHttpsRedirectHandler  # noqa: E402
 
 
 class _Response:

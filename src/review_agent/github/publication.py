@@ -13,11 +13,8 @@ from datetime import datetime
 from typing import Literal, Protocol, cast
 
 from ..domain.publication import CHECK_OUTPUT_MAX_BYTES, CheckConclusion, CheckRunDelivery
-from ..source_control import (
-    SameOriginHttpsRedirectHandler,
-    is_github_rate_limit_error,
-    github_retry_at,
-)
+from ..https import SameOriginHttpsRedirectHandler
+from .client import is_github_rate_limit_error, github_retry_at
 
 _API_ROOT = "https://api.github.com"
 _DEFAULT_MAX_ATTEMPTS = 3

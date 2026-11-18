@@ -521,8 +521,9 @@ kubectl exec deployment/hermes-review -- review-agent-admin doctor
 ### Upgrade notes
 
 **After 0.4.14: the Python package is `review_agent`.** Its source moved from
-`bootstrap/plugins/review_agent_tools/` to `src/review_agent/` and its import
-name changed with it. Installed command names (`review-agent-*` and
+`bootstrap/plugins/review_agent_tools/` to `src/review_agent/`, its import
+name changed with it, and its modules were regrouped into packages by what they
+do. Installed command names (`review-agent-*` and
 `/opt/review-agent-bootstrap/install.sh`), HTTP routes, tables, environment
 variables and reviewer tool names are unchanged. So are the Hermes plugin name
 `review-agent-tools` and its directory `plugins/review_agent_tools` in the
@@ -533,9 +534,9 @@ the module `review_agent_tools` no longer exists:
 
 | Where | 0.4.14 | Now |
 | --- | --- | --- |
-| `review-provider-control` entrypoint in `compose.providers.yaml` | `python -m review_agent_tools.provider_gateway` | `python -m review_agent.provider_gateway` |
-| Console image command | `uvicorn review_agent_tools.admin.api:app_from_environment` | `uvicorn review_agent.admin.api:app_from_environment` |
-| First platform owner, run in the console container | `python -m review_agent_tools.admin_auth` | `python -m review_agent.admin_auth` |
+| `review-provider-control` entrypoint in `compose.providers.yaml` | `python -m review_agent_tools.provider_gateway` | `python -m review_agent.hermes.provider_gateway` |
+| Console image command | `uvicorn review_agent_tools.admin.api:app_from_environment` | `uvicorn review_agent.console.app:app_from_environment` |
+| First platform owner, run in the console container | `python -m review_agent_tools.admin_auth` | `python -m review_agent.console.auth` |
 
 Use this release's `compose.providers.yaml`; its `PYTHONPATH` is unchanged. The
 console image starts the new command itself, so only a deployment that
@@ -543,11 +544,19 @@ overrides the image command must change it. The 0.4.14 `compose.yaml`,
 `compose.admin.yaml` and `compose.code-graph.yaml` work unchanged with these
 images.
 
-Logger names follow the module path. In every service except `hermes-review`,
-`review_agent_tools.<module>` is now `review_agent.<module>`: for example,
+Logger names follow the module path. In every service except `hermes-review`
+the prefix `review_agent_tools.` is now `review_agent.`: for example,
 `review_agent_tools.worker` became `review_agent.worker`. Inside `hermes-review`
-the plugin's loggers keep the name `hermes_plugins.review_agent_tools.<module>`,
-including the two named under [Review limits](OPERATIONS.md#review-limits).
+the plugin's loggers keep the prefix `hermes_plugins.review_agent_tools.`. The
+rest of a name changed where its module moved, so a log filter on a module
+needs that module's new path; [CONTRIBUTING.md](https://github.com/CCimen/review-agent/blob/main/CONTRIBUTING.md#where-the-code-lives)
+lists the packages. The two loggers named under
+[Review limits](OPERATIONS.md#review-limits):
+
+| Logger | 0.4.14 | Now |
+| --- | --- | --- |
+| Diff cache | `hermes_plugins.review_agent_tools.review.diff_cache` | unchanged |
+| Java guidance | `hermes_plugins.review_agent_tools.review.source_tools` | `hermes_plugins.review_agent_tools.tools.source` |
 
 In the console's OpenAPI document, the component schema
 `review_agent_tools__admin__access_api__RepositoryAccess` is now

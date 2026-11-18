@@ -16,10 +16,10 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from review_agent.review import contract as review_contract  # noqa: E402
-from review_agent.admin.settings_api import create_router  # noqa: E402
+from review_agent.console.api.settings import create_router  # noqa: E402
 from review_agent.deployment_settings import DeploymentSettings  # noqa: E402
 from review_agent.postgres import deployment_settings as store  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 
@@ -135,7 +135,7 @@ class DeploymentSettingsTests(unittest.TestCase):
 
     def test_admin_transport_rejects_viewers_and_returns_conflicts(self) -> None:
         from review_agent.postgres.team_access import AccessRequest
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
 
         class Auth:
             def current_scope(self) -> AccessRequest:
@@ -155,7 +155,7 @@ class DeploymentSettingsTests(unittest.TestCase):
             "expected_revision": 0,
             "reason": "adjust capacity",
         }
-        with patch.object(admin_application, "save_deployment_settings", side_effect=store.SettingsConflict("Reload")):
+        with patch.object(console_application, "save_deployment_settings", side_effect=store.SettingsConflict("Reload")):
             self.assertEqual(client.put("/api/settings", json=body).status_code, 409)
 
         def denied() -> None:

@@ -8,13 +8,13 @@ import unittest
 from uuid import uuid4
 
 from tests import test_postgres_jobs
-from review_agent import failure_codes
+from review_agent.domain import failure_codes
 from review_agent.review import (
     contract as review_contract,
-    run_application as review_run_application,
+    runs as review_runs,
 )
 from review_agent.domain.review import resolve_review_subject
-from review_agent.model_runtime.quota import QuotaCheck
+from review_agent.hermes.quota import QuotaCheck
 from review_agent.postgres import jobs, registry
 
 
@@ -153,7 +153,7 @@ class ModelCapacityTests(unittest.TestCase):
             )
         with self.runtime.transaction() as connection:
             jobs.recover_expired_leases(connection, limit=10)
-            review_run_application.fail_run_in_transaction(
+            review_runs.fail_run_in_transaction(
                 connection,
                 first.review_run_id,
                 failure_code=failure_codes.REVIEW_FAILED,

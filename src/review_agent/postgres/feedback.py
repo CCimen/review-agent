@@ -13,7 +13,7 @@ from ..domain.feedback import FeedbackStatus
 from ..domain.finding import FindingId, FindingOccurrenceId
 from ..domain.publication import PublicationId
 from ..domain.review import PullRequestId, ReviewPurpose, ReviewRunId
-from ..feedback_commands import ReviewQualityFeedbackCommand
+from ..domain.feedback_commands import ReviewQualityFeedbackCommand
 
 
 class FeedbackStoreError(ValueError):

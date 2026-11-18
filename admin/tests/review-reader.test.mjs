@@ -1048,7 +1048,7 @@ test("activity keeps request metadata and does not report unpublished findings",
             posted_at: null,
             findings_count: 99,
             max_attempts: null,
-            failure_code: "provider_error",
+            failure_code: "job_retry_exhausted",
             recovered: true,
           },
         ],
@@ -1074,7 +1074,7 @@ test("activity keeps request metadata and does not report unpublished findings",
   assert.match(html, />Failed<\/span>/);
   assert.match(html, />7<\/td>/);
   assert.doesNotMatch(html, />99<\/td>/);
-  assert.match(html, /The model provider returned an error/);
+  assert.match(html, /The review worker used all its retry attempts/);
   assert.match(html, /Recovered: a later review published/);
   assert.match(html, /12,345 tokens/);
   assert.match(html, /Older requests/);

@@ -548,13 +548,22 @@ Durable history is kept unless this table says otherwise:
 | `schema_migrations` | Release operator | Permanent checksum ledger; never edit or prune. |
 | `github_app_installations`, `github_app_repository_access`, `github_app_installation_events`, `github_app_repository_access_events` | Platform operator | Preserve current authorization and its audit history. |
 | `github_webhook_deliveries` | Platform operator | Preserve active deliveries. Old terminal `accepted`, `ignored`, `rejected` and `failed` receipts may be pruned only with the bounded command below. |
-| `repositories`, `pull_requests`, `review_subjects`, `review_runs`, `review_jobs`, `review_run_files`, `review_file_reads`, `review_decision_snapshots` | Repository owner | Preserve review identity, coverage, lifecycle and decision context. |
+| `repositories`, `pull_requests`, `review_subjects`, `review_runs`, `review_jobs`, `review_parts`, `review_run_files`, `review_file_reads`, `review_decision_snapshots`, `review_guidance_snapshots` | Repository owner | Preserve review identity, coverage, lifecycle, and the guidance and decision context each run used. |
+| `model_executions`, `review_attempt_usage`, `review_attempt_failures` | Platform operator | Preserve each attempt's model account, token usage and failure cause; usage reports and run diagnostics read them. |
+| `review_dispatch_turns` | Platform operator | Scheduling state: one row per team with its last claim time. Not history. |
+| `worker_instances`, `worker_events` | Platform operator | Liveness only. Workers delete instances not seen for seven days and keep the newest 1,000 events per worker. |
 | `documentation_reviews`, `documentation_admissions` | Repository owner | Preserve exact scope, evidence, results and admission provenance with review history. |
 | `repository_documentation_configuration` | Repository maintainer | Keep the latest configuration inspection; a later Refresh replaces it. Display state, not review authority. |
-| `finding_identities`, `finding_occurrences`, `finding_suggestions`, `finding_decisions`, `intentional_design_evidence`, `decision_audit`, `pull_request_finding_references` | Repository owner | Preserve finding history and human decisions. |
+| `finding_identities`, `finding_occurrences`, `finding_suggestions`, `finding_decisions`, `intentional_design_evidence`, `decision_audit`, `pull_request_finding_references`, `pull_request_finding_groups`, `finding_group_changes` | Repository owner | Preserve finding history, grouping and human decisions. |
 | `publications`, `publication_parts`, `publication_findings` | Repository owner | Preserve exact publication and recovery evidence. |
 | `admin_users`, `admin_sessions` | Deployment owner | Preserve console accounts and revocable sessions; treat backups as credential-bearing data. |
-| `teams`, `team_members`, `team_repositories`, `repository_requests` | Deployment owner | Preserve team access, repository ownership and request decisions. |
+| `admin_registration_policy`, `admin_email_settings` | Deployment owner | Preserve the registration policy and email delivery settings. The SMTP password is stored encrypted with `REVIEW_AGENT_EMAIL_SECRET_KEY`. |
+| `admin_registration_requests`, `admin_oidc_requests` | Deployment owner | Short-lived: pending registrations and sign-in requests hold only token digests and are deleted on use or expiry. |
+| `teams`, `team_members`, `team_repositories`, `repository_requests`, `repository_review_requesters` | Deployment owner | Preserve team access, repository ownership, request decisions and requester grants. A removed requester grant is deleted. |
+| `model_connections`, `model_accounts`, `team_model_policies`, `model_login_sessions` | Deployment owner | Preserve model connection registrations, the account bound to each, team routing and the record of console sign-in attempts. Provider credentials are not stored here; they live on the Hermes volume. |
+| `integrations`, `integration_teams` | Deployment owner | Preserve application integrations and their team scope, including revoked ones. Only a digest of each credential is stored. |
+| `deployment_settings`, `service_settings_loads` | Deployment owner | Preserve every saved settings revision. `service_settings_loads` gains one row per service start and is not pruned. |
+| `admin_run_actions` | Deployment owner | Preserve who retried, cancelled or marked a run stalled, and why. |
 | `admin_audit_events` | Deployment owner | Preserve access changes and human audit evidence. Successful application read receipts can be pruned only with the bounded integration command below. |
 | `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage and idempotency receipts. |
 | `coach_runs`, `coach_candidates`, `coach_intervention_outcomes`, `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | Quality owner | Preserve private coaching and verification evidence; unavailable to the live reviewer. |

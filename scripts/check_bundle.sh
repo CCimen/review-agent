@@ -2,12 +2,12 @@
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
-python3 -m compileall -q "$ROOT/src" "$ROOT/bootstrap" "$ROOT/scripts" "$ROOT/tests"
+python3 -m compileall -q "$ROOT/src" "$ROOT/hermes" "$ROOT/scripts" "$ROOT/tests"
 if ! command -v ruff >/dev/null 2>&1; then
   printf '%s\n' "ruff is required for bundle checks. Install requirements/requirements-dev.txt and rerun." >&2
   exit 1
 fi
-ruff check "$ROOT/src" "$ROOT/bootstrap" "$ROOT/scripts" "$ROOT/tests"
+ruff check "$ROOT/src" "$ROOT/hermes" "$ROOT/scripts" "$ROOT/tests"
 if ! command -v pyright >/dev/null 2>&1; then
   printf '%s\n' "pyright is required for bundle checks. Install pyright and rerun." >&2
   exit 1
@@ -25,7 +25,7 @@ import yaml
 root = Path(sys.argv[1])
 for relative in [
     "compose.yaml",
-    "bootstrap/config.yaml",
+    "hermes/config.yaml",
     "src/review_agent/plugin.yaml",
 ]:
     path = root / relative

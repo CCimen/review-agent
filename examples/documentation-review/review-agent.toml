@@ -15,6 +15,6 @@ intent = "Keep accepted-base policy, configuration bounds, guidance and ADR owne
 
 [[area]]
 id = "deployment"
-sources = ["compose.yaml", "Dockerfile", "admin/Dockerfile", "src/review_agent/operations/readiness.py", "src/review_agent/deployment_settings.py"]
+sources = ["compose.yaml", "Dockerfile", "console/Dockerfile", "src/review_agent/operations/readiness.py", "src/review_agent/deployment_settings.py"]
 documents = ["docs/DEPLOYMENT.md", "docs/OPERATIONS.md", "docs/GITHUB_APP_PILOT.md", "docs/ADMIN_PANEL.md"]
 intent = "Keep installation permissions, service topology, operator settings, upgrade and recovery instructions accurate."

@@ -196,10 +196,10 @@ class DeploymentConfigTests(unittest.TestCase):
         self.assertEqual(key_secret["secretName"], "review-agent-github-app")
 
     def test_default_profile_has_no_repository_specific_assumptions(self):
-        soul = read("bootstrap/profiles/default-standard/SOUL.md")
-        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
+        soul = read("profiles/default-standard/SOUL.md")
+        canonical = read("profiles/default-standard/workspace/AGENTS.md")
         skill = read(
-            "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md"
+            "profiles/default-standard/skills/review-agent-pr/SKILL.md"
         )
         baseline = words(f"{soul}\n{canonical}\n{skill}")
 
@@ -340,15 +340,15 @@ class DeploymentConfigTests(unittest.TestCase):
         checkout, image = (call.kwargs["static_dir"] for call in create.call_args_list)
         # A checkout serves the frontend built beside src/; an installed
         # package serves the directory the Dockerfile copies the build to.
-        self.assertEqual(ROOT / "admin" / "dist", checkout)
+        self.assertEqual(ROOT / "console" / "dist", checkout)
         self.assertEqual(image_dist, image)
         self.assertIn(
             f"COPY --from=frontend /build/dist {console_app.IMAGE_STATIC_DIR}\n",
-            read("admin/Dockerfile"),
+            read("console/Dockerfile"),
         )
 
     def test_live_reviewer_keeps_unsafe_toolsets_disabled(self):
-        config = read("bootstrap/config.yaml")
+        config = read("hermes/config.yaml")
         api_server_match = re.search(r"(?m)^  api_server:\n((?:    .+\n)+)", config)
         self.assertIsNotNone(api_server_match)
         assert api_server_match is not None

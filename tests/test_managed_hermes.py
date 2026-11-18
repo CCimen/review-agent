@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import unittest
 from unittest.mock import patch
@@ -74,7 +73,6 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.fixture.doCleanups)
         contract = review_contract.load_packaged_contract(
             "default-standard",
-            Path(__file__).resolve().parents[1] / "bootstrap",
             environment={
                 "HERMES_IMAGE": "hermes@sha256:" + "a" * 64,
                 "REVIEW_AGENT_MODEL": "test-review-model",

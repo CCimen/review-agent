@@ -41,7 +41,11 @@ RUN uv venv --python /opt/hermes/.venv/bin/python /opt/review-agent-code-graph \
     && mkdir -p /var/lib/review-agent-code-graph \
     && chown 10000:10000 /var/lib/review-agent-code-graph
 
-COPY --chown=hermes:hermes bootstrap/ /opt/review-agent-bootstrap/
+# The repository keeps these apart; the image keeps the one directory that
+# compose files, the Helm chart and the documentation name.
+COPY --chown=hermes:hermes hermes/install.py hermes/install.sh hermes/config.yaml /opt/review-agent-bootstrap/
+COPY --chown=hermes:hermes hermes/patches/ /opt/review-agent-bootstrap/hermes/
+COPY --chown=hermes:hermes profiles/ /opt/review-agent-bootstrap/profiles/
 ARG REVIEW_AGENT_VERSION=development
 ARG REVIEW_AGENT_REVISION=unknown
 LABEL org.opencontainers.image.version=$REVIEW_AGENT_VERSION \

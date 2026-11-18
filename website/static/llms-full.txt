@@ -662,6 +662,21 @@ metadata moved from `/app/bootstrap/plugins/review_agent_tools/_build.json` to
 `_build.json` in the installed package
 (`/opt/admin-venv/lib/python3.14/site-packages/review_agent/`).
 
+Three repository directories moved as well: `admin/` is now `console/`,
+`bootstrap/profiles/` is `profiles/`, and the rest of `bootstrap/` (the
+installer, the managed `config.yaml` and the Hermes patches) is `hermes/`.
+Nothing a deployment names changed with them. Every path inside the images
+(`/opt/review-agent-bootstrap/` with `install.sh`, `config.yaml` and
+`profiles/`, and `/app/admin/dist` in the console image), the image name
+`review-agent-admin`, the service `review-admin` and the file
+`compose.admin.yaml` are as before. Building from source is what changed: a
+custom profile now goes in `profiles/<key>/`, and the console image builds from
+`console/Dockerfile`. This release's `compose.admin.yaml` names that file; a
+direct build, from the repository root, is
+`docker build -f console/Dockerfile -t review-agent-admin:local .`. The
+package's optional dependency group for the console API is `console`; it was
+`admin` on `main` and in no release.
+
 Logger names follow the module path. In every service except `hermes-review`
 the prefix `review_agent_tools.` is now `review_agent.`: for example,
 `review_agent_tools.worker` became `review_agent.cli.worker`. What a command
@@ -1416,7 +1431,7 @@ request. A saved route change applies to new requests only.
 
 Authorization, the model's tool set, the reviewed base and head commits and
 their re-checks, persistence, the finding gates, and GitHub publication are
-fixed in code and in the managed `bootstrap/config.yaml`. A profile manifest
+fixed in code and in the managed `hermes/config.yaml`. A profile manifest
 cannot name a model, provider, tool, or permission, and repository content
 cannot change any of them. Fixed GitHub headings and hidden markers are part of
 the protocol, not profile templates. See [How reviews work](./HOW_REVIEWS_WORK.md).
@@ -1427,8 +1442,8 @@ Create another profile only when an environment needs a different shared
 identity or fixed review policy. Profiles are part of the image, so a custom
 profile means building your own image from this repository.
 
-1. Copy `bootstrap/profiles/default-standard/` to
-   `bootstrap/profiles/<key>/`. The key uses lower-case words separated by
+1. Copy `profiles/default-standard/` to
+   `profiles/<key>/`. The key uses lower-case words separated by
    hyphens.
 2. Edit the files. A profile contains:
    - `SOUL.md`;
@@ -2689,8 +2704,8 @@ curl --fail-with-body --get \
 
 The console uses the same authenticated API it documents. Open **API reference**
 in the console, or `/api/docs`, for Swagger UI under the current session; the
-schema is at `/api/openapi.json`. The frontend contract is `admin/openapi.json`
-and the generated `admin/src/api.generated.ts`.
+schema is at `/api/openapi.json`. The frontend contract is `console/openapi.json`
+and the generated `console/src/api.generated.ts`.
 
 | Endpoint | Access | Data |
 | --- | --- | --- |
@@ -3261,7 +3276,7 @@ docker compose exec hermes-review review-agent-admin database ready
 
 ### Profile
 
-`REVIEW_AGENT_PROFILE` selects a trusted bundle key under `bootstrap/profiles`;
+`REVIEW_AGENT_PROFILE` selects a trusted bundle key under `profiles/`;
 the packaged default is `default-standard`. There are no aliases for earlier
 profile names, and ADRs are read only from `.review-agent/decisions/`. The
 installer rejects an unknown key before changing `HERMES_HOME`. A profile owns
@@ -3962,7 +3977,7 @@ Services read these values at startup.
 | `POSTGRES_IMAGE` | `postgres:17-alpine` | `review-postgres` | Bundled database image; pin its digest in production. |
 | `REVIEW_AGENT_INGRESS_NETWORK` | `dokploy-network` | `review-admission`, `review-admin` | External reverse-proxy network. |
 | `TZ` | `UTC` | `hermes-review`, `review-admission` | Process time zone. |
-| `REVIEW_AGENT_PROFILE` | `default-standard` | `review-profile-install`, `hermes-review`, `review-admission`, `review-github-gateway`, `review-github-app-worker`, `review-admin` | Managed profile key under `bootstrap/profiles`. |
+| `REVIEW_AGENT_PROFILE` | `default-standard` | `review-profile-install`, `hermes-review`, `review-admission`, `review-github-gateway`, `review-github-app-worker`, `review-admin` | Managed profile key under `profiles/`. |
 | **Database** | | | |
 | `REVIEW_AGENT_POSTGRES_PASSWORD` | required | `review-postgres` | Migration-owner password; the same value as in `REVIEW_AGENT_DATABASE_URL`. |
 | `REVIEW_AGENT_DATABASE_URL` | required | `review-db-migrate` | Migration-owner URL. Only the one-shot database job receives it. |

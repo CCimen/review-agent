@@ -227,7 +227,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         for manifest in (
             "requirements.txt",
             "requirements/requirements-admin.txt",
-            "admin/package-lock.json",
+            "console/package-lock.json",
             "install/package-lock.json",
             "website/package-lock.json",
         ):
@@ -1348,7 +1348,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 {
                     "CALLS_LOG": str(calls),
                     "SOURCE_SHA": "a" * 40,
-                    "FRONTEND_LOCK": str(ROOT / "admin/package-lock.json"),
+                    "FRONTEND_LOCK": str(ROOT / "console/package-lock.json"),
                     "CYCLONEDX_SPEC_VERSION": "1.7",
                     "EXPECTED_IMAGE_DIGEST": manifest_digest,
                     "EXPECTED_ADMIN_IMAGE_DIGEST": "sha256:" + "f" * 64,

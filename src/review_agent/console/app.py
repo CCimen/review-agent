@@ -66,7 +66,7 @@ from ..postgres.runtime import (
 from ..settings import ReviewAgentSettings
 
 
-# Where admin/Dockerfile copies the built frontend in the console image.
+# Where console/Dockerfile copies the built frontend in the console image.
 IMAGE_STATIC_DIR = Path("/app/admin/dist")
 
 Days = Annotated[int, Query(ge=1, le=90)]
@@ -482,9 +482,9 @@ def create_app(
 
 
 def _built_frontend() -> Path:
-    """A checkout serves its own admin/dist; an installed package the image's."""
+    """A checkout serves its own console/dist; an installed package the image's."""
     checkout = source_checkout()
-    return checkout / "admin" / "dist" if checkout is not None else IMAGE_STATIC_DIR
+    return checkout / "console" / "dist" if checkout is not None else IMAGE_STATIC_DIR
 
 
 def app_from_environment() -> FastAPI:

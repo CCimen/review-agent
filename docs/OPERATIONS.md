@@ -43,7 +43,7 @@ docker compose exec hermes-review review-agent-admin database ready
 
 ### Profile
 
-`REVIEW_AGENT_PROFILE` selects a trusted bundle key under `bootstrap/profiles`;
+`REVIEW_AGENT_PROFILE` selects a trusted bundle key under `profiles/`;
 the packaged default is `default-standard`. There are no aliases for earlier
 profile names, and ADRs are read only from `.review-agent/decisions/`. The
 installer rejects an unknown key before changing `HERMES_HOME`. A profile owns
@@ -744,7 +744,7 @@ Services read these values at startup.
 | `POSTGRES_IMAGE` | `postgres:17-alpine` | `review-postgres` | Bundled database image; pin its digest in production. |
 | `REVIEW_AGENT_INGRESS_NETWORK` | `dokploy-network` | `review-admission`, `review-admin` | External reverse-proxy network. |
 | `TZ` | `UTC` | `hermes-review`, `review-admission` | Process time zone. |
-| `REVIEW_AGENT_PROFILE` | `default-standard` | `review-profile-install`, `hermes-review`, `review-admission`, `review-github-gateway`, `review-github-app-worker`, `review-admin` | Managed profile key under `bootstrap/profiles`. |
+| `REVIEW_AGENT_PROFILE` | `default-standard` | `review-profile-install`, `hermes-review`, `review-admission`, `review-github-gateway`, `review-github-app-worker`, `review-admin` | Managed profile key under `profiles/`. |
 | **Database** | | | |
 | `REVIEW_AGENT_POSTGRES_PASSWORD` | required | `review-postgres` | Migration-owner password; the same value as in `REVIEW_AGENT_DATABASE_URL`. |
 | `REVIEW_AGENT_DATABASE_URL` | required | `review-db-migrate` | Migration-owner URL. Only the one-shot database job receives it. |

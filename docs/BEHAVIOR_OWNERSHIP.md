@@ -30,7 +30,7 @@ request. A saved route change applies to new requests only.
 
 Authorization, the model's tool set, the reviewed base and head commits and
 their re-checks, persistence, the finding gates, and GitHub publication are
-fixed in code and in the managed `bootstrap/config.yaml`. A profile manifest
+fixed in code and in the managed `hermes/config.yaml`. A profile manifest
 cannot name a model, provider, tool, or permission, and repository content
 cannot change any of them. Fixed GitHub headings and hidden markers are part of
 the protocol, not profile templates. See [How reviews work](./HOW_REVIEWS_WORK.md).
@@ -41,8 +41,8 @@ Create another profile only when an environment needs a different shared
 identity or fixed review policy. Profiles are part of the image, so a custom
 profile means building your own image from this repository.
 
-1. Copy `bootstrap/profiles/default-standard/` to
-   `bootstrap/profiles/<key>/`. The key uses lower-case words separated by
+1. Copy `profiles/default-standard/` to
+   `profiles/<key>/`. The key uses lower-case words separated by
    hyphens.
 2. Edit the files. A profile contains:
    - `SOUL.md`;

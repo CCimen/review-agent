@@ -25,7 +25,7 @@ class FailureCodesTests(unittest.TestCase):
     def test_console_explains_every_run_failure_code(self):
         # The console showed raw tokens for most real failures while carrying
         # sentences for codes nothing writes.
-        source = (ROOT / "admin" / "src" / "ui.tsx").read_text(encoding="utf-8")
+        source = (ROOT / "console" / "src" / "ui.tsx").read_text(encoding="utf-8")
         block = source.split("const failureSentences", 1)[1].split("};", 1)[0]
         explained = set(re.findall(r"^  ([a-z0-9_]+):", block, flags=re.M))
         self.assertEqual(set(failure_codes.ALL), explained)

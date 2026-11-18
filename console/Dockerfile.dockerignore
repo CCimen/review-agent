@@ -7,8 +7,8 @@
 !scripts/
 !scripts/write_build_info.py
 !scripts/validate_release_tag.py
-!admin/
-!admin/**
+!console/
+!console/**
 !examples/
 !examples/repository-context/
 !examples/repository-context/.review-agent/
@@ -16,11 +16,11 @@
 !src/
 !src/review_agent/
 !src/review_agent/**
-admin/node_modules/
-admin/dist/
-admin/dist-preview/
-admin/preview/
-admin/*.tsbuildinfo
+console/node_modules/
+console/dist/
+console/dist-preview/
+console/preview/
+console/*.tsbuildinfo
 src/review_agent/_build.json
 **/__pycache__/
 **/*.py[cod]

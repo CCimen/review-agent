@@ -14,7 +14,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROFILE_SOURCE = ROOT / "bootstrap" / "profiles" / "default-standard"
+PROFILE_SOURCE = ROOT / "profiles" / "default-standard"
 PLUGIN_SOURCE = ROOT / "src" / "review_agent"
 HERMES_IMAGE = "nousresearch/hermes-agent:test@sha256:" + "1" * 64
 # Every deployment names its review model; tests use a neutral one.
@@ -23,10 +23,10 @@ TEST_MODEL = "test-review-model"
 
 def load_installer():
     spec = importlib.util.spec_from_file_location(
-        "review_agent_profile_installer", ROOT / "bootstrap" / "install.py"
+        "review_agent_profile_installer", ROOT / "hermes" / "install.py"
     )
     if spec is None or spec.loader is None:
-        raise AssertionError("could not load bootstrap installer")
+        raise AssertionError("could not load the profile installer")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -60,7 +60,7 @@ class ProfileBundleTests(unittest.TestCase):
 
         with mock.patch.dict(os.environ, conflicting, clear=True):
             config, _ = self.install.review_contract.render_managed_config(
-                self.install.SOURCE / "config.yaml",
+                self.install.INPUTS.config,
                 environment=supplied,
             )
 
@@ -109,7 +109,7 @@ class ProfileBundleTests(unittest.TestCase):
             mock.patch.object(
                 sys,
                 "argv",
-                [str(ROOT / "bootstrap" / "install.py"), *arguments],
+                [str(ROOT / "hermes" / "install.py"), *arguments],
             ),
         ):
             result = self.install.main()
@@ -164,7 +164,7 @@ class ProfileBundleTests(unittest.TestCase):
             installed_config_bytes = (hermes_home / "config.yaml").read_bytes()
             _, expected_config_bytes = (
                 self.install.review_contract.render_managed_config(
-                    self.install.SOURCE / "config.yaml",
+                    self.install.INPUTS.config,
                     environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE, "REVIEW_AGENT_MODEL": TEST_MODEL},
                 )
             )
@@ -261,7 +261,6 @@ class ProfileBundleTests(unittest.TestCase):
                 packaged_contract = (
                     self.install.review_contract.load_packaged_contract(
                         "default-standard",
-                        self.install.SOURCE,
                         environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE, "REVIEW_AGENT_MODEL": TEST_MODEL},
                     )
                 )
@@ -280,16 +279,19 @@ class ProfileBundleTests(unittest.TestCase):
                 checkout = contract.locate_behavior_inputs()
                 with mock.patch.object(contract, "source_checkout", return_value=None):
                     in_image = contract.locate_behavior_inputs()
+            named = contract.locate_behavior_inputs(image)
 
+        # A checkout keeps the managed config and the profiles apart.
         self.assertEqual(
             contract.BehaviorInputs(
-                config=ROOT / "bootstrap" / "config.yaml",
-                profiles=ROOT / "bootstrap" / "profiles",
+                config=ROOT / "hermes" / "config.yaml",
+                profiles=ROOT / "profiles",
                 package=PLUGIN_SOURCE,
             ),
             checkout,
         )
-        # An installed package takes config and profiles from the image.
+        # An installed package takes config and profiles from the image, and
+        # so does a caller that names one directory holding both.
         self.assertEqual(
             contract.BehaviorInputs(
                 config=image / "config.yaml",
@@ -298,6 +300,7 @@ class ProfileBundleTests(unittest.TestCase):
             ),
             in_image,
         )
+        self.assertEqual(in_image, named)
 
     def test_missing_inputs_name_the_location_that_applies(self) -> None:
         contract = self.install.review_contract
@@ -316,7 +319,7 @@ class ProfileBundleTests(unittest.TestCase):
                 contract.locate_behavior_inputs()
 
         self.assertIn(str(root / "image"), str(installed.exception))
-        self.assertIn(str(root / "bootstrap"), str(checkout.exception))
+        self.assertIn(str(root / "hermes"), str(checkout.exception))
 
     def test_model_overrides_are_rendered_into_one_review_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -334,7 +337,6 @@ class ProfileBundleTests(unittest.TestCase):
                 self.assertEqual(0, installed)
                 packaged = self.install.review_contract.load_packaged_contract(
                     "default-standard",
-                    self.install.SOURCE,
                     environment={
                         "REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE,
                         **overrides,
@@ -365,7 +367,6 @@ class ProfileBundleTests(unittest.TestCase):
                 )
                 packaged = self.install.review_contract.load_packaged_contract(
                     "default-standard",
-                    self.install.SOURCE,
                     environment={
                         "REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE,
                         **overrides,

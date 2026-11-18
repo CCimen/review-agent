@@ -5,8 +5,10 @@
 !requirements.txt
 !requirements/
 !requirements/requirements-code-graph.txt
-!bootstrap/
-!bootstrap/**
+!hermes/
+!hermes/**
+!profiles/
+!profiles/**
 !src/
 !src/review_agent/
 !src/review_agent/**

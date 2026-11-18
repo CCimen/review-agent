@@ -105,7 +105,7 @@ jobs:
           bash ./scripts/check_image.sh review-agent:ci
           REVIEW_AGENT_MODEL=ci-check-model REVIEW_AGENT_ADMIN_PUBLIC_URL=https://admin.example.test \
             docker compose --env-file .env.example -f compose.yaml -f compose.admin.yaml config --quiet
-          docker build --file admin/Dockerfile --tag review-agent-admin:ci .
+          docker build --file console/Dockerfile --tag review-agent-admin:ci .
           sh ./scripts/check_admin_image.sh review-agent-admin:ci
           inventory_dir="$(mktemp -d)"
           CYCLONEDX_SPEC_VERSION=1.7 sh ./scripts/generate_python_runtime_sbom.sh \
@@ -153,7 +153,7 @@ jobs:
             --require-target "requirements.txt" \
             --require-target "requirements/requirements-code-graph.txt" \
             --require-target "requirements/requirements-admin.txt" \
-            --require-target "admin/package-lock.json" \
+            --require-target "console/package-lock.json" \
             --require-target "install/package-lock.json" \
             --require-target "website/package-lock.json" \
             dependency-vulnerabilities.json

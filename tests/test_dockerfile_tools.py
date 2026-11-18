@@ -14,10 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _load_install_module():
     spec = importlib.util.spec_from_file_location(
-        "review_agent_bootstrap_install", ROOT / "bootstrap" / "install.py"
+        "review_agent_profile_installer", ROOT / "hermes" / "install.py"
     )
     if spec is None or spec.loader is None:
-        raise AssertionError("could not load bootstrap installer")
+        raise AssertionError("could not load the profile installer")
     module = importlib.util.module_from_spec(spec)
     previous_yaml = sys.modules.get("yaml")
     yaml_stub = types.ModuleType("yaml")

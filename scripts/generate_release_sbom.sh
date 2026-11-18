@@ -139,14 +139,14 @@ generate_image_sboms() {
                 }
             docker cp "$container_id:/app/share/review-agent/frontend-lock.sha256" "$metadata_dir/frontend-lock.sha256"
             test "$(cat "$metadata_dir/frontend-lock.sha256")" = \
-                "$(cd "$root/admin" && sha256sum package-lock.json)" || {
+                "$(cd "$root/console" && sha256sum package-lock.json)" || {
                     echo "$component linux/$architecture frontend lockfile does not match the verified source" >&2
                     exit 1
                 }
             docker cp "$container_id:/app/share/review-agent/frontend.cyclonedx.json" "$metadata_dir/frontend.cyclonedx.json"
             local frontend_asset="review-agent-admin-frontend-${release_tag}-linux-${architecture}.cyclonedx.json"
             python3 "$root/scripts/prepare_frontend_sbom.py" \
-                "$metadata_dir/frontend.cyclonedx.json" "$root/admin/package-lock.json" "$output_dir/$frontend_asset" \
+                "$metadata_dir/frontend.cyclonedx.json" "$root/console/package-lock.json" "$output_dir/$frontend_asset" \
                 --version "$release_tag" --revision "$SOURCE_SHA" \
                 --image "$digest_ref" --platform "linux/$architecture"
             checksum_assets+=("$frontend_asset")

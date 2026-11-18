@@ -25,7 +25,7 @@ try:
 except ImportError as exc:  # Hermes ships PyYAML; fail clearly on unexpected images.
     raise SystemExit("PyYAML is required in the Hermes image") from exc
 
-INPUTS = review_contract.locate_behavior_inputs(SOURCE)
+INPUTS = review_contract.locate_behavior_inputs()
 PROFILES_SOURCE = INPUTS.profiles
 DEFAULT_PROFILE = "default-standard"
 REQUIRED_PROFILE_SKILLS = ("review-agent-pr", "review-agent-docs")
@@ -179,7 +179,7 @@ def main() -> int:
     parser.add_argument(
         "--profile",
         help=(
-            "Trusted bundle key under bootstrap/profiles. Defaults to "
+            "Trusted bundle key under profiles. Defaults to "
             "REVIEW_AGENT_PROFILE, the installed receipt, or default-standard."
         ),
     )

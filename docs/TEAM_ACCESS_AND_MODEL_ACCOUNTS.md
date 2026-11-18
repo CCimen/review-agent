@@ -83,6 +83,8 @@ The team and connection caps count review jobs. A review is one job, except a
   Owners set it for the shared connection; owners and admins for a team-owned one.
 - **Repository:** one review runs per repository at a time; the parts of that
   review may overlap.
+- **Workers:** a job also needs a free worker slot
+  ([queue rules](OPERATIONS.md#queue-rules)).
 - **Fairness:** eligible teams take turns claiming work, with priority aging
   within each team.
 - **Quota:** teams that share a connection share its Codex account quota, which

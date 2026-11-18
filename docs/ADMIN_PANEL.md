@@ -490,13 +490,11 @@ queue without using an attempt and all queued work on that account waits for one
 shared deadline, shown in history and in Operations' delayed totals. After the
 deadline, a fresh quota check decides; only a fresh allowance clears the wait.
 
-**Maximum concurrent reviews** applies per connection and per team (across
-connections); both default to four. Both count review jobs, so each running
-part of a [split review](./OPERATIONS.md#split-reviews) counts as one.
-Lowering a cap lets active work finish and
-limits new claims. Worker capacity is an additional bound, and one repository
-runs one review at a time. Eligible teams take turns, with priority aging within
-a team. Unfinished remote executions keep their capacity until Hermes reports
+**Maximum concurrent reviews** is set per connection and per team.
+[Limits](TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits) defines what the two caps
+count, their defaults, and the repository and fairness rules that apply beside
+them. Lowering a cap lets active work finish and limits new claims. Unfinished
+remote executions keep their capacity until Hermes reports
 completion; lease expiry or cancellation does not release them. If the
 unfinished count persists after reviews stop, an owner pauses the connection,
 restarts its complete runtime, and chooses **Recover after a runtime restart**.

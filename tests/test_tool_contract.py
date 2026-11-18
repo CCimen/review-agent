@@ -32,9 +32,9 @@ from review_agent_tools.review import (  # noqa: E402
 )
 from review_agent_tools.model_runtime import window as model_window  # noqa: E402
 from review_agent_tools.documentation import tools as documentation_tools  # noqa: E402
-from review_agent_tools.domain import repository_decision_context  # noqa: E402
-from review_agent_tools.repository_context import (  # noqa: E402
-    guidance_context as repository_guidance_context,
+from review_agent_tools.domain import (  # noqa: E402
+    repository_decision_context,
+    repository_guidance_context,
 )
 from review_agent_tools.domain.repository_decisions import RepositoryDecision  # noqa: E402
 from review_agent_tools.domain.documentation_review import PreviousDocumentationFinding  # noqa: E402

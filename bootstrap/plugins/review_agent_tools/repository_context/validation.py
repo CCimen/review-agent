@@ -7,12 +7,13 @@ import hashlib
 from pathlib import Path
 
 from .. import capacity
-from . import guidance_context as repository_guidance_context
+from . import guidance_context as repository_guidance_loader
 from ..domain import (
     documentation_policy,
     repository_decision_context,
     repository_decisions,
     repository_guidance,
+    repository_guidance_context,
 )
 
 
@@ -216,7 +217,7 @@ def validate_repository_context(
                 resolved_root,
                 repository_guidance.CONFIG_PATH,
                 max_bytes=repository_guidance.MAX_CONFIG_BYTES,
-                max_lines=repository_guidance_context.MAX_CONFIG_LINES,
+                max_lines=repository_guidance_loader.MAX_CONFIG_LINES,
             )
             config = repository_guidance.parse_config(config_content)
         except repository_guidance.RepositoryGuidanceError as exc:
@@ -234,7 +235,7 @@ def validate_repository_context(
                     repository_guidance.INSTRUCTIONS_PATH,
                     max_bytes=maximum * 4,
                     max_chars=maximum,
-                    max_lines=repository_guidance_context.MAX_GUIDANCE_FILE_LINES,
+                    max_lines=repository_guidance_loader.MAX_GUIDANCE_FILE_LINES,
                 )
                 try:
                     file = repository_guidance_context.guidance_file(
@@ -255,7 +256,7 @@ def validate_repository_context(
                     path,
                     max_bytes=maximum * 4,
                     max_chars=maximum,
-                    max_lines=repository_guidance_context.MAX_GUIDANCE_FILE_LINES,
+                    max_lines=repository_guidance_loader.MAX_GUIDANCE_FILE_LINES,
                 )
                 try:
                     file = repository_guidance_context.guidance_file(path, content)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -11,8 +13,9 @@ from unittest.mock import Mock
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
+from review_agent_tools.domain import repository_guidance_context  # noqa: E402
 from review_agent_tools.repository_context import (  # noqa: E402
-    guidance_context as repository_guidance_context,
+    guidance_context as repository_guidance_loader,
 )
 from review_agent_tools.github.source import ReviewFilePage  # noqa: E402
 
@@ -100,7 +103,7 @@ class RepositoryGuidanceContextTests(unittest.TestCase):
             "", state="not_found_at_revision"
         )
 
-        result = repository_guidance_context.load(
+        result = repository_guidance_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -124,7 +127,7 @@ context = ["context/platform.md", "context/backend.md"]
             page("Backend writes must use one transaction."),
         ]
 
-        result = repository_guidance_context.load(
+        result = repository_guidance_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -163,7 +166,7 @@ context = ["context/platform.md", "context/backend.md"]
             "version = 1\nenabled = false\ncontext = ['context/ignored.md']"
         )
 
-        result = repository_guidance_context.load(
+        result = repository_guidance_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -181,7 +184,7 @@ context = ["context/platform.md", "context/backend.md"]
             page("", state="not_found_at_revision"),
         ]
 
-        result = repository_guidance_context.load(
+        result = repository_guidance_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -201,7 +204,7 @@ context = ["context/platform.md", "context/backend.md"]
             page("abcdef"),
         ]
 
-        result = repository_guidance_context.load(
+        result = repository_guidance_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -217,7 +220,7 @@ context = ["context/platform.md", "context/backend.md"]
         source = self.source()
         source.client.handler.return_value = page("", state="not_utf8")
 
-        result = repository_guidance_context.load(
+        result = repository_guidance_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -231,7 +234,7 @@ context = ["context/platform.md", "context/backend.md"]
         source = self.source()
         source.client.handler.return_value = page("", state="too_large")
 
-        result = repository_guidance_context.load(
+        result = repository_guidance_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -248,7 +251,7 @@ context = ["context/platform.md", "context/backend.md"]
             page("x" * (repository_guidance_context.MAX_GUIDANCE_CONTENT_CHARS + 1)),
         ]
 
-        result = repository_guidance_context.load(
+        result = repository_guidance_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -267,7 +270,7 @@ context = ["context/platform.md", "context/backend.md"]
             context_files=(),
         )
 
-        instruction = repository_guidance_context.payload(context)["instruction"]
+        instruction = repository_guidance_loader.payload(context)["instruction"]
 
         self.assertIn("read from the exact base snapshot", instruction)
         self.assertNotIn("code-reviewed", instruction)
@@ -305,6 +308,65 @@ context = ["context/platform.md", "context/backend.md"]
                 snapshot_id=9,
                 value=value,
                 expected_hash=context.snapshot_hash,
+            )
+
+    def test_stored_snapshot_bytes_and_hash_stay_restorable(self) -> None:
+        # The canonical bytes and hash of one loaded context, recorded before the
+        # aggregate moved to the domain package. Stored rows carry this encoding.
+        stored = (
+            b'{"base_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","config_hash":'
+            b'"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",'
+            b'"config_path":".review-agent/config.toml","context_files":['
+            b'{"content":"The platform owns authentication.","content_hash":'
+            b'"sha256:bc06b338ee608cbe3726133659fb6fea4f5c5ab2a575a7e2aca579f777a59f5d",'
+            b'"path":".review-agent/context/platform.md"}],"failure_code":null,'
+            b'"instructions":{"content":'
+            b'"Review changed behavior, not style preferences.","content_hash":'
+            b'"sha256:a6ad86407622215730ca4b4343759c3ebc3bdd4950ce4e71ecf034fea56d6b67",'
+            b'"path":".review-agent/instructions.md"},"schema_version":1,'
+            b'"status":"loaded"}'
+        )
+        stored_hash = (
+            "sha256:6e3de9156b683f9afdb644b4e44bff25e9a0bce294bbb7b04c8cacb8ce4e5ef1"
+        )
+        self.assertEqual("sha256:" + hashlib.sha256(stored).hexdigest(), stored_hash)
+
+        restored = repository_guidance_context.restore_snapshot(
+            snapshot_id=9,
+            value=json.loads(stored),
+            expected_hash=stored_hash,
+        )
+
+        self.assertEqual(restored.snapshot_hash, stored_hash)
+        self.assertEqual(
+            repository_guidance_context.snapshot_value(restored),
+            json.loads(stored),
+        )
+        self.assertEqual(
+            repository_guidance_context.loaded(
+                base_sha=BASE_SHA,
+                config_hash="sha256:" + "b" * 64,
+                instructions=repository_guidance_context.guidance_file(
+                    ".review-agent/instructions.md",
+                    "Review changed behavior, not style preferences.",
+                ),
+                context_files=(
+                    repository_guidance_context.guidance_file(
+                        ".review-agent/context/platform.md",
+                        "The platform owns authentication.",
+                    ),
+                ),
+            ).snapshot_hash,
+            stored_hash,
+        )
+        with self.assertRaisesRegex(
+            repository_guidance_context.RepositoryGuidanceContextError,
+            "hash does not match",
+        ):
+            repository_guidance_context.restore_snapshot(
+                snapshot_id=9,
+                value={**json.loads(stored), "base_sha": "c" * 40},
+                expected_hash=stored_hash,
             )
 
 

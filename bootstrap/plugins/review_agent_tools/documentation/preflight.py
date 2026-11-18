@@ -9,12 +9,12 @@ from ..review import (
     contract as review_contract,
     run_application as review_run_application,
 )
-from ..domain import repository_decision_context
+from ..domain import repository_decision_context, repository_guidance_context
 from ..domain.documentation_scope import ChangedPath, DocumentationScope
 from . import scope as documentation_scope
 from ..repository_context import (
     decision_context as repository_decision_loader,
-    guidance_context as repository_guidance_context,
+    guidance_context as repository_guidance_loader,
 )
 from ..domain.documentation_policy import DocumentationPolicyError, parse_policy
 from ..domain.documentation_review import DocumentationOutcome, DocumentationResult
@@ -195,11 +195,11 @@ def run_preflight(
             )
 
     def load_guidance() -> repository_guidance_context.RepositoryGuidanceContext:
-        context = repository_guidance_context.load(
+        context = repository_guidance_loader.load(
             source, repository=run_scope.repository, base_sha=run_scope.base_sha,
             content_max_chars=capacity.current().text_page_max_chars,
         )
-        if len(output_json(repository_guidance_context.payload(context))) > capacity.current().result_max_chars // 3:
+        if len(output_json(repository_guidance_loader.payload(context))) > capacity.current().result_max_chars // 3:
             return repository_guidance_context.failed(
                 "unavailable", base_sha=run_scope.base_sha, config_hash=context.config_hash,
                 failure_code="guidance_result_budget",

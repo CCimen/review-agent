@@ -624,13 +624,20 @@ schedule repeated runs through existing maintenance tooling.
 ## Backup and recovery
 
 PostgreSQL may contain unpublished findings and human-entered reasons; store
-backups securely. Create a logical backup from the Compose host:
+backups securely. Create a logical backup from the Compose host. Each backup
+gets its own file, so a failed dump never replaces an earlier archive:
 
 ```bash
+umask 077
+dump="review-agent-$(date -u +%Y%m%dT%H%M%SZ).dump"
 docker compose exec -T review-postgres \
   pg_dump --username=review_agent --dbname=review_agent --format=custom \
-  > review-agent.dump
+  > "$dump" && echo "Backup written: $dump"
 ```
+
+Without the last line's message the dump failed and the new file is
+incomplete. Keep the previous verified archive until the new one has passed
+the restore test below.
 
 Test recovery in a fresh database before relying on a backup. The archive
 records the grants to the runtime role, including its default privileges, but
@@ -640,32 +647,39 @@ first grant. Restore without ownership and grants, connected as the migration
 owner, and let `database prepare` create the runtime role and its grants.
 
 - **Restore test on the production cluster:** no service has to stop. Restore
-  into an empty temporary database, check it, and drop it:
+  into a new temporary database, check it, and drop it. `$dump` is the archive
+  to test. Each step runs only if the one before it succeeded:
 
   ```bash
+  target="review_agent_restore_test_$(date -u +%Y%m%d%H%M%S)"
   docker compose exec -T review-postgres \
-    createdb --username=review_agent review_agent_restore_test
+    createdb --username=review_agent "$target" &&
   docker compose exec -T review-postgres \
-    pg_restore --username=review_agent --dbname=review_agent_restore_test \
-    --no-owner --no-privileges --exit-on-error < review-agent.dump
+    pg_restore --username=review_agent --dbname="$target" \
+    --no-owner --no-privileges --exit-on-error < "$dump" &&
   docker compose exec -T review-postgres \
-    psql --username=review_agent --dbname=review_agent_restore_test \
-    --command "SELECT max(version) FROM review_agent.schema_migrations"
+    psql --username=review_agent --dbname="$target" --set ON_ERROR_STOP=1 \
+    --command "SELECT max(version) FROM review_agent.schema_migrations" &&
   docker compose exec -T review-postgres \
-    dropdb --username=review_agent review_agent_restore_test
+    dropdb --username=review_agent "$target" &&
+  echo "Restore test passed: $dump"
   ```
 
-  Copying grants would give the runtime role access to another database, which
+  Without the final message a step failed. The temporary database, if it was
+  created, is left for inspection; drop it by its name afterwards. Copying
+  grants would give the runtime role access to another database, which
   `database prepare` rejects.
 - **Production recovery into a separate cluster:** stop every service that
   reads or writes Review Agent state. Run the commands with every Compose file
   the deployment uses, so that `review-admin` and the other overlay services
-  are included; the second command must list no service other than
-  `review-postgres`:
+  are included. The second command lists every container of the project with
+  its state; every service other than `review-postgres` must show `exited`. A
+  container that is `restarting` has not stopped. Stop anything outside this
+  project that uses the same database as well:
 
   ```bash
   docker compose stop $(docker compose config --services | grep -vx review-postgres)
-  docker compose ps --status running --services
+  docker compose ps --all --format '{{.Service}} {{.State}}'
   ```
 
   In the new cluster, create the migration-owner role and an empty database it
@@ -678,18 +692,26 @@ owner, and let `database prepare` create the runtime role and its grants.
   migrations, creates the runtime role and its grants, and connects once as
   the runtime login:
 
+  Run these in the Compose project of the new cluster, with `$dump` naming a
+  verified archive. The migration job runs only if the restore succeeded:
+
   ```bash
-  docker compose up -d --wait review-postgres
+  docker compose up -d --wait review-postgres &&
   docker compose exec -T review-postgres \
     pg_restore --username=review_agent --dbname=review_agent \
-    --no-owner --no-privileges --exit-on-error < review-agent.dump
-  docker compose run --rm --no-deps review-db-migrate
+    --no-owner --no-privileges --exit-on-error < "$dump" &&
+  docker compose run --rm --no-deps review-db-migrate &&
+  echo "Restored and prepared"
   ```
 
   For an external database, run the same `pg_restore` options from a host with
-  the PostgreSQL client tools. Then redeploy and run
+  the PostgreSQL client tools. A successful `database prepare` proves the
+  schema and the runtime login, not that the data came back: it also succeeds
+  on an empty database. Before switching traffic, redeploy, run
   `review-agent-admin database ready` and `review-agent-admin doctor` in
-  `hermes-review`, where the database URL is the runtime login.
+  `hermes-review`, where the database URL is the runtime login, and read a
+  record you know existed before the backup, for example a recent review with
+  `review-agent-memory runs --run-id <id>`.
 
 Some migrations change the schema in ways older images cannot read (for
 example 016, 029 and 037); older images must not run against the migrated

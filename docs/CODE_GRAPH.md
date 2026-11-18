@@ -57,8 +57,10 @@ These lines do not count every attempt. Nothing is written when `hermes-review`
 has no graph URL because the overlay is not loaded (the tool answers
 `disabled`), when the tool rejects the pattern or target, when the review has
 ended or lost its worker lease, or when reading the pull request through the
-GitHub gateway fails. Counting the lines per `run_id` in the `hermes-review`
-logs shows how many queries reached the service and what it answered.
+GitHub gateway fails. Counting the lines with a `pattern` per `run_id` in the
+`hermes-review` logs shows how many queries the service answered and with what
+status. A line without `pattern` records a failed attempt whose outcome at the
+service is unknown.
 
 ## Enable the graph
 
@@ -89,9 +91,12 @@ volume. Normal review services do not depend on its health or startup.
    disablement, installation revocation, profile, and worker-lease checks still
    apply to graph access.
 
-2. For semantic queries, set `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS=openai`
-   and add `REVIEW_AGENT_OPENAI_API_KEY` in Dokploy's Environment settings (or
-   the deployment's private `.env` file). The overlay passes the key only to the
+2. For semantic queries, select `openai` embeddings where the gateway reads
+   the setting (step 1): `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS=openai` before any
+   settings revision is saved, **Code graph embeddings** in **Settings**
+   afterwards. The key is always an environment value: add
+   `REVIEW_AGENT_OPENAI_API_KEY` in Dokploy's Environment settings (or the
+   deployment's private `.env` file). The overlay passes the key only to the
    GitHub gateway. Keep the value out of tracked files, chat, and logs. Leave it
    empty with `none`. With `openai`, symbol metadata is sent to OpenAI whenever
    a graph is prepared, not only when a semantic query runs
@@ -154,8 +159,10 @@ The embedding API is called on two occasions, both through the GitHub gateway.
 Preparing a graph sends the embedding text of every symbol that has no current
 vector: all of them the first time a repository is indexed, new and changed
 ones afterwards. This happens whether or not a review later asks a semantic
-query. Each `semantic` query sends its query text. The other patterns send
-nothing, and vectors are stored and searched locally.
+query. A `semantic` query sends its query text when it reaches the embedding
+step; one answered `busy`, `unavailable` or `embeddings_unavailable` before
+that sends nothing. The other patterns send nothing, and vectors are stored
+and searched locally.
 
 The structural graph is saved before embeddings start, and each embedding batch
 is committed as it completes. If the review ends, authorization is revoked, or

@@ -269,9 +269,11 @@ again; automatic activation does not override it.
 
 Suspending or uninstalling the App on GitHub blocks every repository of that
 installation. Removing one repository from a selected-repositories installation
-blocks that repository. When GitHub access returns, an automatic installation
-resumes on the next authorized `/review`; in explicit mode, run
-`github-app onboard` again.
+blocks that repository. When GitHub access returns, a repository of an
+automatic installation is enabled again by the next `/review` or feedback
+command processed for it, before the sender is checked, as described under
+[automatic activation](#automatic-approve-once); a repository an operator
+disabled stays disabled. In explicit mode, run `github-app onboard` again.
 
 ## Troubleshooting
 

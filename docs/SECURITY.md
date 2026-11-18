@@ -27,8 +27,8 @@ write.
 - A worker leases the job and calls the private, authenticated Hermes API.
 - Hermes runs the review through the bundled plugin, not through a shell.
 - The model can read bounded pull-request context and record candidate findings.
-- Deterministic plugin code validates each tool call and writes its result to
-  PostgreSQL: recorded findings and the frozen publication.
+- Deterministic plugin code validates each tool call. What it persists goes to
+  PostgreSQL: recorded findings, coverage and the frozen publication.
 - A separate publisher sends the frozen publication to GitHub through the
   gateway, which performs the write.
 - Feedback commands are parsed at admission and recorded by the App worker,
@@ -65,10 +65,13 @@ skills, suppressions, memory decisions or feedback commands.
 
 The admission service, App worker and private gateway are outside the model
 path. Admission does not store the webhook body. For each signed delivery of
-an event it handles, it stores a bounded normalized record: the repository and
-installation, the sender's GitHub ID and login, the pull request, and the
-parsed command. A feedback command includes the reason its sender typed; an
-installation event carries the account and its repository list. When a
+an event it handles, it stores a bounded normalized record whose fields depend
+on the event. A comment command holds the repository and installation, the
+sender's GitHub ID and login, the pull request and the parsed command; a
+feedback command also holds the reason its sender typed. An installation event
+holds the account, its permissions and, when the App is installed, its
+repository list. A documentation event holds the pull request or check run it
+concerns and its sender. When a
 delivery reaches a terminal state, its normalized payload is erased, and a
 receipt with the repository, installation, event and body hash stays until an
 operator prunes it. Documentation deliveries keep their bounded event

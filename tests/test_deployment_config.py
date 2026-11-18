@@ -423,7 +423,7 @@ class DeploymentConfigTests(unittest.TestCase):
                 tab("compose-upgrade", "Compose"),
                 (
                     "docker compose stop $APP_SERVICES",
-                    'running="$(docker compose ps --status running --services)"',
+                    "remaining=\"$(docker compose ps --all --format '{{.Service}} {{.State}}' |",
                     "docker compose run --rm --no-deps review-profile-install",
                     "docker compose run --rm --no-deps review-db-migrate",
                     "docker compose up -d --no-deps --no-build --force-recreate",

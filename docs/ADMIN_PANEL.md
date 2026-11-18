@@ -606,9 +606,10 @@ curl --fail-with-body --get \
 The console uses the same authenticated API it documents. Open **API reference**
 in the console, or `/api/docs`, for Swagger UI under the current session; the
 schema is at `/api/openapi.json`. The frontend contract is `console/openapi.json`
-and the generated `console/src/api.generated.ts`. The schema is the complete
-list of endpoints and parameters. It does not say who may call an endpoint, so
-the table below gives the access rule for the main ones.
+and the generated `console/src/api.generated.ts`. The schema lists the
+application's endpoints and parameters. It states who may call an endpoint for
+only some of them, so the table below collects the access rule for the main
+ones.
 
 | Endpoint | Access | Data |
 | --- | --- | --- |

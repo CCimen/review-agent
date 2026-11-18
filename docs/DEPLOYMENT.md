@@ -441,37 +441,53 @@ APP_SERVICES="$(docker compose config --services |
 docker compose pull
 docker compose stop $APP_SERVICES
 
-running="$(docker compose ps --status running --services)"
-for service in $running; do
-  if [ "$service" != review-postgres ]; then
-    echo "$service is still running; do not migrate." >&2
-    exit 1
-  fi
-done
+remaining="$(docker compose ps --all --format '{{.Service}} {{.State}}' |
+  grep -vE '^review-postgres | (exited|created)$' || true)"
+if [ -n "$remaining" ]; then
+  echo "Not stopped; do not migrate:" >&2
+  echo "$remaining" >&2
+  exit 1
+fi
 
-docker compose run --rm --no-deps review-profile-install
-docker compose run --rm --no-deps review-db-migrate
+docker compose run --rm --no-deps review-profile-install </dev/null
+docker compose run --rm --no-deps review-db-migrate </dev/null
 
 docker compose up -d --no-deps --no-build --force-recreate \
   --wait --wait-timeout 300 $APP_SERVICES
-docker compose exec hermes-review review-agent-admin doctor
+docker compose exec -T hermes-review review-agent-admin doctor </dev/null
 docker compose ps
 COMPOSE_UPGRADE
 ```
 
 The script stops and recreates every service of those files except
-`review-postgres` and the two one-shot jobs. It does not migrate while any
-other container of the Compose project is running, which also catches an
-overlay left out of `COMPOSE_FILE`. PostgreSQL remains available while the
-application is stopped. The two one-shot commands must exit with status `0`
-before new application containers start.
+`review-postgres` and the two one-shot jobs. It does not migrate unless every
+other container of the Compose project has exited; a container that is
+running, restarting or paused stops it, which also catches an overlay left out
+of `COMPOSE_FILE`. PostgreSQL remains available while the application is
+stopped. The two one-shot commands must exit with status `0` before new
+application containers start. They and the `doctor` call read from
+`/dev/null`: the script reaches `bash` on standard input, and a container
+command that inherited it would consume the remaining lines, ending the script
+early without an error.
+
+The script sees only this Compose project. Stop anything else that uses the
+same database first, such as a model runtime
+[provisioned separately](./ADMIN_PANEL.md#provision-another-connection), and
+upgrade it to the same release.
+
+The final `up` starts each service with the replica count in its Compose
+configuration, which is one unless a file sets `deploy.replicas`. A count
+given earlier with `--scale` is not kept: add the same `--scale` options to
+that command, or keep the counts in an overlay file named in `COMPOSE_FILE`.
+Compare `docker compose ps` with the counts recorded before the upgrade.
 
 </TabItem>
 <TabItem value="dokploy-upgrade" label="Dokploy">
 
 1. Pause **AutoDeploy** for the maintenance window and take the database backup.
 2. Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to exact digest references in
-   **Environment**.
+   **Environment**, and `REVIEW_AGENT_ADMIN_IMAGE` to the same release's admin
+   digest when the admin panel is installed.
 3. In **Advanced > Run Command**, keep the project name, Compose path, and
    `--remove-orphans`, but replace `--build` with
    `--no-build --pull always`. Save the pull-only command.
@@ -705,10 +721,17 @@ REVIEW_AGENT_ACTIVE_JOB_LIMIT=120 REVIEW_AGENT_WORKER_CONCURRENCY=10 \
   docker compose up -d --scale review-worker=10
 ```
 
+The two variables take effect only while no settings revision has been saved
+in the admin console. After the first save, change both values in **Settings**
+and restart the services that read them
+([environment defaults and admin controls](./ADMIN_PANEL.md#environment-defaults-and-admin-controls)).
+A replica count given with `--scale` lasts until the service is next recreated
+without it; see the upgrade procedure above.
+
 Worker slots are an upper bound on running jobs, not a count of running
 reviews. Each model connection and each team also runs at most four jobs at
 once by default, and these workers all serve the shared connection. This
-example therefore still runs four jobs at a time until an owner raises that
+example therefore runs at most four jobs at a time until an owner raises that
 connection's **Maximum concurrent reviews** in the console; see
 [Limits](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits).
 

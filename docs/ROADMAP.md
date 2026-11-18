@@ -15,7 +15,7 @@ last_verified: 2026-11-17
 | --- | --- | --- |
 | Code review on request | `/review` reviews the pull request's current base and head commits and publishes advisory findings | [How reviews work](./HOW_REVIEWS_WORK.md) |
 | Security review | The review procedure instructs the reviewer to trace untrusted input across trust boundaries in the changed code; code checks the findings it records, not the model's reasoning | [How reviews work](./HOW_REVIEWS_WORK.md#4-the-review) |
-| Large pull requests | Changed files that together exceed one session are reviewed in up to twelve parts and merged into one review; files left unread are reported as incomplete coverage | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
+| Large pull requests | A pull request too large for one session can be reviewed in up to twelve parts that are merged into one review; files left unread are reported as incomplete coverage | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
 | Re-review and feedback | Earlier findings are re-checked; maintainers can mark a finding false positive or intentional | [Feedback and decisions](./FEEDBACK_AND_DECISIONS.md) |
 | Repository context | A `.review-agent/` package adds instructions, platform context, and accepted design decisions | [Repository context](./REPOSITORY_CONTEXT.md) |
 | Documentation review | `/review docs`, or an automatic mode, checks whether a pull request leaves mapped documents inaccurate | [Documentation review](./DOCUMENTATION_REVIEW.md) |

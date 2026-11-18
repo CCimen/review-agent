@@ -550,36 +550,52 @@ APP_SERVICES="$(docker compose config --services |
 docker compose pull
 docker compose stop $APP_SERVICES
 
-running="$(docker compose ps --status running --services)"
-for service in $running; do
-  if [ "$service" != review-postgres ]; then
-    echo "$service is still running; do not migrate." >&2
-    exit 1
-  fi
-done
+remaining="$(docker compose ps --all --format '{{.Service}} {{.State}}' |
+  grep -vE '^review-postgres | (exited|created)$' || true)"
+if [ -n "$remaining" ]; then
+  echo "Not stopped; do not migrate:" >&2
+  echo "$remaining" >&2
+  exit 1
+fi
 
-docker compose run --rm --no-deps review-profile-install
-docker compose run --rm --no-deps review-db-migrate
+docker compose run --rm --no-deps review-profile-install </dev/null
+docker compose run --rm --no-deps review-db-migrate </dev/null
 
 docker compose up -d --no-deps --no-build --force-recreate \
   --wait --wait-timeout 300 $APP_SERVICES
-docker compose exec hermes-review review-agent-admin doctor
+docker compose exec -T hermes-review review-agent-admin doctor </dev/null
 docker compose ps
 COMPOSE_UPGRADE
 ```
 
 The script stops and recreates every service of those files except
-`review-postgres` and the two one-shot jobs. It does not migrate while any
-other container of the Compose project is running, which also catches an
-overlay left out of `COMPOSE_FILE`. PostgreSQL remains available while the
-application is stopped. The two one-shot commands must exit with status `0`
-before new application containers start.
+`review-postgres` and the two one-shot jobs. It does not migrate unless every
+other container of the Compose project has exited; a container that is
+running, restarting or paused stops it, which also catches an overlay left out
+of `COMPOSE_FILE`. PostgreSQL remains available while the application is
+stopped. The two one-shot commands must exit with status `0` before new
+application containers start. They and the `doctor` call read from
+`/dev/null`: the script reaches `bash` on standard input, and a container
+command that inherited it would consume the remaining lines, ending the script
+early without an error.
+
+The script sees only this Compose project. Stop anything else that uses the
+same database first, such as a model runtime
+[provisioned separately](./ADMIN_PANEL.md#provision-another-connection), and
+upgrade it to the same release.
+
+The final `up` starts each service with the replica count in its Compose
+configuration, which is one unless a file sets `deploy.replicas`. A count
+given earlier with `--scale` is not kept: add the same `--scale` options to
+that command, or keep the counts in an overlay file named in `COMPOSE_FILE`.
+Compare `docker compose ps` with the counts recorded before the upgrade.
 
 ### Dokploy
 
 1. Pause **AutoDeploy** for the maintenance window and take the database backup.
 2. Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to exact digest references in
-   **Environment**.
+   **Environment**, and `REVIEW_AGENT_ADMIN_IMAGE` to the same release's admin
+   digest when the admin panel is installed.
 3. In **Advanced > Run Command**, keep the project name, Compose path, and
    `--remove-orphans`, but replace `--build` with
    `--no-build --pull always`. Save the pull-only command.
@@ -810,10 +826,17 @@ REVIEW_AGENT_ACTIVE_JOB_LIMIT=120 REVIEW_AGENT_WORKER_CONCURRENCY=10 \
   docker compose up -d --scale review-worker=10
 ```
 
+The two variables take effect only while no settings revision has been saved
+in the admin console. After the first save, change both values in **Settings**
+and restart the services that read them
+([environment defaults and admin controls](./ADMIN_PANEL.md#environment-defaults-and-admin-controls)).
+A replica count given with `--scale` lasts until the service is next recreated
+without it; see the upgrade procedure above.
+
 Worker slots are an upper bound on running jobs, not a count of running
 reviews. Each model connection and each team also runs at most four jobs at
 once by default, and these workers all serve the shared connection. This
-example therefore still runs four jobs at a time until an owner raises that
+example therefore runs at most four jobs at a time until an owner raises that
 connection's **Maximum concurrent reviews** in the console; see
 [Limits](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#limits).
 
@@ -1102,9 +1125,11 @@ again; automatic activation does not override it.
 
 Suspending or uninstalling the App on GitHub blocks every repository of that
 installation. Removing one repository from a selected-repositories installation
-blocks that repository. When GitHub access returns, an automatic installation
-resumes on the next authorized `/review`; in explicit mode, run
-`github-app onboard` again.
+blocks that repository. When GitHub access returns, a repository of an
+automatic installation is enabled again by the next `/review` or feedback
+command processed for it, before the sender is checked, as described under
+[automatic activation](#automatic-approve-once); a repository an operator
+disabled stays disabled. In explicit mode, run `github-app onboard` again.
 
 ## Troubleshooting
 
@@ -2086,8 +2111,10 @@ These lines do not count every attempt. Nothing is written when `hermes-review`
 has no graph URL because the overlay is not loaded (the tool answers
 `disabled`), when the tool rejects the pattern or target, when the review has
 ended or lost its worker lease, or when reading the pull request through the
-GitHub gateway fails. Counting the lines per `run_id` in the `hermes-review`
-logs shows how many queries reached the service and what it answered.
+GitHub gateway fails. Counting the lines with a `pattern` per `run_id` in the
+`hermes-review` logs shows how many queries the service answered and with what
+status. A line without `pattern` records a failed attempt whose outcome at the
+service is unknown.
 
 ## Enable the graph
 
@@ -2118,9 +2145,12 @@ volume. Normal review services do not depend on its health or startup.
    disablement, installation revocation, profile, and worker-lease checks still
    apply to graph access.
 
-2. For semantic queries, set `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS=openai`
-   and add `REVIEW_AGENT_OPENAI_API_KEY` in Dokploy's Environment settings (or
-   the deployment's private `.env` file). The overlay passes the key only to the
+2. For semantic queries, select `openai` embeddings where the gateway reads
+   the setting (step 1): `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS=openai` before any
+   settings revision is saved, **Code graph embeddings** in **Settings**
+   afterwards. The key is always an environment value: add
+   `REVIEW_AGENT_OPENAI_API_KEY` in Dokploy's Environment settings (or the
+   deployment's private `.env` file). The overlay passes the key only to the
    GitHub gateway. Keep the value out of tracked files, chat, and logs. Leave it
    empty with `none`. With `openai`, symbol metadata is sent to OpenAI whenever
    a graph is prepared, not only when a semantic query runs
@@ -2183,8 +2213,10 @@ The embedding API is called on two occasions, both through the GitHub gateway.
 Preparing a graph sends the embedding text of every symbol that has no current
 vector: all of them the first time a repository is indexed, new and changed
 ones afterwards. This happens whether or not a review later asks a semantic
-query. Each `semantic` query sends its query text. The other patterns send
-nothing, and vectors are stored and searched locally.
+query. A `semantic` query sends its query text when it reaches the embedding
+step; one answered `busy`, `unavailable` or `embeddings_unavailable` before
+that sends nothing. The other patterns send nothing, and vectors are stored
+and searched locally.
 
 The structural graph is saved before embeddings start, and each embedding batch
 is committed as it completes. If the review ends, authorization is revoked, or
@@ -2869,9 +2901,10 @@ curl --fail-with-body --get \
 The console uses the same authenticated API it documents. Open **API reference**
 in the console, or `/api/docs`, for Swagger UI under the current session; the
 schema is at `/api/openapi.json`. The frontend contract is `console/openapi.json`
-and the generated `console/src/api.generated.ts`. The schema is the complete
-list of endpoints and parameters. It does not say who may call an endpoint, so
-the table below gives the access rule for the main ones.
+and the generated `console/src/api.generated.ts`. The schema lists the
+application's endpoints and parameters. It states who may call an endpoint for
+only some of them, so the table below collects the access rule for the main
+ones.
 
 | Endpoint | Access | Data |
 | --- | --- | --- |
@@ -3280,7 +3313,7 @@ Last verified: 2026-11-17
 | --- | --- | --- |
 | Code review on request | `/review` reviews the pull request's current base and head commits and publishes advisory findings | [How reviews work](./HOW_REVIEWS_WORK.md) |
 | Security review | The review procedure instructs the reviewer to trace untrusted input across trust boundaries in the changed code; code checks the findings it records, not the model's reasoning | [How reviews work](./HOW_REVIEWS_WORK.md#4-the-review) |
-| Large pull requests | Changed files that together exceed one session are reviewed in up to twelve parts and merged into one review; files left unread are reported as incomplete coverage | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
+| Large pull requests | A pull request too large for one session can be reviewed in up to twelve parts that are merged into one review; files left unread are reported as incomplete coverage | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
 | Re-review and feedback | Earlier findings are re-checked; maintainers can mark a finding false positive or intentional | [Feedback and decisions](./FEEDBACK_AND_DECISIONS.md) |
 | Repository context | A `.review-agent/` package adds instructions, platform context, and accepted design decisions | [Repository context](./REPOSITORY_CONTEXT.md) |
 | Documentation review | `/review docs`, or an automatic mode, checks whether a pull request leaves mapped documents inaccurate | [Documentation review](./DOCUMENTATION_REVIEW.md) |
@@ -4039,13 +4072,20 @@ schedule repeated runs through existing maintenance tooling.
 ## Backup and recovery
 
 PostgreSQL may contain unpublished findings and human-entered reasons; store
-backups securely. Create a logical backup from the Compose host:
+backups securely. Create a logical backup from the Compose host. Each backup
+gets its own file, so a failed dump never replaces an earlier archive:
 
 ```bash
+umask 077
+dump="review-agent-$(date -u +%Y%m%dT%H%M%SZ).dump"
 docker compose exec -T review-postgres \
   pg_dump --username=review_agent --dbname=review_agent --format=custom \
-  > review-agent.dump
+  > "$dump" && echo "Backup written: $dump"
 ```
+
+Without the last line's message the dump failed and the new file is
+incomplete. Keep the previous verified archive until the new one has passed
+the restore test below.
 
 Test recovery in a fresh database before relying on a backup. The archive
 records the grants to the runtime role, including its default privileges, but
@@ -4055,32 +4095,39 @@ first grant. Restore without ownership and grants, connected as the migration
 owner, and let `database prepare` create the runtime role and its grants.
 
 - **Restore test on the production cluster:** no service has to stop. Restore
-  into an empty temporary database, check it, and drop it:
+  into a new temporary database, check it, and drop it. `$dump` is the archive
+  to test. Each step runs only if the one before it succeeded:
 
   ```bash
+  target="review_agent_restore_test_$(date -u +%Y%m%d%H%M%S)"
   docker compose exec -T review-postgres \
-    createdb --username=review_agent review_agent_restore_test
+    createdb --username=review_agent "$target" &&
   docker compose exec -T review-postgres \
-    pg_restore --username=review_agent --dbname=review_agent_restore_test \
-    --no-owner --no-privileges --exit-on-error < review-agent.dump
+    pg_restore --username=review_agent --dbname="$target" \
+    --no-owner --no-privileges --exit-on-error < "$dump" &&
   docker compose exec -T review-postgres \
-    psql --username=review_agent --dbname=review_agent_restore_test \
-    --command "SELECT max(version) FROM review_agent.schema_migrations"
+    psql --username=review_agent --dbname="$target" --set ON_ERROR_STOP=1 \
+    --command "SELECT max(version) FROM review_agent.schema_migrations" &&
   docker compose exec -T review-postgres \
-    dropdb --username=review_agent review_agent_restore_test
+    dropdb --username=review_agent "$target" &&
+  echo "Restore test passed: $dump"
   ```
 
-  Copying grants would give the runtime role access to another database, which
+  Without the final message a step failed. The temporary database, if it was
+  created, is left for inspection; drop it by its name afterwards. Copying
+  grants would give the runtime role access to another database, which
   `database prepare` rejects.
 - **Production recovery into a separate cluster:** stop every service that
   reads or writes Review Agent state. Run the commands with every Compose file
   the deployment uses, so that `review-admin` and the other overlay services
-  are included; the second command must list no service other than
-  `review-postgres`:
+  are included. The second command lists every container of the project with
+  its state; every service other than `review-postgres` must show `exited`. A
+  container that is `restarting` has not stopped. Stop anything outside this
+  project that uses the same database as well:
 
   ```bash
   docker compose stop $(docker compose config --services | grep -vx review-postgres)
-  docker compose ps --status running --services
+  docker compose ps --all --format '{{.Service}} {{.State}}'
   ```
 
   In the new cluster, create the migration-owner role and an empty database it
@@ -4093,18 +4140,26 @@ owner, and let `database prepare` create the runtime role and its grants.
   migrations, creates the runtime role and its grants, and connects once as
   the runtime login:
 
+  Run these in the Compose project of the new cluster, with `$dump` naming a
+  verified archive. The migration job runs only if the restore succeeded:
+
   ```bash
-  docker compose up -d --wait review-postgres
+  docker compose up -d --wait review-postgres &&
   docker compose exec -T review-postgres \
     pg_restore --username=review_agent --dbname=review_agent \
-    --no-owner --no-privileges --exit-on-error < review-agent.dump
-  docker compose run --rm --no-deps review-db-migrate
+    --no-owner --no-privileges --exit-on-error < "$dump" &&
+  docker compose run --rm --no-deps review-db-migrate &&
+  echo "Restored and prepared"
   ```
 
   For an external database, run the same `pg_restore` options from a host with
-  the PostgreSQL client tools. Then redeploy and run
+  the PostgreSQL client tools. A successful `database prepare` proves the
+  schema and the runtime login, not that the data came back: it also succeeds
+  on an empty database. Before switching traffic, redeploy, run
   `review-agent-admin database ready` and `review-agent-admin doctor` in
-  `hermes-review`, where the database URL is the runtime login.
+  `hermes-review`, where the database URL is the runtime login, and read a
+  record you know existed before the backup, for example a recent review with
+  `review-agent-memory runs --run-id <id>`.
 
 Some migrations change the schema in ways older images cannot read (for
 example 016, 029 and 037); older images must not run against the migrated
@@ -4584,8 +4639,8 @@ write.
 - A worker leases the job and calls the private, authenticated Hermes API.
 - Hermes runs the review through the bundled plugin, not through a shell.
 - The model can read bounded pull-request context and record candidate findings.
-- Deterministic plugin code validates each tool call and writes its result to
-  PostgreSQL: recorded findings and the frozen publication.
+- Deterministic plugin code validates each tool call. What it persists goes to
+  PostgreSQL: recorded findings, coverage and the frozen publication.
 - A separate publisher sends the frozen publication to GitHub through the
   gateway, which performs the write.
 - Feedback commands are parsed at admission and recorded by the App worker,
@@ -4622,10 +4677,13 @@ skills, suppressions, memory decisions or feedback commands.
 
 The admission service, App worker and private gateway are outside the model
 path. Admission does not store the webhook body. For each signed delivery of
-an event it handles, it stores a bounded normalized record: the repository and
-installation, the sender's GitHub ID and login, the pull request, and the
-parsed command. A feedback command includes the reason its sender typed; an
-installation event carries the account and its repository list. When a
+an event it handles, it stores a bounded normalized record whose fields depend
+on the event. A comment command holds the repository and installation, the
+sender's GitHub ID and login, the pull request and the parsed command; a
+feedback command also holds the reason its sender typed. An installation event
+holds the account, its permissions and, when the App is installed, its
+repository list. A documentation event holds the pull request or check run it
+concerns and its sender. When a
 delivery reaches a terminal state, its normalized payload is erased, and a
 receipt with the repository, installation, event and body hash stays until an
 operator prunes it. Documentation deliveries keep their bounded event

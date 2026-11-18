@@ -13,7 +13,7 @@ from ..domain.documentation_operating_policy import (
     ResolvedDocumentationMode,
 )
 from ..domain.review import ReviewPurpose, ReviewRunId
-from . import jobs, review_runs, webhook_deliveries
+from . import jobs, registry, review_runs, webhook_deliveries
 from .. import failure_codes
 
 DocumentationTrigger = Literal["manual", "automatic", "check_rerun"]
@@ -83,6 +83,23 @@ def record(
         )
 
 
+def promoted_comment(
+    connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
+) -> tuple[object, ...]:
+    """The comment recorded when an explicit request promoted this run.
+
+    Empty when the run has no admission. Otherwise one value, which is None
+    when the admission was never promoted.
+    """
+    row = connection.execute(
+        """SELECT admission.promotion_json->'comment_id'
+        FROM review_agent.documentation_admissions admission
+        WHERE admission.review_run_id = %s""",
+        (run_id,),
+    ).fetchone()
+    return () if row is None else (row[0],)
+
+
 def is_automatic(connection: psycopg.Connection[TupleRow], run_id: ReviewRunId) -> bool:
     row = connection.execute(
         "SELECT trigger_kind = 'automatic' AND promoted_delivery_id IS NULL FROM review_agent.documentation_admissions WHERE review_run_id = %s",
@@ -117,10 +134,7 @@ def cancel_ineligible(
             automatic and job_status == "queued"
         ):
             scope = review_runs.get_run_scope(connection, ReviewRunId(run_id))
-            connection.execute(
-                "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE",
-                (scope.run.pull_request_id,),
-            )
+            registry.lock_pull_request(connection, scope.run.pull_request_id)
             current = review_runs.lock_run(connection, ReviewRunId(run_id))
             job = connection.execute(
                 "SELECT status FROM review_agent.review_jobs WHERE review_run_id = %s FOR UPDATE",
@@ -190,10 +204,7 @@ def cancel_for_pull(
         (provider_repository_id, pr_number, automatic_only),
     ).fetchall()
     for run_id, pull_id in rows:
-        connection.execute(
-            "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE",
-            (pull_id,),
-        )
+        registry.lock_pull_request(connection, pull_id)
         current = review_runs.lock_run(connection, ReviewRunId(run_id))
         job = connection.execute(
             "SELECT status FROM review_agent.review_jobs WHERE review_run_id = %s FOR UPDATE",

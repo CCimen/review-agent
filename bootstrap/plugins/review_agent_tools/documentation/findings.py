@@ -40,6 +40,7 @@ from ..postgres import (
     findings,
     github_app,
     jobs,
+    registry,
     repository_decisions,
     review_runs,
 )
@@ -558,10 +559,7 @@ def finalize_documentation_assessment(
         github_app.authorize_documentation_review(
             connection, scope.provider_repository_id
         )
-        connection.execute(
-            "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE",
-            (scope.run.pull_request_id,),
-        )
+        registry.lock_pull_request(connection, scope.run.pull_request_id)
         review_runs.lock_run(connection, resolved_id)
         jobs.require_live_lease(
             connection,

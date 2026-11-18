@@ -19,6 +19,7 @@ from .. import failure_codes
 from ..model_runtime.quota import MANUAL_REFRESH_SECONDS, QuotaCheck
 from ..review.contract import SHARED_CONNECTION_ID
 from ..domain.review import PullRequestId, ReviewRunId, ReviewStatus
+from . import registry
 
 
 class ReviewJobError(ValueError):
@@ -420,13 +421,12 @@ def enqueue_run(
     if run is None:
         raise ReviewJobError("review run does not exist")
     try:
-        pull_request = connection.execute(
-            "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE",
-            (run.pull_request_id,),
-        ).fetchone()
+        pull_request_exists = registry.lock_pull_request(
+            connection, run.pull_request_id
+        )
     except errors.LockNotAvailable as exc:
         raise ReviewJobBusy("pull request is busy enqueuing review work") from exc
-    if pull_request is None:
+    if not pull_request_exists:
         raise ReviewJobError("review run pull request does not exist")
 
     try:

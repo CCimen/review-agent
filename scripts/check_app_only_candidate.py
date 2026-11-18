@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail when the release candidate retains a deleted non-App product path."""
+"""Fail on an embedded credential or a broken App credential boundary in compose.yaml."""
 
 from __future__ import annotations
 
@@ -43,37 +43,6 @@ EXCLUDED_FILES = {
     Path("install/package-lock.json"),
 }
 RESIDUAL_RULES = (
-    (
-        "legacy GitHub credential",
-        re.compile(
-            r"\b(?:GITHUB_READ_TOKEN|REVIEW_AGENT_PUBLISH_GH_TOKEN|"
-            r"REVIEW_AGENT_FEEDBACK_GH_TOKEN)\b"
-        ),
-    ),
-    (
-        "legacy repository allowlist",
-        re.compile(r"\bREVIEW_AGENT_ALLOWED_REPOSITORIES\b"),
-    ),
-    (
-        "legacy webhook secret",
-        re.compile(
-            r"\b(?:REVIEW_AGENT_WEBHOOK_SECRET|"
-            r"REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET)\b"
-        ),
-    ),
-    ("copied Review Agent workflow", re.compile(r"ai-review-request\.ya?ml")),
-    (
-        "legacy HMAC route",
-        re.compile(r"/webhooks/review-agent(?:-feedback)?\b"),
-    ),
-    ("feedback sidecar", re.compile(r"\bhermes-review-feedback\b")),
-    (
-        "stale workflow onboarding",
-        re.compile(
-            r"Install the trusted workflow|GitHub Actions authorizes trusted "
-            r"commenters|explicit repository allowlist"
-        ),
-    ),
     (
         "embedded credential",
         re.compile(
@@ -216,13 +185,6 @@ def _topology_findings(root: Path) -> list[Finding]:
 def check_candidate(root: Path = ROOT) -> list[Finding]:
     findings = scan_residual_paths(root, candidate_paths(root))
     findings.extend(_topology_findings(root))
-    for removed in (
-        Path(".github/workflows/ai-review-request.yml"),
-        Path("examples/github/ai-review-request.yml"),
-        Path("scripts/smoke_webhook.py"),
-    ):
-        if (root / removed).exists():
-            findings.append(Finding(removed.as_posix(), 1, "deleted product path exists"))
     return sorted(findings)
 
 

@@ -34,6 +34,9 @@ class GitHubAppRepositoryNotFound(GitHubAppStateError):
 class GitHubAppRepositoryUnauthorized(GitHubAppStateError):
     """The repository is not currently authorized for this App operation."""
 
+    # The rejection code callers report; a subclass names a narrower cause.
+    reason: str = "repository_not_authorized"
+
 
 class GitHubAppDocumentationUnauthorized(GitHubAppRepositoryUnauthorized):
     """Repository access exists but the documentation capability is unavailable."""

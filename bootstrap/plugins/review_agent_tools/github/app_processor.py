@@ -522,7 +522,7 @@ class GitHubAppProcessor:
                     actor=actor,
                 )
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise _Reject(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+            raise _Reject(exc.reason) from exc
         except jobs.ReviewQueueFull as exc:
             raise _WaitingForCapacity from exc
         except model_connections.ModelPolicyUnavailable as exc:

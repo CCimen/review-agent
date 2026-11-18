@@ -1037,7 +1037,7 @@ class ReviewGitHubGateway:
         except GitHubAppTokenPermanent as exc:
             raise GitHubGatewayRejected("provider_authorization_denied") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason) from exc
         current = self._require_operator_repository(resolved_repository)
         if current.provider_repository_id != access.provider_repository_id:
             raise GitHubGatewayRejected("repository_not_authorized")
@@ -1085,8 +1085,10 @@ class ReviewGitHubGateway:
                     profile_key=self._profile,
                 )
                 return access
+        except github_app.GitHubAppRepositoryUnauthorized as exc:
+            raise GitHubGatewayRejected(exc.reason) from exc
         except github_app.GitHubAppStateError as exc:
-            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+            raise GitHubGatewayRejected("repository_not_authorized") from exc
 
     def _require_source_authority(
         self,
@@ -1123,7 +1125,7 @@ class ReviewGitHubGateway:
         ) as exc:
             raise GitHubGatewayRejected("review_job_lease_lost") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason) from exc
 
     def _provider_source(
         self,
@@ -1140,7 +1142,7 @@ class ReviewGitHubGateway:
             except GitHubAppTokenPermanent as exc:
                 raise GitHubGatewayRejected("provider_authorization_denied") from exc
             except github_app.GitHubAppRepositoryUnauthorized as exc:
-                raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+                raise GitHubGatewayRejected(exc.reason) from exc
             except GitHubReadError as exc:
                 if exc.kind == "unauthorized" and attempt == 0:
                     self._tokens.invalidate(provider_repository_id)
@@ -1228,7 +1230,7 @@ class ReviewGitHubGateway:
         ) as exc:
             raise GitHubGatewayRejected("delivery_lease_lost") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason) from exc
 
     def _delivery_command(self, connection: psycopg.Connection[TupleRow], delivery: webhook_deliveries.WebhookDelivery,
                           category: webhook_deliveries.CommandCategory) -> _IssueCommentCommand:
@@ -1302,8 +1304,10 @@ class ReviewGitHubGateway:
             raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
         except GitHubAppTokenPermanent as exc:
             raise GitHubGatewayRejected("provider_authorization_denied") from exc
+        except github_app.GitHubAppRepositoryUnauthorized as exc:
+            raise GitHubGatewayRejected(exc.reason) from exc
         except github_app.GitHubAppStateError as exc:
-            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+            raise GitHubGatewayRejected("repository_not_authorized") from exc
 
     def _provider_feedback(
         self,
@@ -1322,7 +1326,7 @@ class ReviewGitHubGateway:
             except GitHubAppTokenPermanent as exc:
                 raise GitHubGatewayRejected("provider_authorization_denied") from exc
             except github_app.GitHubAppRepositoryUnauthorized as exc:
-                raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+                raise GitHubGatewayRejected(exc.reason) from exc
             except GitHubPublicationError as exc:
                 if exc.status == 401 and attempt == 0:
                     self._tokens.invalidate(
@@ -1375,7 +1379,7 @@ class ReviewGitHubGateway:
                 "review_acknowledgement_unavailable"
             ) from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason) from exc
 
     def _requester_allowed(self, command: _IssueCommentCommand) -> bool:
         with self._postgres.transaction() as connection:

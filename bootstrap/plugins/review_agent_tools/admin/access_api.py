@@ -9,12 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
 from .. import operator_application, operator_setup
-from ..admin_auth import AdminAuth, User
+from ..admin_auth import AdminAuth
 from ..github import app_auth, app_inventory
 from ..postgres import github_app, registry
 from ..postgres.team_access import AccessRequest
 from ..postgres.runtime import PostgreSQLRuntime, PostgreSQLRuntimeError
 from ..settings import ReviewAgentSettings
+from .accounts import User
 
 
 class AccessCapability(BaseModel):

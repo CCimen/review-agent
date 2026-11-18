@@ -1,5 +1,7 @@
-"""Optional SMTP delivery for console registration verification."""
+"""Optional SMTP delivery for console registration verification, and its settings."""
 
+import asyncio
+import json
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -11,7 +13,9 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr, model_va
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..postgres.audit import AuditAction
 from ..settings import SettingsError
+from .accounts import User, lock_accounts
 
 
 class SMTPConfiguration(BaseModel):
@@ -149,3 +153,135 @@ async def smtp_settings(
                 "Email credentials could not be opened. Restore the encryption key or save the password again.",
             ) from None
     return SMTPSettings.model_validate({**row["configuration"], "password": password})
+
+
+async def save_email_settings(
+    session: AsyncSession,
+    actor: User,
+    change: EmailUpdate,
+    *,
+    email_secret: Fernet | None,
+) -> EmailSettings:
+    await lock_accounts(session)
+    await session.refresh(actor)
+    if not actor.is_active or not actor.is_platform_owner:
+        raise HTTPException(403, "Platform owner access required")
+    previous = await email_settings(session, email_secret)
+    if previous.revision != change.expected_revision:
+        raise HTTPException(
+            409, "Email settings changed. Reload before saving."
+        )
+    # A changed relay must not receive a password retained for another endpoint.
+    if (
+        change.password is None
+        and previous.password_set
+        and previous.configuration
+    ):
+        old = previous.configuration
+        new = change.configuration
+        if (old.host, old.port, old.tls, old.username) != (
+            new.host,
+            new.port,
+            new.tls,
+            new.username,
+        ):
+            raise HTTPException(
+                422,
+                "Enter the password again when changing the SMTP server or login.",
+            )
+    retained = await session.scalar(
+        text(
+            "SELECT encrypted_password FROM review_agent.admin_email_settings WHERE singleton"
+        )
+    )
+    if change.password is not None:
+        password = change.password.get_secret_value()
+        if password and email_secret is None:
+            raise HTTPException(
+                503,
+                "Configure the deployment email encryption key before saving a password.",
+            )
+        retained = (
+            email_secret.encrypt(password.encode()).decode()
+            if password and email_secret
+            else None
+        )
+    if bool(change.configuration.username) != bool(retained):
+        raise HTTPException(
+            422, "SMTP username and password must be set together."
+        )
+    await session.execute(
+        text(
+            "UPDATE review_agent.admin_email_settings SET revision = revision + 1, "
+            "enabled = :enabled, configuration = CAST(:configuration AS JSONB), encrypted_password = :password WHERE singleton"
+        ),
+        {
+            "enabled": change.enabled,
+            "configuration": change.configuration.model_dump_json(),
+            "password": retained,
+        },
+    )
+    await session.execute(
+        text(
+            "INSERT INTO review_agent.admin_audit_events "
+            "(actor_id, actor_email, actor_role, action, subject, reason, details, owner_only) "
+            "VALUES (:id, :email, 'owner', :action, 'email-delivery', 'Email settings updated', CAST(:details AS JSONB), true)"
+        ),
+        {
+            "id": actor.id,
+            "email": actor.email,
+            "action": AuditAction.EMAIL_UPDATED.value,
+            "details": json.dumps(
+                {
+                    "previous_revision": previous.revision,
+                    "enabled": change.enabled,
+                    "host": change.configuration.host,
+                    "password_changed": change.password is not None,
+                }
+            ),
+        },
+    )
+    result = await email_settings(session, email_secret)
+    await session.commit()
+    return result
+
+
+async def send_test_email(
+    session: AsyncSession,
+    actor: User,
+    change: EmailTest,
+    *,
+    email_secret: Fernet | None,
+) -> None:
+    await lock_accounts(session)
+    await session.refresh(actor)
+    if not actor.is_active or not actor.is_platform_owner:
+        raise HTTPException(403, "Platform owner access required")
+    settings = await email_settings(session, email_secret)
+    if settings.revision != change.expected_revision:
+        raise HTTPException(
+            409, "Email settings changed. Reload before testing."
+        )
+    smtp = await smtp_settings(session, email_secret, for_test=True)
+    if smtp is None:
+        raise HTTPException(422, "Save SMTP settings before testing.")
+    claimed = await session.scalar(
+        text(
+            "UPDATE review_agent.admin_email_settings SET last_test_at = now() "
+            "WHERE singleton AND (last_test_at IS NULL OR last_test_at < now() - interval '1 minute') RETURNING singleton"
+        )
+    )
+    if not claimed:
+        raise HTTPException(
+            429,
+            "Wait one minute before sending another test.",
+            headers={"Retry-After": "60"},
+        )
+    await session.commit()
+    try:
+        await asyncio.to_thread(smtp.send_test, actor.email)
+    except (OSError, smtplib.SMTPException):
+        raise HTTPException(
+            503,
+            "Could not send the test email. Check the SMTP settings and try again in a minute.",
+        ) from None

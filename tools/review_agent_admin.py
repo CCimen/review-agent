@@ -33,7 +33,11 @@ def _load_package() -> None:
 _load_package()
 
 from review_agent_tools.documentation import scope as documentation_scope  # noqa: E402
-from review_agent_tools import operator_application, operator_setup  # noqa: E402
+from review_agent_tools import (  # noqa: E402
+    operator_application,
+    operator_input,
+    operator_setup,
+)
 from review_agent_tools.repository_context import (  # noqa: E402
     validation as repository_context_validation,
 )
@@ -537,7 +541,7 @@ def _repository_change(args: argparse.Namespace) -> int:
         return os.EX_TEMPFAIL
     except (
         github_app.GitHubAppStateError,
-        operator_application.OperatorInputError,
+        operator_input.OperatorInputError,
         registry.RegistryError,
         psycopg.Error,
         ValueError,
@@ -662,7 +666,7 @@ def _database_retention_command(args: argparse.Namespace) -> int:
     except (PostgreSQLRuntimeError, psycopg.OperationalError):
         _json_error(code="database_unavailable", retryable=True)
         return os.EX_TEMPFAIL
-    except (operator_application.OperatorInputError, ValueError):
+    except (operator_input.OperatorInputError, ValueError):
         _json_error(code="invalid_retention_request", retryable=False)
         return os.EX_USAGE
     except psycopg.Error:
@@ -749,7 +753,7 @@ def _job_command(args: argparse.Namespace) -> int:
         return os.EX_TEMPFAIL
     except (
         jobs.ReviewJobError,
-        operator_application.OperatorInputError,
+        operator_input.OperatorInputError,
         psycopg.Error,
         ValueError,
     ):
@@ -787,7 +791,7 @@ def _sync_installation(args: argparse.Namespace) -> int:
         app_auth.GitHubAppTokenPermanent,
         app_inventory.GitHubAppInventoryPermanent,
         github_app.GitHubAppStateError,
-        operator_application.OperatorInputError,
+        operator_input.OperatorInputError,
         registry.RegistryError,
         psycopg.Error,
         ValueError,
@@ -838,7 +842,7 @@ def _onboard_repository(args: argparse.Namespace) -> int:
         app_auth.GitHubAppTokenPermanent,
         app_inventory.GitHubAppInventoryPermanent,
         github_app.GitHubAppStateError,
-        operator_application.OperatorInputError,
+        operator_input.OperatorInputError,
         registry.RegistryError,
         psycopg.Error,
         ValueError,
@@ -890,7 +894,7 @@ def _approve_installation(args: argparse.Namespace) -> int:
         app_auth.GitHubAppTokenPermanent,
         app_inventory.GitHubAppInventoryPermanent,
         github_app.GitHubAppStateError,
-        operator_application.OperatorInputError,
+        operator_input.OperatorInputError,
         psycopg.Error,
         ValueError,
     ):

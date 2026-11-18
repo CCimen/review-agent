@@ -325,20 +325,21 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
                 FindingContent,
             )
 
-            from review_agent_tools import operator_application
+            from review_agent_tools import operator_input
+            from review_agent_tools.review import decision_application
 
             target = connection.execute(
                 "SELECT identity.fingerprint, occurrence.id FROM review_agent.finding_occurrences occurrence JOIN review_agent.finding_identities identity ON identity.id = occurrence.finding_id WHERE occurrence.review_run_id = %s",
                 (run_id,),
             ).fetchone()
-            request = operator_application.OperatorDecisionRequest(
+            request = decision_application.OperatorDecisionRequest(
                 repository="team/repository", fingerprint=target[0], occurrence_id=target[1],
                 decision="false_positive", reason="The documentation already describes this behavior", actor="operator:test",
             )
-            decision = operator_application.decide_finding_in_transaction(connection, request)
+            decision = decision_application.decide_finding_in_transaction(connection, request)
             self.assertEqual(int(decision.occurrence_id), target[1])
-            with self.assertRaisesRegex(operator_application.OperatorInputError, "Documentation findings"):
-                operator_application.decide_finding_in_transaction(
+            with self.assertRaisesRegex(operator_input.OperatorInputError, "Documentation findings"):
+                decision_application.decide_finding_in_transaction(
                     connection, replace(request, decision="intentional_by_design", adr_id="ADR-0001"),
                 )
 

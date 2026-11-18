@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import application as admin_application
-from .. import operator_application
+from ..review import decision_application
 from ..admin_auth import AdminAuth
 from ..postgres.team_access import AccessRequest
 from ..domain.feedback import FeedbackTargetOwner, FeedbackTriageStatus
@@ -120,11 +120,11 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
         fingerprint: Fingerprint,
         request: FindingDecisionRequest,
-    ) -> operator_application.OperatorDecisionResult:
+    ) -> decision_application.OperatorDecisionResult:
         try:
             return admin_application.decide_finding(
                 runtime,
-                operator_application.OperatorDecisionRequest(
+                decision_application.OperatorDecisionRequest(
                     repository=request.repository,
                     fingerprint=fingerprint,
                     occurrence_id=request.occurrence_id,

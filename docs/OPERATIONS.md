@@ -23,7 +23,7 @@ The deployment uses two named volumes:
 
 | Volume | Mounted in | Purpose |
 | --- | --- | --- |
-| `hermes_review_data` | Profile installer (write); Hermes and workers (read) | Hermes config, provider credentials, sessions, managed skills, plugins, and the installed reviewer receipt. Admission derives the same contract from immutable image files and cannot read this volume. |
+| `hermes_review_data` | Profile installer and Hermes (read and write); workers (read-only) | Hermes config, provider credentials, sessions, managed skills, plugins, and the installed reviewer receipt. Admission derives the same contract from immutable image files and cannot read this volume. |
 | `review_postgres_data` | `review-postgres` at `/var/lib/postgresql/data` | PostgreSQL review state. |
 
 Do not run two Hermes gateways against the same `hermes_review_data` volume.
@@ -251,10 +251,10 @@ A healthy run moves through `accepted`, `fetching_pr`, `collecting_diff`,
 ### Diagnose a review run
 
 ```bash
-review-agent-memory runs --run-id <id> > /opt/data/review-memory/run-<id>.json
+review-agent-memory runs --run-id <id>
 ```
 
-The JSON report covers one run:
+The JSON report is printed on standard output and covers one run:
 
 - status, `failure_code` and `failure_detail`;
 - the requested provider, model and reasoning effort;
@@ -264,7 +264,10 @@ The JSON report covers one run:
   truncated paths.
 
 It contains no review text, comment bodies or requester identities, and stays
-under 512 KiB so a tool that can only read container files can open it.
+under 512 KiB so a tool that can only read container files can open it. For
+such a tool, redirect the output to a file; no report directory exists until you
+create one, for example with `mkdir -p /opt/data/review-memory` in
+`hermes-review`.
 
 `failure_detail` is at most 300 characters: one of the reviewer's own messages
 or Hermes error text, which Hermes redacts. Treat it as untrusted text. When
@@ -565,7 +568,8 @@ Durable history is kept unless this table says otherwise:
 | `publications`, `publication_parts`, `publication_findings` | Repository owner | Preserve exact publication and recovery evidence. |
 | `admin_users`, `admin_sessions` | Deployment owner | Preserve console accounts and revocable sessions; treat backups as credential-bearing data. |
 | `admin_registration_policy`, `admin_email_settings` | Deployment owner | Preserve the registration policy and email delivery settings. The SMTP password is stored encrypted with `REVIEW_AGENT_EMAIL_SECRET_KEY`. |
-| `admin_registration_requests`, `admin_oidc_requests` | Deployment owner | Short-lived: pending registrations and sign-in requests hold only token digests and are deleted on use or expiry. |
+| `admin_registration_requests` | Deployment owner | Short-lived: a pending email registration holds the email address, a digest of the emailed token and a 30-minute expiry. Completing the registration deletes it; an expired row stays until a later accepted registration request removes expired rows. |
+| `admin_oidc_requests` | Deployment owner | Short-lived and credential-bearing: an organization sign-in in progress holds digests of its state and browser values, the nonce and the PKCE code verifier in clear, a five-minute expiry and, while a signed-in user links an account, that user's session token. The callback deletes it; an abandoned row stays until a later sign-in that is started successfully removes expired rows, or until the linked user or session is deleted. |
 | `teams`, `team_members`, `team_repositories`, `repository_requests`, `repository_review_requesters` | Deployment owner | Preserve team access, repository ownership, request decisions and requester grants. A removed requester grant is deleted. |
 | `model_connections`, `model_accounts`, `team_model_policies`, `model_login_sessions` | Deployment owner | Preserve model connection registrations, the account bound to each, team routing and the record of console sign-in attempts. Provider credentials are not stored here; they live on the Hermes volume. |
 | `integrations`, `integration_teams` | Deployment owner | Preserve application integrations and their team scope, including revoked ones. Only a digest of each credential is stored. |
@@ -573,8 +577,8 @@ Durable history is kept unless this table says otherwise:
 | `admin_run_actions` | Deployment owner | Preserve who retried, cancelled or marked a run stalled, and why. |
 | `admin_audit_events` | Deployment owner | Preserve access changes and human audit evidence. Successful application read receipts can be pruned only with the bounded integration command below. |
 | `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage and idempotency receipts. |
-| `coach_runs`, `coach_candidates`, `coach_intervention_outcomes` | None | No longer read or written. Kept for one release so the previous release still runs after a rollback; a later migration drops them. |
-| `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | None | Empty and no longer read or written. Kept for one release so the previous release still runs after a rollback; a later migration drops them. |
+| `coach_runs`, `coach_candidates`, `coach_intervention_outcomes` | None | No longer read or written. This release keeps the tables and their rows. Whether an earlier release can run against the current schema is decided as the [rollback boundary](./DEPLOYMENT.md#rollback-boundary) describes. |
+| `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | None | Empty and no longer read or written. This release keeps the tables; the same [rollback boundary](./DEPLOYMENT.md#rollback-boundary) applies. |
 
 Raw webhook bodies are not stored. Terminal documentation deliveries keep their
 bounded normalized event envelope until the pruning command removes the
@@ -628,23 +632,64 @@ docker compose exec -T review-postgres \
   > review-agent.dump
 ```
 
-Test recovery in a fresh database before relying on a backup. Stop the services
-that read or write Review Agent state:
+Test recovery in a fresh database before relying on a backup. The archive
+records the grants to the runtime role, including its default privileges, but
+not the role: PostgreSQL roles belong to the cluster, not to a database. In a
+cluster without that role, `pg_restore --exit-on-error` alone stops at the
+first grant. Restore without ownership and grants, connected as the migration
+owner, and let `database prepare` create the runtime role and its grants.
 
-```bash
-docker compose stop review-admission review-github-app-worker review-worker \
-  review-publisher review-github-gateway hermes-review
-```
+- **Restore test on the production cluster:** no service has to stop. Restore
+  into an empty temporary database, check it, and drop it:
 
-- **Restore test on the production cluster:** use
-  `pg_restore --no-owner --no-privileges --exit-on-error`, then drop the
-  temporary database after verification. Copying grants would give the runtime
-  role access to another database, which `database prepare` rejects.
-- **Production recovery into a separate cluster:** restore with
-  `pg_restore --exit-on-error`, set the restored database's owner and runtime
-  URLs, run `review-agent-admin database prepare` and
-  `review-agent-admin database ready`, then point the environment at the
-  restored database and redeploy.
+  ```bash
+  docker compose exec -T review-postgres \
+    createdb --username=review_agent review_agent_restore_test
+  docker compose exec -T review-postgres \
+    pg_restore --username=review_agent --dbname=review_agent_restore_test \
+    --no-owner --no-privileges --exit-on-error < review-agent.dump
+  docker compose exec -T review-postgres \
+    psql --username=review_agent --dbname=review_agent_restore_test \
+    --command "SELECT max(version) FROM review_agent.schema_migrations"
+  docker compose exec -T review-postgres \
+    dropdb --username=review_agent review_agent_restore_test
+  ```
+
+  Copying grants would give the runtime role access to another database, which
+  `database prepare` rejects.
+- **Production recovery into a separate cluster:** stop every service that
+  reads or writes Review Agent state. Run the commands with every Compose file
+  the deployment uses, so that `review-admin` and the other overlay services
+  are included; the second command must list no service other than
+  `review-postgres`:
+
+  ```bash
+  docker compose stop $(docker compose config --services | grep -vx review-postgres)
+  docker compose ps --status running --services
+  ```
+
+  In the new cluster, create the migration-owner role and an empty database it
+  owns. The bundled `review-postgres` creates both when it first starts on an
+  empty volume; start only that service, because the restore needs the database
+  as it is before `review-db-migrate` has run. Restore as the migration owner,
+  then set `REVIEW_AGENT_DATABASE_URL` and `REVIEW_AGENT_RUNTIME_DATABASE_URL`
+  to the restored database and run the one-shot database job, the only
+  container with both URLs. It runs `database prepare`, which applies pending
+  migrations, creates the runtime role and its grants, and connects once as
+  the runtime login:
+
+  ```bash
+  docker compose up -d --wait review-postgres
+  docker compose exec -T review-postgres \
+    pg_restore --username=review_agent --dbname=review_agent \
+    --no-owner --no-privileges --exit-on-error < review-agent.dump
+  docker compose run --rm --no-deps review-db-migrate
+  ```
+
+  For an external database, run the same `pg_restore` options from a host with
+  the PostgreSQL client tools. Then redeploy and run
+  `review-agent-admin database ready` and `review-agent-admin doctor` in
+  `hermes-review`, where the database URL is the runtime login.
 
 Some migrations change the schema in ways older images cannot read (for
 example 016, 029 and 037); older images must not run against the migrated
@@ -805,7 +850,7 @@ Services read these values at startup.
 | `REVIEW_AGENT_PUBLICATION_POLL_SECONDS` | `2` | `review-publisher`, `review-admin` | Wait between checks of an idle publication queue. |
 | `REVIEW_AGENT_FEEDBACK_ENABLED` | `false` | `hermes-review`, `review-admin` | Show copyable feedback commands in the review comment. |
 | **Operator commands** | | | |
-| `REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS` | `100` | `hermes-review`, `review-github-gateway` | Items per JSON inventory or job page; use `--after-id` for the next page. |
+| `REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS` | `100` | `hermes-review`, `review-github-gateway` | Largest `--limit` an operator list or prune command accepts. `installations list` and `repositories list` continue with `--after-id`; `jobs list` returns one bounded snapshot, oldest first, narrowed with `--status`. |
 | `REVIEW_AGENT_OPERATOR_EXPORT_MAX_ROWS` | `10000` | `hermes-review`, `review-github-gateway` | Rows per table in one private export. |
 | **Admin console** (`compose.admin.yaml`) | | | |
 | `REVIEW_AGENT_ADMIN_PUBLIC_URL` | required with the overlay | `review-admin` | Public console origin. |

@@ -4,7 +4,7 @@ slug: /security
 title: Security model
 description: Trust boundaries, tool surface, prompt-injection posture, token scopes, and data handling.
 status: current
-last_verified: 2026-11-17
+last_verified: 2026-11-18
 ---
 
 # Security model
@@ -64,7 +64,16 @@ as evidence only. Repository content cannot change reviewer policy, prompts,
 skills, suppressions, memory decisions or feedback commands.
 
 The admission service, App worker and private gateway are outside the model
-path. Admission stores only a normalized `/review ...` command. Before the
+path. Admission does not store the webhook body. For each signed delivery of
+an event it handles, it stores a bounded normalized record: the repository and
+installation, the sender's GitHub ID and login, the pull request, and the
+parsed command. A feedback command includes the reason its sender typed; an
+installation event carries the account and its repository list. When a
+delivery reaches a terminal state, its normalized payload is erased, and a
+receipt with the repository, installation, event and body hash stays until an
+operator prunes it. Documentation deliveries keep their bounded event
+envelope, including the sender, until pruned; see
+[Retention ownership](./OPERATIONS.md#retention-ownership). Before the
 feedback application writes PostgreSQL, the gateway checks the exact open pull
 request and the sender's current write or admin permission. The gateway can then
 post only a code-owned reaction or explanation.

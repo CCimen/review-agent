@@ -43,12 +43,11 @@ class HermesModelWindowTests(unittest.TestCase):
         return window
 
     def test_resolves_through_the_functions_hermes_uses_for_its_sessions(self) -> None:
+        from review_agent.domain.model_execution import ModelWindow
         from review_agent.hermes import window as hermes_window
 
         window = self.resolve("openai-codex", "selected-model", 500_000)
-        self.assertEqual(
-            window, hermes_window.ModelWindow(500_000, 100_000, 200_000, 400_000)
-        )
+        self.assertEqual(window, ModelWindow(500_000, 100_000, 200_000, 400_000))
         self.assertEqual(hermes_window.default_budget(), (100_000, 200_000))
 
     def test_an_output_reservation_moves_the_compaction_point_as_in_hermes(self) -> None:

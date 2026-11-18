@@ -14,6 +14,7 @@ from typing import Any, Callable, TypeVar, cast
 
 from .. import capacity, settings
 from ..domain import failure_codes, review_validation
+from ..domain.model_execution import ModelWindow
 from . import contract as review_contract, runs as review_runs
 from ..hermes import window as hermes_window
 from ..domain.review import ReviewRunId
@@ -102,13 +103,13 @@ def worker_lease_fence(
     return decorate
 
 
-def session_window(context: dict[str, Any]) -> hermes_window.ModelWindow:
+def session_window(context: dict[str, Any]) -> ModelWindow:
     """The window admitted for the calling session's execution.
 
     The lease fence takes it from the execution's admission, never from the model.
     """
     window = context.get(_MODEL_WINDOW)
-    if not isinstance(window, hermes_window.ModelWindow):
+    if not isinstance(window, ModelWindow):
         raise ToolInputError("the review execution's model window is unavailable")
     return window
 

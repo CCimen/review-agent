@@ -16,7 +16,7 @@ from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 
 from ..domain import failure_codes
-from ..hermes.quota import MANUAL_REFRESH_SECONDS, QuotaCheck
+from ..domain.model_execution import QUOTA_RECHECK_SECONDS, QuotaCheck
 from ..review.contract import SHARED_CONNECTION_ID
 from ..domain.review import PullRequestId, ReviewRunId, ReviewStatus
 from . import registry
@@ -792,7 +792,7 @@ def begin_model_execution(
             """UPDATE review_agent.model_accounts
                SET quota_wait_until = GREATEST(quota_wait_until, statement_timestamp() + %s)
                WHERE connection_id = %s AND provider = %s""",
-            (timedelta(seconds=MANUAL_REFRESH_SECONDS), managed[0], provider),
+            (timedelta(seconds=QUOTA_RECHECK_SECONDS), managed[0], provider),
         )
         requeue_unstarted_job(
             connection,

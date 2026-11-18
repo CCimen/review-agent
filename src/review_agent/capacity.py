@@ -7,8 +7,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 
+from .domain.model_execution import ModelWindow
 from .domain.review import MAX_REVIEW_PARTS
-from .hermes.window import ModelWindow
 
 
 DEFAULT_RESULT_MAX_CHARS = 160_000

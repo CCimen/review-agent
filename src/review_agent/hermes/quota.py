@@ -9,6 +9,7 @@ from time import monotonic, time
 from typing import Literal, Protocol, cast
 from uuid import UUID
 
+from ..domain import model_execution
 from .accounts import (
     AccountAvailability,
     ModelProvider,
@@ -79,14 +80,7 @@ class ManagedQuota:
     observation: ObservedQuota
 
 
-@dataclass(frozen=True, slots=True)
-class QuotaCheck:
-    observed_at: datetime
-    allowed: bool
-    retry_at: datetime
-
-
-def execution_quota(data: AccountQuota) -> QuotaCheck | None:
+def execution_quota(data: AccountQuota) -> model_execution.QuotaCheck | None:
     """Only the provider's explicit account allowance can stop or resume work."""
     snapshot = data.snapshot
     if data.provider is not ModelProvider.CODEX or snapshot is None:
@@ -100,12 +94,12 @@ def execution_quota(data: AccountQuota) -> QuotaCheck | None:
         or now - snapshot.fetched_at >= REFRESH_SECONDS
     ):
         return None
-    return QuotaCheck(
+    return model_execution.QuotaCheck(
         datetime.fromtimestamp(snapshot.fetched_at, timezone.utc),
         main.allowed,
         datetime.fromtimestamp(
             max(
-                now + MANUAL_REFRESH_SECONDS,
+                now + model_execution.QUOTA_RECHECK_SECONDS,
                 min(data.next_refresh_at or now, now + REFRESH_SECONDS),
             ),
             timezone.utc,
@@ -329,7 +323,8 @@ class QuotaCache:
                 ]
                 if resets:
                     delay = max(
-                        MANUAL_REFRESH_SECONDS, min(delay, min(resets) - time())
+                        model_execution.QUOTA_RECHECK_SECONDS,
+                        min(delay, min(resets) - time()),
                     )
         entry.next_refresh = now + delay
         entry.next_manual_refresh = now + (

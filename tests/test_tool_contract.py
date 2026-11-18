@@ -58,6 +58,7 @@ from review_agent.postgres.coverage import (  # noqa: E402
     RunFilePage,
 )
 from review_agent.domain.review import ReviewRunId  # noqa: E402
+from review_agent.domain.model_execution import ModelWindow  # noqa: E402
 from review_agent.code_graph.contract import GraphError  # noqa: E402
 
 TEST_REVIEW_CONTRACT = review_contract.ReviewContract(
@@ -96,7 +97,7 @@ class _FakeRegistry:
         }
 
 
-WINDOW = hermes_window.ModelWindow(
+WINDOW = ModelWindow(
     context_tokens=500_000, result_chars=100_000, turn_chars=200_000, compaction_tokens=400_000
 )
 
@@ -1132,7 +1133,7 @@ class ToolContractTests(unittest.TestCase):
             # On a small window the page is read within the session's result
             # limit even when every character must be JSON-escaped.
             small = capacity.for_window(
-                hermes_window.ModelWindow(
+                ModelWindow(
                     context_tokens=128_000,
                     result_chars=76_800,
                     turn_chars=153_600,

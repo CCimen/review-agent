@@ -29,7 +29,7 @@ from review_agent.review import (  # noqa: E402
     source_initialization as review_source_initialization,
 )
 from review_agent.github.source import ReviewSourceBytes  # noqa: E402
-from review_agent.hermes.window import ModelWindow  # noqa: E402
+from review_agent.domain.model_execution import ModelWindow  # noqa: E402
 from review_agent.review.tool_runtime import GatewaySourceSession  # noqa: E402
 from review_agent.domain.review import (  # noqa: E402
     ReviewPartPlan,

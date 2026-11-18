@@ -39,7 +39,7 @@ class PostgreSQLRepositoryGuidanceTests(unittest.TestCase):
         self.addCleanup(self.runtime.close)
 
     def start_run(self) -> ReviewRunId:
-        result = support.start_postgres_review(
+        result = support.start_review(
             self.runtime,
             review_runs.RunRequest(
                 provider="github",

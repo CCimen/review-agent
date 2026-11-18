@@ -140,7 +140,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
         return replace(finding, **overrides)
 
     def start(self) -> postgres_review_runs.ReviewRunId:
-        result = support.start_postgres_review(
+        result = support.start_review(
             self.runtime,
             review_runs.RunRequest(
                 provider="github",
@@ -156,7 +156,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, postgres_review_runs.StartedRun)
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=(

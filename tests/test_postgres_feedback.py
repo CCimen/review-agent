@@ -172,7 +172,7 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
         decision_status: str | None = None,
         decision_applies_to: tuple[str, ...] = ("src/api/**",),
     ) -> publications.StoredPublication:
-        started = support.start_postgres_review(
+        started = support.start_review(
             self.runtime,
             review_runs.RunRequest(
                 provider="github",
@@ -188,7 +188,7 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
             ),
         )
         assert isinstance(started, postgres_review_runs.StartedRun)
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=started.run.id,
             files=(

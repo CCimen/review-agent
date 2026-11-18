@@ -171,7 +171,7 @@ class PostgreSQLFindingTests(unittest.TestCase):
         provider_repository_id: int = 930,
         pr_number: int = 31,
     ) -> postgres_review_runs.ReviewRunId:
-        result = support.start_postgres_review(
+        result = support.start_review(
             self.runtime,
             self.request(
                 repository=repository,
@@ -182,7 +182,7 @@ class PostgreSQLFindingTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, postgres_review_runs.StartedRun)
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=(
@@ -202,7 +202,7 @@ class PostgreSQLFindingTests(unittest.TestCase):
         head_sha: str,
         *,
         findings: tuple[FindingInput, ...] | None = None,
-    ) -> review_findings.PostgresFindingBatch:
+    ) -> review_findings.FindingBatch:
         return review_findings.record_run_findings(
             self.runtime,
             run_id=run_id,

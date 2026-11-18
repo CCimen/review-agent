@@ -1560,7 +1560,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             self.subject(pull, head_character="a"),
             request_key=f"github:manual:split:{provider_id}",
         )
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run.run.id,
             files=tuple(

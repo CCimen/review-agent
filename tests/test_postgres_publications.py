@@ -690,7 +690,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         pr_number: int = 41,
         purpose: ReviewPurpose = ReviewPurpose.CODE,
     ) -> tuple[
-        postgres_review_runs.ReviewRunId, review_findings.PostgresFindingBatch
+        postgres_review_runs.ReviewRunId, review_findings.FindingBatch
     ]:
         inputs = findings if findings is not None else (self.finding(),)
         if changed_files is None:
@@ -703,7 +703,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 )
             )
         paths = [item.path for item in changed_files]
-        result = support.start_postgres_review(
+        result = support.start_review(
             self.runtime,
             review_runs.RunRequest(
                 provider="github",
@@ -720,7 +720,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, postgres_review_runs.StartedRun)
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=changed_files,
@@ -1664,7 +1664,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
 
     @staticmethod
     def plan(
-        batch: review_findings.PostgresFindingBatch,
+        batch: review_findings.FindingBatch,
         *,
         key_character: str = "d",
         detailed_history: bool = False,
@@ -1740,7 +1740,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
 
     @staticmethod
     def suggestion_plan(
-        batch: review_findings.PostgresFindingBatch,
+        batch: review_findings.FindingBatch,
         *,
         two_comments: bool = False,
     ) -> PublicationPlan:
@@ -2246,7 +2246,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             )
         with patch.object(
             publication_publish,
-            "_render_postgres_supersession",
+            "_render_supersession",
             return_value=None,
         ):
             publication_publish.publish_publication(
@@ -4305,7 +4305,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 findings_count=4,
             )
 
-        result = support.start_postgres_review(
+        result = support.start_review(
             self.runtime,
             review_runs.RunRequest(
                 provider="github",
@@ -4321,7 +4321,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, postgres_review_runs.StartedRun)
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=(

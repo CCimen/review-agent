@@ -112,7 +112,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
     def start(
         self, *, purpose: ReviewPurpose = ReviewPurpose.DOCUMENTATION
     ) -> ReviewRunId:
-        started = support.start_postgres_review(
+        started = support.start_review(
             self.runtime,
             review_runs.RunRequest(
                 provider="github",
@@ -139,7 +139,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
         from tests.test_documentation_preflight import POLICY, policy
 
         run_id = self.start()
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime, run_id=run_id,
             files=(review_runs.RunChangedFile(path="tests/api.py", change_status="modified"),),
             changed_files_reported=1, registration_complete=True,
@@ -174,7 +174,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
         from review_agent.review.tool_runtime import GatewaySourceSession
         from tests.test_documentation_preflight import POLICY, policy
         run_id = self.start()
-        support.register_postgres_changed_files(self.runtime, run_id=run_id,
+        support.register_changed_files(self.runtime, run_id=run_id,
             files=(review_runs.RunChangedFile(path="tests/api.py", change_status="modified"),),
             changed_files_reported=1, registration_complete=True)
         with self.runtime.transaction() as connection:
@@ -242,7 +242,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
 
         run_id = self.start()
         observed = replace(result_fixture(), run_id=run_id)
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(

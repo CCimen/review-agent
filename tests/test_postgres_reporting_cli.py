@@ -419,7 +419,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         purpose: ReviewPurpose = ReviewPurpose.CODE,
     ) -> postgres_review_runs.StartedRun:
         selected_head = head_sha or self.head_sha
-        result = support.start_postgres_review(
+        result = support.start_review(
             self.runtime,
             review_runs.RunRequest(
                 provider="github",
@@ -442,7 +442,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, postgres_review_runs.StartedRun)
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=tuple(
@@ -463,7 +463,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         findings: tuple[FindingInput, ...] | None = None,
         context_hash: str = "c" * 40,
         head_sha: str | None = None,
-    ) -> review_findings.PostgresFindingBatch:
+    ) -> review_findings.FindingBatch:
         selected = findings if findings is not None else (self.finding(),)
         return review_findings.record_run_findings(
             self.runtime,
@@ -483,7 +483,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def prepare_publication(
         self,
         run: postgres_review_runs.StartedRun,
-        batch: review_findings.PostgresFindingBatch,
+        batch: review_findings.FindingBatch,
         *,
         key_character: str,
     ) -> publications.Publication:
@@ -538,7 +538,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def publish_run(
         self,
         run: postgres_review_runs.StartedRun,
-        batch: review_findings.PostgresFindingBatch,
+        batch: review_findings.FindingBatch,
         *,
         key_character: str,
     ) -> publications.Publication:

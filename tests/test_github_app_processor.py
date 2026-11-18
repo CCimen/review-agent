@@ -227,7 +227,7 @@ class _FeedbackAcknowledgementProtocolFailureGateway:
 
 
 @unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")
-class GitHubAppProcessorTests(unittest.TestCase):
+class WebhookDeliveryProcessorTests(unittest.TestCase):
     def setUp(self) -> None:
         with psycopg.connect(DSN, autocommit=True) as connection:
             connection.execute("DROP SCHEMA IF EXISTS review_agent CASCADE")

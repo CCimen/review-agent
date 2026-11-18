@@ -92,7 +92,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         )
 
     def start_run(self) -> postgres_review_runs.ReviewRunId:
-        result = support.start_postgres_review(
+        result = support.start_review(
             self.runtime, self.request()
         )
         assert isinstance(result, postgres_review_runs.StartedRun)
@@ -113,7 +113,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def test_inventory_registration_is_atomic_incremental_and_honest(self) -> None:
         run_id = self.start_run()
-        first = support.register_postgres_changed_files(
+        first = support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(self.changed_file("src/a.py"),),
@@ -124,7 +124,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         self.assertFalse(first.registration_complete)
 
         with self.assertRaises(postgres_coverage.CoverageConflict):
-            support.register_postgres_changed_files(
+            support.register_changed_files(
                 self.runtime,
                 run_id=run_id,
                 files=(
@@ -135,7 +135,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                 registration_complete=False,
             )
         with self.assertRaises(postgres_coverage.CoverageConflict):
-            support.register_postgres_changed_files(
+            support.register_changed_files(
                 self.runtime,
                 run_id=run_id,
                 files=(
@@ -151,7 +151,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         self.assertEqual(after_conflict.changed_files_registered, 1)
         self.assertFalse(after_conflict.registration_complete)
 
-        complete = support.register_postgres_changed_files(
+        complete = support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(self.changed_file("src/b.py"),),
@@ -164,7 +164,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def test_diff_fill_rechecks_snapshot_and_stops_when_the_head_changes(self) -> None:
         run_id = self.start_run()
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(self.changed_file("src/a.py"),),
@@ -236,7 +236,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def run_reaching(self, phase: ReviewPhase) -> tuple[ReviewRunId, dict[str, object], SimpleNamespace]:
         run_id = self.start_run()
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(self.changed_file("src/a.py"),),
@@ -356,7 +356,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def test_changed_file_pages_can_list_only_unread_diffs(self) -> None:
         run_id = self.start_run()
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=tuple(self.changed_file(f"src/{name}.py") for name in "abcd"),
@@ -398,7 +398,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         self.assertEqual(unknown.state, CoverageState.UNKNOWN)
 
         with self.assertRaises(postgres_coverage.CoverageConflict):
-            support.register_postgres_changed_files(
+            support.register_changed_files(
                 self.runtime,
                 run_id=run_id,
                 files=(self.changed_file("src/a.py"),),
@@ -411,7 +411,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         self.assertEqual(rolled_back.state, CoverageState.UNKNOWN)
         self.assertEqual(rolled_back.changed_files_registered, 0)
 
-        empty = support.register_postgres_changed_files(
+        empty = support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(),
@@ -426,14 +426,14 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def test_source_reads_never_claim_complete_diff_coverage(self) -> None:
         run_id = self.start_run()
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(self.changed_file("src/a.py"),),
             changed_files_reported=1,
             registration_complete=True,
         )
-        support.record_postgres_file_reads(
+        support.record_file_reads(
             self.runtime,
             run_id=run_id,
             reads=(
@@ -497,7 +497,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             postgres_review_runs.mark_superseded(connection, run_id)
         with self.assertRaises(postgres_coverage.CoverageRunNotActive):
-            support.record_postgres_file_reads(
+            support.record_file_reads(
                 self.runtime,
                 run_id=run_id,
                 reads=(
@@ -512,7 +512,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def test_all_diff_pages_complete_coverage_after_restart(self) -> None:
         run_id = self.start_run()
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(self.changed_file("src/a.py"),),
@@ -559,7 +559,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def test_diff_page_gaps_retries_and_content_changes_remain_incomplete(self) -> None:
         run_id = self.start_run()
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(self.changed_file("src/a.py"),),
@@ -591,7 +591,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             postgres_review_runs.mark_superseded(connection, run_id)
         with self.assertRaises(postgres_coverage.CoverageRunNotActive):
             record(0, 10)
-        new_run = support.start_postgres_review(
+        new_run = support.start_review(
             self.runtime,
             replace(
                 self.request(),
@@ -601,7 +601,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         )
         self.assertIsInstance(new_run, postgres_review_runs.StartedRun)
         run_id = new_run.run.id
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(self.changed_file("src/a.py"),),
@@ -612,7 +612,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def test_concurrent_diff_pages_do_not_lose_exposure(self) -> None:
         run_id = self.start_run()
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(self.changed_file("src/a.py"),),
@@ -726,7 +726,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def test_coverage_write_lock_orders_before_supersession(self) -> None:
         run_id = self.start_run()
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(self.changed_file("src/a.py"),),
@@ -776,7 +776,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def test_concurrent_duplicate_ranges_dedupe_without_lost_coverage(self) -> None:
         run_id = self.start_run()
-        support.register_postgres_changed_files(
+        support.register_changed_files(
             self.runtime,
             run_id=run_id,
             files=(self.changed_file("src/a.py"),),
@@ -787,7 +787,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
         def record(_: int) -> postgres_coverage.FileReadBatch:
             ready.wait()
-            return support.record_postgres_file_reads(
+            return support.record_file_reads(
                 self.runtime,
                 run_id=run_id,
                 reads=(

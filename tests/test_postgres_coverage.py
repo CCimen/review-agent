@@ -39,15 +39,17 @@ from review_agent.domain.review import (  # noqa: E402
 from review_agent.postgres import coverage as postgres_coverage  # noqa: E402
 from review_agent.postgres import review_runs as postgres_review_runs  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
+from review_agent.tools import (  # noqa: E402
+    deliver as deliver_tool,
+    findings as finding_tools,
+    source as source_tools,
+)
 from review_agent.review import (  # noqa: E402
-    delivery_tool as review_delivery_tool,
-    memory_tools as review_memory_tools,
-    run_application as review_run_application,
-    source_tools as review_source_tools,
+    runs as review_runs,
     tool_runtime as review_tool_runtime,
 )
-from review_agent.diff_render import prepare_rendered_diff  # noqa: E402
+from review_agent.domain.diff import prepare_rendered_diff  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
@@ -73,8 +75,8 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         self.addCleanup(self.runtime.close)
 
     @staticmethod
-    def request() -> review_run_application.PostgresRunRequest:
-        return review_run_application.PostgresRunRequest(
+    def request() -> review_runs.PostgresRunRequest:
+        return review_runs.PostgresRunRequest(
             provider="github",
             provider_repository_id=920,
             repository="team/coverage",
@@ -101,8 +103,8 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         path: str,
         *,
         change_status: str = "modified",
-    ) -> review_run_application.PostgresChangedFile:
-        return review_run_application.PostgresChangedFile(
+    ) -> review_runs.PostgresChangedFile:
+        return review_runs.PostgresChangedFile(
             path=path,
             change_status=change_status,
             domain=FileDomain.BACKEND,
@@ -143,7 +145,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                 changed_files_reported=2,
                 registration_complete=False,
             )
-        after_conflict = review_run_application.summarize_postgres_coverage(
+        after_conflict = review_runs.summarize_postgres_coverage(
             self.runtime, run_id
         )
         self.assertEqual(after_conflict.changed_files_registered, 1)
@@ -198,30 +200,30 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         )
         with (
             patch.object(
-                review_source_tools, "gateway_source_session", return_value=source
+                source_tools, "gateway_source_session", return_value=source
             ),
             patch.object(
-                review_source_tools, "postgres_runtime", return_value=self.runtime
+                source_tools, "postgres_runtime", return_value=self.runtime
             ),
             patch.object(
                 review_tool_runtime, "postgres_runtime", return_value=self.runtime
             ),
         ):
             first = json.loads(
-                review_source_tools.pr_diff.__wrapped__(
+                source_tools.pr_diff.__wrapped__(
                     {"run_id": run_id, "path": "src/a.py"}
                 )
             )
             self.assertEqual(first["diff"], diff)
             self.assertEqual(client.get_review_pull.call_count, 2)
-            coverage = review_run_application.summarize_postgres_coverage(
+            coverage = review_runs.summarize_postgres_coverage(
                 self.runtime, run_id
             )
             self.assertEqual(coverage.state, CoverageState.COMPLETE)
 
             pull["head"] = {"sha": "c" * 40}
             second = json.loads(
-                review_source_tools.pr_diff.__wrapped__(
+                source_tools.pr_diff.__wrapped__(
                     {"run_id": run_id, "path": "src/a.py"}
                 )
             )
@@ -264,20 +266,20 @@ class PostgreSQLCoverageTests(unittest.TestCase):
     def test_recording_reaches_reviewing_and_a_push_supersedes_the_run(self) -> None:
         run_id, pull, source = self.run_reaching(ReviewPhase.COLLECTING_DIFF)
         with (
-            patch.object(review_memory_tools, "gateway_source_session", return_value=source),
-            patch.object(review_memory_tools, "postgres_runtime", return_value=self.runtime),
+            patch.object(finding_tools, "gateway_source_session", return_value=source),
+            patch.object(finding_tools, "postgres_runtime", return_value=self.runtime),
             patch.object(review_tool_runtime, "postgres_runtime", return_value=self.runtime),
-            patch.object(review_memory_tools, "load_changed_files", return_value=[]),
+            patch.object(finding_tools, "load_changed_files", return_value=[]),
         ):
             # A session that read only diffs records from collecting_diff.
             recorded = json.loads(
-                review_memory_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
+                finding_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
             )
             with self.runtime.transaction() as connection:
                 reviewing = postgres_review_runs.get_run(connection, run_id)
             pull["head"] = {"sha": "c" * 40}
             pushed = json.loads(
-                review_memory_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
+                finding_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
             )
         self.assertEqual(recorded["recorded"], [])
         self.assertEqual(reviewing.phase, ReviewPhase.REVIEWING)
@@ -290,11 +292,11 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         run_id, pull, source = self.run_reaching(ReviewPhase.REVIEWING)
         pull["head"] = {"sha": "c" * 40}
         with (
-            patch.object(review_delivery_tool, "gateway_source_session", return_value=source),
-            patch.object(review_delivery_tool, "postgres_runtime", return_value=self.runtime),
+            patch.object(deliver_tool, "gateway_source_session", return_value=source),
+            patch.object(deliver_tool, "postgres_runtime", return_value=self.runtime),
             patch.object(review_tool_runtime, "postgres_runtime", return_value=self.runtime),
         ):
-            result = json.loads(review_delivery_tool.review_deliver.__wrapped__({"run_id": run_id}))
+            result = json.loads(deliver_tool.review_deliver.__wrapped__({"run_id": run_id}))
         self.assertEqual(result["status"], "superseded")
         with self.runtime.transaction() as connection:
             run = postgres_review_runs.get_run(connection, run_id)
@@ -304,17 +306,17 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         run_id, pull, source = self.run_reaching(ReviewPhase.REVIEWING)
         pull["state"] = "closed"
         with (
-            patch.object(review_memory_tools, "gateway_source_session", return_value=source),
-            patch.object(review_memory_tools, "postgres_runtime", return_value=self.runtime),
-            patch.object(review_delivery_tool, "gateway_source_session", return_value=source),
-            patch.object(review_delivery_tool, "postgres_runtime", return_value=self.runtime),
+            patch.object(finding_tools, "gateway_source_session", return_value=source),
+            patch.object(finding_tools, "postgres_runtime", return_value=self.runtime),
+            patch.object(deliver_tool, "gateway_source_session", return_value=source),
+            patch.object(deliver_tool, "postgres_runtime", return_value=self.runtime),
             patch.object(review_tool_runtime, "postgres_runtime", return_value=self.runtime),
         ):
             recorded = json.loads(
-                review_memory_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
+                finding_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
             )
             # Later calls in the same turn stop the same way instead of erroring.
-            delivered = json.loads(review_delivery_tool.review_deliver.__wrapped__({"run_id": run_id}))
+            delivered = json.loads(deliver_tool.review_deliver.__wrapped__({"run_id": run_id}))
         for result in (recorded, delivered):
             self.assertEqual(
                 (result["status"], result["failure_code"], result["terminal"]),
@@ -327,9 +329,9 @@ class PostgreSQLCoverageTests(unittest.TestCase):
     def test_live_inventory_persists_classifications_and_returns_summary(self) -> None:
         run_id = self.start_run()
 
-        summary = review_run_application.register_live_changed_files(
+        summary = review_runs.register_live_changed_files(
             self.runtime,
-            review_run_application.RunSubject(
+            review_runs.RunSubject(
                 repository="team/coverage",
                 pr_number=21,
                 run_id=run_id,
@@ -390,7 +392,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def test_empty_inventory_and_fail_closed_guards_are_explicit(self) -> None:
         run_id = self.start_run()
-        unknown = review_run_application.summarize_postgres_coverage(
+        unknown = review_runs.summarize_postgres_coverage(
             self.runtime, run_id
         )
         self.assertEqual(unknown.state, CoverageState.UNKNOWN)
@@ -403,7 +405,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                 changed_files_reported=2,
                 registration_complete=True,
             )
-        rolled_back = review_run_application.summarize_postgres_coverage(
+        rolled_back = review_runs.summarize_postgres_coverage(
             self.runtime, run_id
         )
         self.assertEqual(rolled_back.state, CoverageState.UNKNOWN)
@@ -417,7 +419,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             registration_complete=True,
         )
         self.assertTrue(empty.registration_complete)
-        complete = review_run_application.summarize_postgres_coverage(
+        complete = review_runs.summarize_postgres_coverage(
             self.runtime, run_id
         )
         self.assertEqual(complete.state, CoverageState.COMPLETE)
@@ -444,7 +446,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             ),
         )
 
-        source_only = review_run_application.summarize_postgres_coverage(
+        source_only = review_runs.summarize_postgres_coverage(
             self.runtime, run_id
         )
         self.assertEqual(source_only.state, CoverageState.INCOMPLETE)
@@ -458,7 +460,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             paths=("src/a.py",),
             state=DiffState.TRUNCATED,
         )
-        truncated = review_run_application.summarize_postgres_coverage(
+        truncated = review_runs.summarize_postgres_coverage(
             self.runtime, run_id
         )
         self.assertEqual(truncated.state, CoverageState.INCOMPLETE)
@@ -470,7 +472,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             paths=("src/a.py",),
             state=DiffState.COMPLETE,
         )
-        complete = review_run_application.summarize_postgres_coverage(
+        complete = review_runs.summarize_postgres_coverage(
             self.runtime, run_id
         )
         self.assertEqual(complete.state, CoverageState.COMPLETE)
@@ -524,7 +526,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             postgres_review_runs.advance_phase(
                 connection, run_id, ReviewPhase.COLLECTING_DIFF
             )
-        subject = review_run_application.RunSubject("team/coverage", 21, run_id)
+        subject = review_runs.RunSubject("team/coverage", 21, run_id)
         text = (
             "diff --git a/src/a.py b/src/a.py\n"
             "--- a/src/a.py\n+++ b/src/a.py\n@@ -0,0 +1 @@\n+" + "å" * 2500 + "\n"
@@ -537,12 +539,12 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                 start_char=start,
             )
             returned.append(assembled.text)
-            exposure = review_run_application.DiffExposure(
+            exposure = review_runs.DiffExposure(
                 exposed_paths=tuple(assembled.exposed_paths),
                 page=assembled.page,
             )
             for _ in range(2):
-                review_run_application.record_live_diff_result(
+                review_runs.record_live_diff_result(
                     self.runtime, subject, exposure
                 )
             self.runtime.close()
@@ -550,7 +552,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             self.addCleanup(self.runtime.close)
             self.runtime.open()
         self.assertEqual("".join(returned), text)
-        summary = review_run_application.summarize_postgres_coverage(
+        summary = review_runs.summarize_postgres_coverage(
             self.runtime, run_id
         )
         self.assertEqual(summary.state, CoverageState.COMPLETE)
@@ -632,7 +634,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             futures = [pool.submit(record, start) for start in (0, 50)]
             for future in futures:
                 future.result(timeout=5)
-        summary = review_run_application.summarize_postgres_coverage(
+        summary = review_runs.summarize_postgres_coverage(
             self.runtime, run_id
         )
         self.assertEqual(summary.state, CoverageState.COMPLETE)
@@ -802,7 +804,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             results = list(executor.map(record, range(4)))
 
         self.assertEqual(sum(result.inserted for result in results), 1)
-        summary = review_run_application.summarize_postgres_coverage(
+        summary = review_runs.summarize_postgres_coverage(
             self.runtime, run_id
         )
         self.assertEqual(summary.context_ranges_read, 1)

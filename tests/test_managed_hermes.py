@@ -13,20 +13,20 @@ from aiohttp.test_utils import TestClient, TestServer
 import jwt
 
 from tests import test_postgres_jobs
-from review_agent.model_runtime import (
-    hermes_runtime_api,
-    quota as model_quota,
-    window as model_window,
+from review_agent.hermes import (
+    quota as hermes_quota,
+    runtime_api as hermes_runtime_api,
+    window as hermes_window,
 )
 from review_agent.review import contract as review_contract
-from review_agent.model_runtime.hermes_control import MANAGED_REVIEW_PATH
-from review_agent.model_runtime.accounts import (
+from review_agent.hermes.control import MANAGED_REVIEW_PATH
+from review_agent.hermes.accounts import (
     AccountAvailability,
     ModelProvider,
     RuntimeAccount,
     account_identity,
 )
-from review_agent.postgres import admin_reporting, jobs
+from review_agent.postgres import history as postgres_history, jobs
 
 
 class AccountIdentityTests(unittest.TestCase):
@@ -117,13 +117,13 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         )
         self.enterContext(
             patch.object(
-                model_quota, "read_accounts", side_effect=lambda: self.accounts()
+                hermes_quota, "read_accounts", side_effect=lambda: self.accounts()
             )
         )
         self.quota_response = self.enterContext(
-            patch.object(model_quota, "fetch_account_quota", return_value=None)
+            patch.object(hermes_quota, "fetch_account_quota", return_value=None)
         )
-        self.window = model_window.ModelWindow(
+        self.window = hermes_window.ModelWindow(
             context_tokens=500_000,
             result_chars=100_000,
             turn_chars=200_000,
@@ -131,7 +131,7 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         )
         self.resolve_window = self.enterContext(
             patch.object(
-                hermes_runtime_api.model_window, "resolve", return_value=self.window
+                hermes_runtime_api.hermes_window, "resolve", return_value=self.window
             )
         )
         self.enterContext(
@@ -171,9 +171,9 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         self.calls = 0
         self.cancel_handler = False
         self.reject_handler = False
-        self.windows_seen: list[model_window.ModelWindow] = []
+        self.windows_seen: list[hermes_window.ModelWindow] = []
         self.addCleanup(
-            model_window.release_execution,
+            hermes_window.release_execution,
             self.session.job_id,
             self.session.lease_generation,
         )
@@ -186,7 +186,7 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
             )
             assert session is not None
             self.windows_seen.append(
-                model_window.execution_window(session.job_id, session.lease_generation)
+                hermes_window.execution_window(session.job_id, session.lease_generation)
             )
             if self.reject_handler:
                 raise web.HTTPBadRequest(text="Synthetic request rejection")
@@ -224,8 +224,8 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.windows_seen, [self.window])
         # Recorded completion releases the window.
-        with self.assertRaises(model_window.ModelWindowError):
-            model_window.execution_window(
+        with self.assertRaises(hermes_window.ModelWindowError):
+            hermes_window.execution_window(
                 self.session.job_id, self.session.lease_generation
             )
         with self.fixture.runtime.transaction() as connection:
@@ -241,13 +241,13 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
     async def test_quota_endpoint_authenticates_and_returns_a_cached_observation(
         self,
     ) -> None:
-        snapshot = model_quota.QuotaSnapshot(1788897600, "Pro", (), 0, None, None)
+        snapshot = hermes_quota.QuotaSnapshot(1788897600, "Pro", (), 0, None, None)
         with (
             patch.object(
-                model_quota, "read_accounts", return_value=self.accounts.return_value
+                hermes_quota, "read_accounts", return_value=self.accounts.return_value
             ) as accounts,
             patch.object(
-                model_quota, "fetch_account_quota", return_value=snapshot
+                hermes_quota, "fetch_account_quota", return_value=snapshot
             ) as remote,
         ):
             response = await self.client.get("/v1/review-agent/quota/openai-codex")
@@ -295,14 +295,14 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
             )
         # Cancellation does not prove inference stopped, so its tools keep the window.
         self.assertEqual(
-            model_window.execution_window(
+            hermes_window.execution_window(
                 self.session.job_id, self.session.lease_generation
             ),
             self.window,
         )
 
     async def test_unresolved_model_window_admits_nothing(self) -> None:
-        self.resolve_window.side_effect = model_window.ModelWindowError(
+        self.resolve_window.side_effect = hermes_window.ModelWindowError(
             "model context window could not be resolved"
         )
         response = await self.client.post(
@@ -314,8 +314,8 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 jobs.active_model_executions(connection, connection_id=1), 0
             )
-        with self.assertRaises(model_window.ModelWindowError):
-            model_window.execution_window(
+        with self.assertRaises(hermes_window.ModelWindowError):
+            hermes_window.execution_window(
                 self.session.job_id, self.session.lease_generation
             )
 
@@ -343,17 +343,17 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         import time
 
         fetched = time.time()
-        self.quota_response.return_value = model_quota.QuotaSnapshot(
+        self.quota_response.return_value = hermes_quota.QuotaSnapshot(
             fetched,
             "Pro",
             (
-                model_quota.QuotaBucket(
+                hermes_quota.QuotaBucket(
                     "codex",
                     None,
                     None,
                     False,
                     True,
-                    (model_quota.QuotaWindow("primary", 100, 7200, fetched + 90),),
+                    (hermes_quota.QuotaWindow("primary", 100, 7200, fetched + 90),),
                 ),
             ),
             2,
@@ -365,7 +365,7 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         self.fixture.accept_job(
             other_pr, other_subject, request_key="second-quota-waiter"
         )
-        with patch.object(model_quota, "monotonic", return_value=0) as clock:
+        with patch.object(hermes_quota, "monotonic", return_value=0) as clock:
             response = await self.client.post(
                 MANAGED_REVIEW_PATH, json=self.body, headers=self.headers
             )
@@ -375,7 +375,7 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
                 current = jobs.get_job(connection, self.session.job_id)
                 self.assertEqual(current.status, jobs.ReviewJobStatus.QUEUED)
                 self.assertEqual(current.attempt_count, 0)
-                detail = admin_reporting.review_detail(
+                detail = postgres_history.review_detail(
                     connection,
                     run_id=current.review_run_id,
                     before_id=None,
@@ -424,19 +424,19 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await probe(), 409)
             self.assertEqual(self.calls, 0)
             clock.return_value = 332
-            self.quota_response.return_value = model_quota.QuotaSnapshot(
+            self.quota_response.return_value = hermes_quota.QuotaSnapshot(
                 fetched + 1,
                 "Pro",
                 (
-                    model_quota.QuotaBucket(
+                    hermes_quota.QuotaBucket(
                         "codex",
                         None,
                         None,
                         True,
                         False,
-                        (model_quota.QuotaWindow("primary", 100, 7200, fetched + 90),),
+                        (hermes_quota.QuotaWindow("primary", 100, 7200, fetched + 90),),
                     ),
-                    model_quota.QuotaBucket(
+                    hermes_quota.QuotaBucket(
                         "another-model", None, "other", False, True, ()
                     ),
                 ),
@@ -463,7 +463,7 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
             release.wait(3)
 
         self.quota_response.side_effect = fetch
-        with patch.object(model_quota, "PREFLIGHT_WAIT_SECONDS", 0.01):
+        with patch.object(hermes_quota, "PREFLIGHT_WAIT_SECONDS", 0.01):
             try:
                 response = await asyncio.wait_for(
                     self.client.post(

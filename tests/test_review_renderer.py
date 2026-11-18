@@ -6,14 +6,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from review_agent import memory_validation  # noqa: E402
-from review_agent.review import renderer as review_renderer  # noqa: E402
+from review_agent.domain import review_validation  # noqa: E402
+from review_agent.publication import renderer as publication_renderer  # noqa: E402
 from review_agent.domain import review as review_domain  # noqa: E402
 
 
 class ReviewRendererTests(unittest.TestCase):
     def test_review_header_identifies_the_exact_commit_without_findings(self) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example/repository", pr_number=12, head_sha="a" * 40,
             findings=[], closed=[], still_present=[], partially_resolved=[],
             new_refs=[], not_checked_refs=[], coverage=self.coverage(),
@@ -32,7 +32,7 @@ class ReviewRendererTests(unittest.TestCase):
             self.finding(local_reference="F5", severity="Low", category="maintainability"),
             self.finding(local_reference="F6", severity="Low", category="security"),
         ]
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example/repository", pr_number=12, head_sha="a" * 40,
             findings=findings, closed=[], still_present=[], partially_resolved=[],
             new_refs=[], not_checked_refs=[], coverage=self.coverage(),
@@ -53,11 +53,11 @@ class ReviewRendererTests(unittest.TestCase):
             self.assertIn(f"{reference} - Low (P3) - maintainability", following)
         self.assertIn("Code quality and readability: 2 improvements.", before)
         self.assertEqual(
-            rendered.markdown, review_renderer.review_markdown_from_blocks(rendered.blocks)
+            rendered.markdown, publication_renderer.review_markdown_from_blocks(rendered.blocks)
         )
 
     def test_low_findings_stay_open_when_nothing_more_urgent_exists(self) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example/repository", pr_number=12, head_sha="a" * 40,
             findings=[self.finding(severity="Low", category="correctness")],
             closed=[], still_present=[], partially_resolved=[], new_refs=[],
@@ -67,7 +67,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertNotIn("Low-priority findings", rendered)
 
     def test_quality_only_review_keeps_the_current_finding_count(self) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example/repository", pr_number=12, head_sha="a" * 40,
             findings=[self.finding(severity="Low", category="maintainability")],
             closed=[], still_present=[], partially_resolved=[], new_refs=[],
@@ -79,7 +79,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertNotIn("safe to merge", rendered)
 
     def test_repeat_review_keeps_quality_count_with_severity_totals(self) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example/repository", pr_number=12, head_sha="a" * 40,
             findings=[self.finding(
                 local_reference="F4", severity="Low", category="maintainability",
@@ -93,14 +93,14 @@ class ReviewRendererTests(unittest.TestCase):
 
     def test_comparison_collapses_consecutive_references_into_ranges(self) -> None:
         self.assertEqual(
-            review_renderer.joined_refs(["F9", "F1", "F2", "F3", "F5", "F6", "F8", "F10"]),
+            publication_renderer.joined_refs(["F9", "F1", "F2", "F3", "F5", "F6", "F8", "F10"]),
             "F1–F3, F5, F6, and F8–F10",
         )
-        self.assertEqual(review_renderer.joined_refs(["F2", "F4"]), "F2 and F4")
+        self.assertEqual(publication_renderer.joined_refs(["F2", "F4"]), "F2 and F4")
 
     def test_reviewer_code_spans_render_as_code_without_escaping(self) -> None:
         self.assertEqual(
-            review_renderer.safe_prose(
+            publication_renderer.safe_prose(
                 "Set `If-Match` in `update_status()` when `events: []` arrives."
             ),
             "Set `If-Match` in `update_status()` when `events: []` arrives.",
@@ -109,7 +109,7 @@ class ReviewRendererTests(unittest.TestCase):
     def test_reviewer_prose_cannot_open_markup_through_code_spans(self) -> None:
         for text in ("A trailing tick ` stays text", "Hidden `<!-- marker -->` comment"):
             with self.subTest(text=text):
-                rendered = review_renderer.safe_prose(text)
+                rendered = publication_renderer.safe_prose(text)
                 self.assertNotIn("`", rendered)
                 self.assertNotIn("<!--", rendered)
 
@@ -122,14 +122,14 @@ class ReviewRendererTests(unittest.TestCase):
             )
             for index in range(1, 61)
         ]
-        alone = review_renderer.render_review(
+        alone = publication_renderer.render_review(
             repository="example/repository", pr_number=12, head_sha="a" * 40,
             findings=findings[:1], closed=[], still_present=[], partially_resolved=[],
             new_refs=[], not_checked_refs=[], coverage=self.coverage(),
         ).blocks
         largest = max(len(block.markdown.encode()) for block in alone if block.kind == "finding")
         # Room for the large finding with its own summary, not with all 60 references.
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example/repository", pr_number=12, head_sha="a" * 40,
             findings=findings, closed=[], still_present=[], partially_resolved=[],
             new_refs=[], not_checked_refs=[], coverage=self.coverage(),
@@ -142,8 +142,8 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertEqual(sum(block.markdown.count("\n### F") for block in sections), 60)
 
     def test_oversized_quality_finding_fails_without_truncating_evidence(self) -> None:
-        with self.assertRaisesRegex(review_renderer.PublicationDomainError, "body_too_large"):
-            review_renderer.render_review(
+        with self.assertRaisesRegex(publication_renderer.PublicationDomainError, "body_too_large"):
+            publication_renderer.render_review(
                 repository="example/repository", pr_number=12, head_sha="a" * 40,
                 findings=[self.finding(
                     severity="Low", category="maintainability", evidence="Å" * 2000,
@@ -155,7 +155,7 @@ class ReviewRendererTests(unittest.TestCase):
     def test_partial_review_keeps_the_result_visible_and_details_collapsed(
         self,
     ) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example/repository",
             pr_number=12,
             head_sha="a" * 40,
@@ -181,10 +181,10 @@ class ReviewRendererTests(unittest.TestCase):
                 changed_paths_with_diff=2,
                 unavailable=1,
                 examples=(
-                    review_renderer.DiffCoverageExample(
+                    publication_renderer.DiffCoverageExample(
                         path="private/module.py",
                         revision="a" * 40,
-                        state=review_renderer.DiffState.UNAVAILABLE,
+                        state=publication_renderer.DiffState.UNAVAILABLE,
                         unavailable_reason="patch_unavailable",
                     ),
                 ),
@@ -278,14 +278,14 @@ class ReviewRendererTests(unittest.TestCase):
 
     def test_compact_text_keeps_short_text_unchanged_and_collapsed(self) -> None:
         self.assertEqual(
-            memory_validation.compact_text("  one\n two\tthree  ", maximum=40),
+            review_validation.compact_text("  one\n two\tthree  ", maximum=40),
             "one two three",
         )
 
     def test_compact_text_prefers_word_boundary_without_exceeding_limit(self) -> None:
         text = "one two three four five six seven"
 
-        rendered = memory_validation.compact_text(text, maximum=24)
+        rendered = review_validation.compact_text(text, maximum=24)
 
         self.assertEqual("one two three four...", rendered)
         self.assertLessEqual(len(rendered), 24)
@@ -296,12 +296,12 @@ class ReviewRendererTests(unittest.TestCase):
             ("one " + ("x" * 40), 16, "one " + ("x" * 9) + "..."),
         ):
             with self.subTest(text=text):
-                rendered = memory_validation.compact_text(text, maximum=maximum)
+                rendered = review_validation.compact_text(text, maximum=maximum)
                 self.assertEqual(expected, rendered)
                 self.assertLessEqual(len(rendered), maximum)
 
     def test_complete_coverage_line_reports_diff_coverage_not_deep_review(self) -> None:
-        line = review_renderer.coverage_summary_line(
+        line = publication_renderer.coverage_summary_line(
             self.coverage(
                 changed_paths=1,
                 diff_exposed=1,
@@ -338,14 +338,14 @@ class ReviewRendererTests(unittest.TestCase):
 
         for coverage in coverage_states:
             with self.subTest(state=None if coverage is None else coverage["state"]):
-                rendered = review_renderer.coverage_details(
+                rendered = publication_renderer.coverage_details(
                     "example/repository", coverage, None
                 )
 
                 self.assertTrue(rendered.startswith("<details>"))
                 self.assertIn(scope_lead, rendered)
                 if coverage is None or coverage["state"] == "unknown":
-                    summary = review_renderer.coverage_summary_line(coverage)
+                    summary = publication_renderer.coverage_summary_line(coverage)
                     self.assertIn("Coverage unknown", summary)
                     self.assertIn("Findings may be missing", summary)
                 self.assertIn("stacked and off-title changes", rendered)
@@ -381,7 +381,7 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
     def test_incomplete_coverage_details_show_where_the_gap_is(self) -> None:
-        rendered = review_renderer.coverage_details(
+        rendered = publication_renderer.coverage_details(
             "example/repository",
             self.coverage(
                 state="incomplete",
@@ -389,8 +389,8 @@ class ReviewRendererTests(unittest.TestCase):
                 changed_paths_with_diff=3,
                 diff_truncated=1,
                 groups=(
-                    review_renderer.DiffCoverageGroup("frontend/src/app", 6, 1, 4, 1, 0),
-                    review_renderer.DiffCoverageGroup("", 1, 0, 1, 0, 0),
+                    publication_renderer.DiffCoverageGroup("frontend/src/app", 6, 1, 4, 1, 0),
+                    publication_renderer.DiffCoverageGroup("", 1, 0, 1, 0, 0),
                 ),
             ),
             None,
@@ -409,16 +409,16 @@ class ReviewRendererTests(unittest.TestCase):
             changed_paths=100,
             changed_paths_with_diff=10,
             groups=tuple(
-                review_renderer.DiffCoverageGroup(
+                publication_renderer.DiffCoverageGroup(
                     f"services/area_{index:02}/handlers", 9, 1, 8, 0, 0
                 )
                 for index in range(10)
             ),
         )
-        unbounded = review_renderer.coverage_details("example/repository", coverage, None)
+        unbounded = publication_renderer.coverage_details("example/repository", coverage, None)
         budget = len(unbounded.encode("utf-8")) - 200
 
-        rendered = review_renderer.coverage_details(
+        rendered = publication_renderer.coverage_details(
             "example/repository", coverage, None, max_bytes=budget
         )
 
@@ -432,7 +432,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertTrue(rendered.endswith("</details>"))
 
     def test_review_reports_the_exact_repository_decision_snapshot(self) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -457,7 +457,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertIn("decision_snapshot_hash=sha256:" + "c" * 64, rendered)
 
     def test_complete_coverage_details_omit_zero_source_context_counts(self) -> None:
-        line = review_renderer.coverage_details(
+        line = publication_renderer.coverage_details(
             "example/repository",
             self.coverage(
                 changed_paths_with_source_reads=1,
@@ -473,7 +473,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertNotIn("0 supporting files", line)
 
     def test_visible_finding_omits_internal_disproof_checks(self) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -506,7 +506,7 @@ class ReviewRendererTests(unittest.TestCase):
             + "extra detail " * 120
         )
 
-        rendered = review_renderer.render_fix_brief(
+        rendered = publication_renderer.render_fix_brief(
             "example-org/example-repository",
             17,
             "a" * 40,
@@ -524,7 +524,7 @@ class ReviewRendererTests(unittest.TestCase):
     def test_fix_brief_forbids_unrelated_work_and_requires_scope_restore_approval(
         self,
     ) -> None:
-        rendered = review_renderer.render_fix_brief(
+        rendered = publication_renderer.render_fix_brief(
             "example-org/example-repository",
             17,
             "a" * 40,
@@ -551,7 +551,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertIn("Files changed and why.", report)
 
     def test_fix_brief_keeps_untrusted_fields_on_their_labeled_lines(self) -> None:
-        rendered = review_renderer.render_fix_brief(
+        rendered = publication_renderer.render_fix_brief(
             "example-org/example-repository",
             17,
             "a" * 40,
@@ -587,7 +587,7 @@ class ReviewRendererTests(unittest.TestCase):
             for index in range(1, 12)
         ]
 
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -632,7 +632,7 @@ class ReviewRendererTests(unittest.TestCase):
             ),
         ]
 
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -661,7 +661,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertIn("Applying a patch does not resolve its finding", rendered)
         suggestion_blocks = [
             block
-            for block in review_renderer.render_review(
+            for block in publication_renderer.render_review(
                 repository="example-org/example-repository",
                 pr_number=17,
                 head_sha="a" * 40,
@@ -679,7 +679,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertNotIn("**Fix path:**", rendered.split("<details>", 1)[0])
 
     def test_atomic_suggestion_tip_reports_zero_coordinated_findings(self) -> None:
-        tip = review_renderer.render_suggestion_tip(
+        tip = publication_renderer.render_suggestion_tip(
             "example-org/example-repository",
             17,
             [self.finding(suggestion_available=True)],
@@ -692,7 +692,7 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
     def test_suggestion_tip_keeps_incomplete_review_actions_visible(self) -> None:
-        tip = review_renderer.render_suggestion_tip(
+        tip = publication_renderer.render_suggestion_tip(
             "example-org/example-repository",
             17,
             [self.finding(suggestion_available=True)],
@@ -706,7 +706,7 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
     def test_fix_brief_preserves_incomplete_and_not_rechecked_context(self) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -732,7 +732,7 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
     def test_inconclusive_review_never_uses_clean_result_sentence(self) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -765,7 +765,7 @@ class ReviewRendererTests(unittest.TestCase):
     def test_incomplete_review_without_prior_findings_does_not_invent_recheck_work(
         self,
     ) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -785,7 +785,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertNotIn("recheck the prior findings", rendered)
 
     def test_model_prose_is_literal_and_mentions_are_neutralized(self) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -820,7 +820,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertNotIn("\u202e", visible)
 
     def test_source_link_handles_closing_bracket_in_git_path(self) -> None:
-        link = review_renderer.source_link(
+        link = publication_renderer.source_link(
             "example-org/example-repository",
             "a" * 40,
             "docs/a]b (draft).md",
@@ -831,14 +831,14 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertIn("docs/a%5Db%20%28draft%29.md#L7", link)
 
     def test_bidi_padding_cannot_hide_the_visible_path_suffix(self) -> None:
-        label = review_renderer.safe_source_label(
+        label = publication_renderer.safe_source_label(
             "\u202e" * 200 + "backend/visible.py:7", maximum=30
         )
 
         self.assertEqual(label, "backend/visible.py:7")
 
     def test_feedback_commands_require_an_explicit_f_reference(self) -> None:
-        rendered = review_renderer.render_feedback_help([self.finding()])
+        rendered = publication_renderer.render_feedback_help([self.finding()])
 
         self.assertIn("including `<F-reference>`", rendered)
         self.assertIn("/review false-positive <F-reference> because", rendered)
@@ -846,7 +846,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertNotIn("/review false-positive F1 because", rendered)
 
     def test_returned_reference_is_distinct_from_new(self) -> None:
-        summary = review_renderer.lifecycle_summary(
+        summary = publication_renderer.lifecycle_summary(
             findings=[self.finding()],
             closed=[],
             still_present=[],
@@ -861,7 +861,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertIn("F2 is new", summary)
 
     def test_review_number_heading_does_not_autolink_github_issue(self) -> None:
-        rendered = review_renderer.render_review(
+        rendered = publication_renderer.render_review(
             repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
@@ -878,7 +878,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertNotIn("Review #5", rendered)
 
     def test_lifecycle_summary_review_number_does_not_autolink_github_issue(self) -> None:
-        summary = review_renderer.lifecycle_summary(
+        summary = publication_renderer.lifecycle_summary(
             findings=[],
             closed=[],
             still_present=[],

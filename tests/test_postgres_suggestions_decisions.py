@@ -16,8 +16,8 @@ PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent.review import (  # noqa: E402
-    finding_application as review_finding_application,
-    run_application as review_run_application,
+    findings as review_findings,
+    runs as review_runs,
 )
 from review_agent.domain.finding import (  # noqa: E402
     DecisionKind,
@@ -32,7 +32,7 @@ from review_agent.postgres import (  # noqa: E402
     suggestions as postgres_suggestions,
 )
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
@@ -142,7 +142,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
     def start(self) -> postgres_review_runs.ReviewRunId:
         result = support.start_postgres_review(
             self.runtime,
-            review_run_application.PostgresRunRequest(
+            review_runs.PostgresRunRequest(
                 provider="github",
                 provider_repository_id=930,
                 repository="example-org/example-repository",
@@ -160,7 +160,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             self.runtime,
             run_id=result.run.id,
             files=(
-                review_run_application.PostgresChangedFile(
+                review_runs.PostgresChangedFile(
                     path="src/flags.py",
                     change_status="modified",
                 ),
@@ -171,8 +171,8 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
         return result.run.id
 
     @staticmethod
-    def changed_file() -> review_finding_application.ChangedFile:
-        return review_finding_application.ChangedFile(
+    def changed_file() -> review_findings.ChangedFile:
+        return review_findings.ChangedFile(
             path="src/flags.py",
             context_hash="c" * 40,
             context_hash_source="blob",
@@ -203,7 +203,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             self.assertEqual(metrics.available, metrics.size)
             return "safe = False"
 
-        result = review_finding_application.record_postgres_findings_with_suggestions(
+        result = review_findings.record_postgres_findings_with_suggestions(
             self.runtime,
             run_id=run_id,
             head_sha=self.head_sha,
@@ -224,12 +224,12 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
     def test_suggestion_storage_failure_does_not_rollback_findings(self) -> None:
         run_id = self.start()
         with mock.patch(
-            "review_agent.review.finding_application."
+            "review_agent.review.findings."
             "postgres_suggestions.replace_suggestions",
             side_effect=psycopg.OperationalError("storage unavailable"),
         ):
             result = (
-                review_finding_application.record_postgres_findings_with_suggestions(
+                review_findings.record_postgres_findings_with_suggestions(
                     self.runtime,
                     run_id=run_id,
                     head_sha=self.head_sha,
@@ -254,7 +254,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
         self,
     ) -> None:
         run_id = self.start()
-        first = review_finding_application.record_postgres_findings_with_suggestions(
+        first = review_findings.record_postgres_findings_with_suggestions(
             self.runtime,
             run_id=run_id,
             head_sha=self.head_sha,
@@ -269,7 +269,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
                 "FROM review_agent.finding_suggestions"
             ).fetchone()
 
-        second = review_finding_application.record_postgres_findings_with_suggestions(
+        second = review_findings.record_postgres_findings_with_suggestions(
             self.runtime,
             run_id=run_id,
             head_sha=self.head_sha,
@@ -305,7 +305,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
                     },
                 )
 
-        cleared = review_finding_application.record_postgres_findings_with_suggestions(
+        cleared = review_findings.record_postgres_findings_with_suggestions(
             self.runtime,
             run_id=run_id,
             head_sha=self.head_sha,
@@ -323,7 +323,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
 
     def test_context_transaction_failure_preserves_existing_suggestion(self) -> None:
         run_id = self.start()
-        first = review_finding_application.record_postgres_findings_with_suggestions(
+        first = review_findings.record_postgres_findings_with_suggestions(
             self.runtime,
             run_id=run_id,
             head_sha=self.head_sha,
@@ -339,11 +339,11 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             "postgres_decisions.latest_suppression_decisions",
         ):
             with self.subTest(target=target), mock.patch(
-                "review_agent.review.finding_application." + target,
+                "review_agent.review.findings." + target,
                 side_effect=psycopg.OperationalError("context unavailable"),
             ):
                 second = (
-                    review_finding_application.record_postgres_findings_with_suggestions(
+                    review_findings.record_postgres_findings_with_suggestions(
                         self.runtime,
                         run_id=run_id,
                         head_sha=self.head_sha,
@@ -369,7 +369,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
         def fail_loader(_path: str, _start_line: int, _end_line: int) -> str:
             raise RuntimeError("provider read failed")
 
-        result = review_finding_application.record_postgres_findings_with_suggestions(
+        result = review_findings.record_postgres_findings_with_suggestions(
             self.runtime,
             run_id=run_id,
             head_sha=self.head_sha,
@@ -403,7 +403,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             ),
         )
 
-        result = review_finding_application.record_postgres_findings_with_suggestions(
+        result = review_findings.record_postgres_findings_with_suggestions(
             self.runtime,
             run_id=run_id,
             head_sha=self.head_sha,
@@ -428,7 +428,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
         # Suppression lookups and suggestion recording read the real clock, so the
         # 30-day decision must be recent rather than a fixed date that expires.
         decision_time = datetime.now(timezone.utc) - timedelta(hours=1)
-        batch = review_finding_application.record_postgres_findings(
+        batch = review_findings.record_postgres_findings(
             self.runtime,
             run_id=run_id,
             head_sha=self.head_sha,
@@ -496,7 +496,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
         self.assertIsNotNone(active_suppression(context_hash="c" * 40))
         self.assertIsNone(active_suppression(context_hash="e" * 40))
         suggestion_result = (
-            review_finding_application.record_postgres_findings_with_suggestions(
+            review_findings.record_postgres_findings_with_suggestions(
                 self.runtime,
                 run_id=run_id,
                 head_sha=self.head_sha,

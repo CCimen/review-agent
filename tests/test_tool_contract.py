@@ -19,19 +19,22 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 import review_agent  # noqa: E402
-from review_agent import capacity, schemas  # noqa: E402
+from review_agent import capacity  # noqa: E402
 from review_agent.review import (  # noqa: E402
     contract as review_contract,
-    code_graph_tool as review_code_graph_tool,
-    delivery_tool as review_delivery_tool,
-    memory_tools as review_memory_tools,
-    run_application as review_run_application,
-    source_tools as review_source_tools,
+    runs as review_runs,
     source_initialization as review_source_initialization,
     tool_runtime as review_tool_runtime,
 )
-from review_agent.model_runtime import window as model_window  # noqa: E402
-from review_agent.documentation import tools as documentation_tools  # noqa: E402
+from review_agent.tools import (  # noqa: E402
+    deliver as deliver_tool,
+    documentation as documentation_tools,
+    findings as finding_tools,
+    related_code as related_code_tool,
+    schemas,
+    source as source_tools,
+)
+from review_agent.hermes import window as hermes_window  # noqa: E402
 from review_agent.domain import (  # noqa: E402
     repository_decision_context,
     repository_guidance_context,
@@ -93,19 +96,19 @@ class _FakeRegistry:
         }
 
 
-WINDOW = model_window.ModelWindow(
+WINDOW = hermes_window.ModelWindow(
     context_tokens=500_000, result_chars=100_000, turn_chars=200_000, compaction_tokens=400_000
 )
 
 
 class ToolContractTests(unittest.TestCase):
     def setUp(self) -> None:
-        cache_patch = patch.object(review_source_tools, "_diff_cache", review_source_tools.ReviewDiffCache())
+        cache_patch = patch.object(source_tools, "_diff_cache", source_tools.ReviewDiffCache())
         cache_patch.start()
         self.addCleanup(cache_patch.stop)
         # The execution admitted for the lease these tests' sessions carry.
-        model_window.register_execution(7, 3, WINDOW)
-        self.addCleanup(model_window.release_execution, 7, 3)
+        hermes_window.register_execution(7, 3, WINDOW)
+        self.addCleanup(hermes_window.release_execution, 7, 3)
 
     def test_begin_keeps_transient_initialization_failure_retryable(self) -> None:
         retry_at = datetime(2026, 10, 7, 18, 0, tzinfo=timezone.utc)
@@ -115,15 +118,15 @@ class ToolContractTests(unittest.TestCase):
         for failure, terminal in ((transient, False), (review_tool_runtime.ToolInputError("invalid snapshot"), True)):
             with (
                 self.subTest(terminal=terminal),
-                patch.object(review_source_tools, "gateway_source_session", return_value=SimpleNamespace(run_id=41)),
-                patch.object(review_source_tools, "pull_request_identity", return_value=("example/project", 1, {})),
-                patch.object(review_source_tools, "postgres_runtime"),
-                patch.object(review_source_tools, "installed_review_contract"),
-                patch.object(review_source_tools, "initialize_review", side_effect=failure),
-                patch.object(review_source_tools, "mark_run_failed") as mark_failed,
+                patch.object(source_tools, "gateway_source_session", return_value=SimpleNamespace(run_id=41)),
+                patch.object(source_tools, "pull_request_identity", return_value=("example/project", 1, {})),
+                patch.object(source_tools, "postgres_runtime"),
+                patch.object(source_tools, "installed_review_contract"),
+                patch.object(source_tools, "initialize_review", side_effect=failure),
+                patch.object(source_tools, "mark_run_failed") as mark_failed,
             ):
                 result = json.loads(
-                    review_source_tools.review_begin.__wrapped__(
+                    source_tools.review_begin.__wrapped__(
                         {"existing_run_id": 41}, model_window=WINDOW
                     )
                 )
@@ -137,15 +140,15 @@ class ToolContractTests(unittest.TestCase):
         for failure, terminal in ((transient, False), (review_tool_runtime.ToolInputError("invalid snapshot"), True)):
             with (
                 self.subTest(terminal=terminal),
-                patch.object(review_delivery_tool, "gateway_source_session", return_value=SimpleNamespace(run_id=41)),
-                patch.object(review_delivery_tool, "pull_request_identity", return_value=("example/project", 1, {"head": {"sha": "a" * 40}})),
-                patch.object(review_delivery_tool, "postgres_runtime"),
-                patch.object(review_run_application, "load_live_run_state", return_value=SimpleNamespace(phase="reviewing", parts=0)),
-                patch.object(review_delivery_tool, "review_run_snapshot", side_effect=failure),
-                patch.object(review_delivery_tool, "mark_run_failed") as mark_failed,
-                patch.object(review_delivery_tool.review_publication_application, "prepare_postgres_publication") as prepare,
+                patch.object(deliver_tool, "gateway_source_session", return_value=SimpleNamespace(run_id=41)),
+                patch.object(deliver_tool, "pull_request_identity", return_value=("example/project", 1, {"head": {"sha": "a" * 40}})),
+                patch.object(deliver_tool, "postgres_runtime"),
+                patch.object(review_runs, "load_live_run_state", return_value=SimpleNamespace(phase="reviewing", parts=0)),
+                patch.object(deliver_tool, "review_run_snapshot", side_effect=failure),
+                patch.object(deliver_tool, "mark_run_failed") as mark_failed,
+                patch.object(deliver_tool.publish, "prepare_postgres_publication") as prepare,
             ):
-                result = json.loads(review_delivery_tool.review_deliver.__wrapped__({"run_id": 41}))
+                result = json.loads(deliver_tool.review_deliver.__wrapped__({"run_id": 41}))
             self.assertEqual(mark_failed.called, terminal)
             prepare.assert_not_called()
             if not terminal:
@@ -190,16 +193,16 @@ class ToolContractTests(unittest.TestCase):
         with (
             patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime),
             patch.object(review_tool_runtime.postgres_jobs, "require_live_lease"),
-            patch.object(review_source_tools, "postgres_runtime", return_value=runtime),
-            patch.object(review_source_tools, "gateway_source_session", return_value=SimpleNamespace(run_id=41)),
-            patch.object(review_source_tools, "pull_request_identity", return_value=(self.repository, 1, {})),
-            patch.object(review_source_tools, "installed_review_contract", return_value=TEST_REVIEW_CONTRACT),
-            patch.object(review_run_application.postgres_review_runs, "get_run_scope", return_value=scope),
-            patch.object(review_run_application.postgres_coverage, "lookup_run_file",
+            patch.object(source_tools, "postgres_runtime", return_value=runtime),
+            patch.object(source_tools, "gateway_source_session", return_value=SimpleNamespace(run_id=41)),
+            patch.object(source_tools, "pull_request_identity", return_value=(self.repository, 1, {})),
+            patch.object(source_tools, "installed_review_contract", return_value=TEST_REVIEW_CONTRACT),
+            patch.object(review_runs.postgres_review_runs, "get_run_scope", return_value=scope),
+            patch.object(review_runs.postgres_coverage, "lookup_run_file",
                 side_effect=lambda *_args, path, **_kwargs: RunFileLookup(files.get(path), True)),
             patch.object(review_contract, "load_installed_java_guidance", return_value=body) as read,
         ):
-            result = json.loads(review_source_tools.review_java_guidance(
+            result = json.loads(source_tools.review_java_guidance(
                 {"run_id": 41, "changed_path": changed_path, "java_path": java_path},
                 session_id=self.session_id,
             ))
@@ -218,7 +221,7 @@ class ToolContractTests(unittest.TestCase):
             with self.subTest(changed=changed):
                 files = {java: self._guidance_file(java, changed=changed == java),
                          changed: self._guidance_file(changed, changed=True)}
-                with self.assertLogs("review_agent.review.source_tools", level="INFO") as logs:
+                with self.assertLogs("review_agent.tools.source", level="INFO") as logs:
                     result, read = self._java_guidance_result(changed_path=changed, java_path=java, files=files)
                 self.assertEqual(result["instructions"], "Java guidance body.")
                 self.assertEqual(result["changed_path"], changed)
@@ -269,7 +272,7 @@ class ToolContractTests(unittest.TestCase):
 
     def test_java_guidance_returns_bounded_failure_without_truncating_instructions(self) -> None:
         java = "src/main/java/example/Service.java"
-        with self.assertNoLogs("review_agent.review.source_tools", level="INFO"):
+        with self.assertNoLogs("review_agent.tools.source", level="INFO"):
             result, _ = self._java_guidance_result(
                 changed_path=java, java_path=java,
                 files={java: self._guidance_file(java, changed=True)},
@@ -313,8 +316,8 @@ class ToolContractTests(unittest.TestCase):
         return runtime
 
     @staticmethod
-    def _live_state() -> review_run_application.LiveRunState:
-        return review_run_application.LiveRunState(
+    def _live_state() -> review_runs.LiveRunState:
+        return review_runs.LiveRunState(
             run_id=41,
             phase="reviewing",
             started_at="2026-08-24T10:00:00Z",
@@ -368,13 +371,13 @@ class ToolContractTests(unittest.TestCase):
         )
         runtime = self._runtime()
         with (
-            patch.object(review_run_application, "load_live_run_state", return_value=replace(
+            patch.object(review_runs, "load_live_run_state", return_value=replace(
                 state, phase="accepted", file_index=incomplete,
             )),
-            patch.object(review_run_application, "load_live_snapshot", return_value=SimpleNamespace(pull=pull)) as snapshot,
-            patch.object(review_run_application, "advance_live_phase") as advance,
-            patch.object(review_run_application, "register_live_changed_files", return_value=incomplete) as register,
-            patch.object(review_source_tools, "prepare_graph") as graph,
+            patch.object(review_runs, "load_live_snapshot", return_value=SimpleNamespace(pull=pull)) as snapshot,
+            patch.object(review_runs, "advance_live_phase") as advance,
+            patch.object(review_runs, "register_live_changed_files", return_value=incomplete) as register,
+            patch.object(source_tools, "prepare_graph") as graph,
         ):
             result = review_source_initialization.initialize_review(
                 source, runtime, TEST_REVIEW_CONTRACT
@@ -402,8 +405,8 @@ class ToolContractTests(unittest.TestCase):
             client=client,
         )
         with (
-            patch.object(review_run_application, "load_live_run_state", return_value=self._live_state()),
-            patch.object(review_run_application, "advance_live_phase") as advance,
+            patch.object(review_runs, "load_live_run_state", return_value=self._live_state()),
+            patch.object(review_runs, "advance_live_phase") as advance,
             self.assertRaises(review_contract.ReviewContractError),
         ):
             review_source_initialization.initialize_review(
@@ -459,41 +462,41 @@ class ToolContractTests(unittest.TestCase):
         runtime = self._runtime()
         with (
             patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime),
-            patch.object(review_source_tools, "postgres_runtime", return_value=runtime),
+            patch.object(source_tools, "postgres_runtime", return_value=runtime),
             patch.object(review_tool_runtime.postgres_jobs, "require_live_lease"),
             patch.object(
-                review_source_tools, "gateway_source_session", return_value=source
+                source_tools, "gateway_source_session", return_value=source
             ),
             patch.object(
-                review_source_tools,
+                source_tools,
                 "pull_request_identity",
                 return_value=(self.repository, 1, pull),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_live_run_state",
                 return_value=self._live_state(),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_live_snapshot",
                 return_value=SimpleNamespace(pull=pull),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_or_create_live_repository_guidance",
                 return_value=repository_guidance_context.not_configured(
                     base_sha="a" * 40,
                 ),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_or_create_live_repository_decisions",
                 return_value=repository_decision_context.not_configured(
                     base_sha="a" * 40,
                 ),
             ),
-            patch.object(review_source_tools, "load_changed_files") as changed,
+            patch.object(source_tools, "load_changed_files") as changed,
             patch.object(
                 review_contract,
                 "load_installed_contract",
@@ -506,7 +509,7 @@ class ToolContractTests(unittest.TestCase):
             ),
         ):
             result = json.loads(
-                review_source_tools.review_begin(
+                source_tools.review_begin(
                     {"existing_run_id": 41},
                     session_id=self.session_id,
                 )
@@ -516,7 +519,7 @@ class ToolContractTests(unittest.TestCase):
                 patch("review_agent.code_graph.client.urllib.request.build_opener") as opener,
             ):
                 opener.return_value.open.side_effect = BadStatusLine("invalid graph response")
-                result = json.loads(review_source_tools.review_begin(
+                result = json.loads(source_tools.review_begin(
                     {"existing_run_id": 41}, session_id=self.session_id,
                 ))
                 self.assertEqual(result["code_graph"]["status"], "unavailable")
@@ -604,39 +607,39 @@ class ToolContractTests(unittest.TestCase):
 
         with (
             patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime),
-            patch.object(review_source_tools, "postgres_runtime", return_value=runtime),
+            patch.object(source_tools, "postgres_runtime", return_value=runtime),
             patch.object(review_tool_runtime.postgres_jobs, "require_live_lease"),
             patch.object(
-                review_source_tools, "gateway_source_session", return_value=source
+                source_tools, "gateway_source_session", return_value=source
             ),
             patch.object(
-                review_source_tools,
+                source_tools,
                 "pull_request_identity",
                 return_value=(self.repository, 1, pull),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_live_run_state",
                 return_value=self._live_state(),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_live_snapshot",
                 return_value=SimpleNamespace(pull=pull),
             ),
-            patch.object(review_run_application, "_require_live_scope"),
+            patch.object(review_runs, "_require_live_scope"),
             patch.object(
-                review_run_application.postgres_repository_guidance,
+                review_runs.postgres_repository_guidance,
                 "load_context",
                 side_effect=load_context,
             ),
             patch.object(
-                review_run_application.postgres_repository_guidance,
+                review_runs.postgres_repository_guidance,
                 "store_context",
                 side_effect=store_context,
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_or_create_live_repository_decisions",
                 return_value=repository_decision_context.not_configured(
                     base_sha="a" * 40,
@@ -654,13 +657,13 @@ class ToolContractTests(unittest.TestCase):
             ),
         ):
             first = json.loads(
-                review_source_tools.review_begin(
+                source_tools.review_begin(
                     {"existing_run_id": 41},
                     session_id=self.session_id,
                 )
             )
             second = json.loads(
-                review_source_tools.review_begin(
+                source_tools.review_begin(
                     {"existing_run_id": 41},
                     session_id=self.session_id,
                 )
@@ -750,31 +753,31 @@ class ToolContractTests(unittest.TestCase):
         runtime = self._runtime()
         with (
             patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime),
-            patch.object(review_source_tools, "postgres_runtime", return_value=runtime),
+            patch.object(source_tools, "postgres_runtime", return_value=runtime),
             patch.object(review_tool_runtime.postgres_jobs, "require_live_lease"),
             patch.object(
-                review_source_tools, "gateway_source_session", return_value=source
+                source_tools, "gateway_source_session", return_value=source
             ),
             patch.object(
-                review_source_tools,
+                source_tools,
                 "pull_request_identity",
                 return_value=(self.repository, 1, pull),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_live_run_state",
                 return_value=self._live_state(),
             ),
-            patch.object(review_run_application, "load_live_snapshot", return_value=SimpleNamespace(pull=pull)),
+            patch.object(review_runs, "load_live_snapshot", return_value=SimpleNamespace(pull=pull)),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_or_create_live_repository_guidance",
                 return_value=repository_guidance_context.not_configured(
                     base_sha="a" * 40,
                 ),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_or_create_live_repository_decisions",
                 return_value=stored,
             ),
@@ -799,7 +802,7 @@ class ToolContractTests(unittest.TestCase):
             ),
         ):
             result = json.loads(
-                review_source_tools.review_begin(
+                source_tools.review_begin(
                     {"existing_run_id": 41},
                     session_id=self.session_id,
                 )
@@ -832,7 +835,7 @@ class ToolContractTests(unittest.TestCase):
                     previous_path="",
                     domain="backend",
                     review_mode="normal",
-                    diff_state=review_run_application.DiffState.UNSEEN,
+                    diff_state=review_runs.DiffState.UNSEEN,
                     is_changed_path=True,
                 ),
             ),
@@ -843,29 +846,29 @@ class ToolContractTests(unittest.TestCase):
         )
         with (
             patch.object(
-                review_source_tools, "gateway_source_session", return_value=source
+                source_tools, "gateway_source_session", return_value=source
             ),
             patch.object(
-                review_source_tools,
+                source_tools,
                 "pull_request_identity",
                 return_value=(self.repository, 1, pull),
             ),
             patch.object(
-                review_source_tools,
+                source_tools,
                 "postgres_runtime",
                 return_value=self._runtime(),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_live_changed_file_page",
                 return_value=page,
             ) as load_page,
         ):
             result = json.loads(
-                review_source_tools.pr_files.__wrapped__({"run_id": 41})
+                source_tools.pr_files.__wrapped__({"run_id": 41})
             )
             rejected = json.loads(
-                review_source_tools.pr_files.__wrapped__(
+                source_tools.pr_files.__wrapped__(
                     {"run_id": 41, "diff_state": "skimmed"}
                 )
             )
@@ -896,28 +899,28 @@ class ToolContractTests(unittest.TestCase):
                 )
                 with (
                     patch.object(
-                        review_source_tools,
+                        source_tools,
                         "gateway_source_session",
                         return_value=source,
                     ),
                     patch.object(
-                        review_source_tools,
+                        source_tools,
                         "pull_request_identity",
                         return_value=(self.repository, 1, pull),
                     ),
                     patch.object(
-                        review_source_tools,
+                        source_tools,
                         "review_run_snapshot",
                         return_value=pull,
                     ),
                     patch.object(
-                        review_source_tools,
+                        source_tools,
                         "_pr_diff_from_patches",
                         return_value=json.dumps({"diff_source": "per_file_patch"}),
                     ) as fallback,
                 ):
                     result = json.loads(
-                        review_source_tools.pr_diff.__wrapped__({"run_id": 41})
+                        source_tools.pr_diff.__wrapped__({"run_id": 41})
                     )
 
                 self.assertEqual(result["diff_source"], "per_file_patch")
@@ -955,34 +958,34 @@ class ToolContractTests(unittest.TestCase):
             )
             with (
                 self.subTest(state=state),
-                patch.object(review_source_tools, "_diff_cache", review_source_tools.ReviewDiffCache()),
+                patch.object(source_tools, "_diff_cache", source_tools.ReviewDiffCache()),
                 patch.object(
-                    review_source_tools, "gateway_source_session", return_value=source
+                    source_tools, "gateway_source_session", return_value=source
                 ),
                 patch.object(
-                    review_source_tools,
+                    source_tools,
                     "pull_request_identity",
                     return_value=(self.repository, 1, pull),
                 ),
                 patch.object(
-                    review_source_tools, "review_run_snapshot", return_value=pull
+                    source_tools, "review_run_snapshot", return_value=pull
                 ),
                 patch.object(
-                    review_source_tools,
+                    source_tools,
                     "_enumerate_changed_file_index",
                     return_value=index,
                 ),
                 patch.object(
-                    review_source_tools,
+                    source_tools,
                     "postgres_runtime",
                     return_value=self._runtime(),
                 ),
                 patch.object(
-                    review_run_application, "record_live_diff_result"
+                    review_runs, "record_live_diff_result"
                 ) as record,
             ):
                 result = json.loads(
-                    review_source_tools.pr_diff.__wrapped__(
+                    source_tools.pr_diff.__wrapped__(
                         {
                             "run_id": 41,
                             "path": "big.py",
@@ -1010,7 +1013,7 @@ class ToolContractTests(unittest.TestCase):
             previous_path="",
             domain="general",
             review_mode="normal",
-            diff_state=review_run_application.DiffState.UNSEEN,
+            diff_state=review_runs.DiffState.UNSEEN,
             is_changed_path=True,
         )
         cases = (
@@ -1022,15 +1025,15 @@ class ToolContractTests(unittest.TestCase):
             index = SimpleNamespace(files=[], index_state=index_state)
             with (
                 self.subTest(index_state=index_state, registered=item is not None),
-                patch.object(review_source_tools, "_diff_cache", review_source_tools.ReviewDiffCache()),
-                patch.object(review_source_tools, "_validate_diff_fill"),
+                patch.object(source_tools, "_diff_cache", source_tools.ReviewDiffCache()),
+                patch.object(source_tools, "_validate_diff_fill"),
                 patch.object(
-                    review_source_tools,
+                    source_tools,
                     "_enumerate_changed_file_index",
                     return_value=index,
                 ),
                 patch.object(
-                    review_run_application,
+                    review_runs,
                     "lookup_live_run_file",
                     return_value=RunFileLookup(
                         item=item,
@@ -1038,16 +1041,16 @@ class ToolContractTests(unittest.TestCase):
                     ),
                 ),
                 patch.object(
-                    review_run_application, "record_live_diff_result"
+                    review_runs, "record_live_diff_result"
                 ) as record,
                 patch.object(
-                    review_source_tools,
+                    source_tools,
                     "postgres_runtime",
                     return_value=self._runtime(),
                 ),
             ):
                 result = json.loads(
-                    review_source_tools._pr_diff_from_patches(
+                    source_tools._pr_diff_from_patches(
                         source=source,
                         repository=self.repository,
                         number=1,
@@ -1055,7 +1058,7 @@ class ToolContractTests(unittest.TestCase):
                         path="missing.py",
                         max_chars=10_000,
                         start_char=0,
-                        key=review_source_tools.DiffSnapshotKey(self.repository, 1, 41, 7, 3, "a" * 40, "b" * 40, 1),
+                        key=source_tools.DiffSnapshotKey(self.repository, 1, 41, 7, 3, "a" * 40, "b" * 40, 1),
                     )
                 )
 
@@ -1100,36 +1103,36 @@ class ToolContractTests(unittest.TestCase):
         )
         with (
             patch.object(
-                review_source_tools, "gateway_source_session", return_value=source
+                source_tools, "gateway_source_session", return_value=source
             ),
             patch.object(
-                review_source_tools,
+                source_tools,
                 "pull_request_identity",
                 return_value=(self.repository, 1, pull),
             ),
             patch.object(
-                review_source_tools,
+                source_tools,
                 "postgres_runtime",
                 return_value=self._runtime(),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_live_file_context",
                 return_value=(snapshot, run_file),
             ),
             patch.object(
-                review_run_application, "record_live_source_read"
+                review_runs, "record_live_source_read"
             ) as record,
         ):
             result = json.loads(
-                review_source_tools.pr_file.__wrapped__(
+                source_tools.pr_file.__wrapped__(
                     {"run_id": 41, "path": "src/new.py", "side": "base"}
                 )
             )
             # On a small window the page is read within the session's result
             # limit even when every character must be JSON-escaped.
             small = capacity.for_window(
-                model_window.ModelWindow(
+                hermes_window.ModelWindow(
                     context_tokens=128_000,
                     result_chars=76_800,
                     turn_chars=153_600,
@@ -1144,7 +1147,7 @@ class ToolContractTests(unittest.TestCase):
                 partial_line=True,
             )
             with capacity.execution(small):
-                partial = review_source_tools.pr_file.__wrapped__(
+                partial = source_tools.pr_file.__wrapped__(
                     {"run_id": 41, "path": "src/new.py", "side": "base"}
                 )
             # A page the session's result budget cannot carry is refused unrecorded.
@@ -1154,7 +1157,7 @@ class ToolContractTests(unittest.TestCase):
                 )
             ):
                 rejected = json.loads(
-                    review_source_tools.pr_file.__wrapped__(
+                    source_tools.pr_file.__wrapped__(
                         {"run_id": 41, "path": "src/new.py", "side": "base"}
                     )
                 )
@@ -1200,26 +1203,26 @@ class ToolContractTests(unittest.TestCase):
         run_file = SimpleNamespace(item=None, registration_complete=True)
         with (
             patch.object(
-                review_source_tools, "gateway_source_session", return_value=source
+                source_tools, "gateway_source_session", return_value=source
             ),
             patch.object(
-                review_source_tools,
+                source_tools,
                 "pull_request_identity",
                 return_value=(self.repository, 1, pull),
             ),
             patch.object(
-                review_source_tools,
+                source_tools,
                 "postgres_runtime",
                 return_value=self._runtime(),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_live_file_context",
                 return_value=(snapshot, run_file),
             ),
         ):
             result = json.loads(
-                review_source_tools.pr_file.__wrapped__(
+                source_tools.pr_file.__wrapped__(
                     {"run_id": 41, "path": "src/app.py", "side": "head"}
                 )
             )
@@ -1230,11 +1233,11 @@ class ToolContractTests(unittest.TestCase):
 
     def test_missing_worker_session_fails_before_source_or_database_work(self) -> None:
         with (
-            patch.object(review_source_tools, "gateway_source_session") as source,
+            patch.object(source_tools, "gateway_source_session") as source,
             patch.object(review_tool_runtime, "postgres_runtime") as runtime,
         ):
             result = json.loads(
-                review_source_tools.review_begin({"existing_run_id": 41})
+                source_tools.review_begin({"existing_run_id": 41})
             )
 
         self.assertEqual(
@@ -1252,35 +1255,35 @@ class ToolContractTests(unittest.TestCase):
         args = {"run_id": 41, "pattern": "callers_of", "target": "validate_default"}
         with (
             patch.dict(os.environ, {"REVIEW_AGENT_CODE_GRAPH_URL": "http://graph:8647"}),
-            patch.object(review_code_graph_tool, "gateway_source_session", return_value=source),
-            patch.object(review_code_graph_tool, "pull_request_identity", return_value=("example/project", 12, pull)),
-            patch.object(review_code_graph_tool, "review_run_snapshot", return_value=pull) as snapshot,
-            patch.object(review_code_graph_tool, "request_graph", return_value=response) as graph,
+            patch.object(related_code_tool, "gateway_source_session", return_value=source),
+            patch.object(related_code_tool, "pull_request_identity", return_value=("example/project", 12, pull)),
+            patch.object(related_code_tool, "review_run_snapshot", return_value=pull) as snapshot,
+            patch.object(related_code_tool, "request_graph", return_value=response) as graph,
         ):
-            result = json.loads(review_code_graph_tool.related_code.__wrapped__(args))
+            result = json.loads(related_code_tool.related_code.__wrapped__(args))
             self.assertEqual(result["results"], response["results"])
             self.assertEqual(result["context_trust"], "untrusted")
             self.assertEqual(snapshot.call_count, 2)
             for mismatch in ({**response, "repository_id": 92}, {**response, "head_sha": "b" * 40}):
                 graph.return_value = mismatch
-                result = json.loads(review_code_graph_tool.related_code.__wrapped__(args))
+                result = json.loads(related_code_tool.related_code.__wrapped__(args))
                 self.assertEqual(result["status"], "unavailable")
                 self.assertNotIn("results", result)
             graph.side_effect = GraphError("service unavailable")
-            result = json.loads(review_code_graph_tool.related_code.__wrapped__(args))
+            result = json.loads(related_code_tool.related_code.__wrapped__(args))
             self.assertEqual(result["status"], "unavailable")
             self.assertNotIn("error", result)
 
     def test_every_model_handler_requires_a_worker_lease(self) -> None:
         handlers = (
-            (review_source_tools.review_begin, {"existing_run_id": 41}),
-            (review_source_tools.pr_files, {"run_id": 41}),
-            (review_source_tools.pr_diff, {"run_id": 41}),
-            (review_source_tools.pr_file, {"run_id": 41}),
-            (review_code_graph_tool.related_code, {"run_id": 41}),
-            (review_memory_tools.review_memory_context, {"run_id": 41}),
-            (review_memory_tools.review_memory_record, {"run_id": 41}),
-            (review_delivery_tool.review_deliver, {"run_id": 41}),
+            (source_tools.review_begin, {"existing_run_id": 41}),
+            (source_tools.pr_files, {"run_id": 41}),
+            (source_tools.pr_diff, {"run_id": 41}),
+            (source_tools.pr_file, {"run_id": 41}),
+            (related_code_tool.related_code, {"run_id": 41}),
+            (finding_tools.review_memory_context, {"run_id": 41}),
+            (finding_tools.review_memory_record, {"run_id": 41}),
+            (deliver_tool.review_deliver, {"run_id": 41}),
         )
         for handler, args in handlers:
             with self.subTest(handler=handler.__name__):
@@ -1297,38 +1300,38 @@ class ToolContractTests(unittest.TestCase):
         pull = {"state": "open", "head": {"sha": "b" * 40}}
         with (
             patch.object(
-                review_memory_tools,
+                finding_tools,
                 "gateway_source_session",
                 return_value=source,
             ),
             patch.object(
-                review_memory_tools,
+                finding_tools,
                 "pull_request_identity",
                 return_value=(self.repository, 7, pull),
             ),
             patch.object(
-                review_memory_tools,
+                finding_tools,
                 "postgres_runtime",
                 return_value=self._runtime(),
             ),
-            patch.object(review_run_application, "reopen_live_finding_collection"),
+            patch.object(review_runs, "reopen_live_finding_collection"),
             patch.object(
-                review_memory_tools,
+                finding_tools,
                 "review_run_snapshot",
                 return_value=pull,
             ),
-            patch.object(review_memory_tools, "load_changed_files", return_value=[]),
+            patch.object(finding_tools, "load_changed_files", return_value=[]),
             patch.object(
-                review_memory_tools.review_parts_application, "unread_reports", return_value=()
+                finding_tools.review_parts, "unread_reports", return_value=()
             ),
             patch.object(
-                review_memory_tools.review_finding_application,
+                finding_tools.review_findings,
                 "record_live_findings",
                 return_value=SimpleNamespace(items=(), suggestions_recorded=0),
             ),
         ):
             result = json.loads(
-                review_memory_tools.review_memory_record.__wrapped__(
+                finding_tools.review_memory_record.__wrapped__(
                     {"run_id": 41, "findings": []}
                 )
             )
@@ -1357,37 +1360,37 @@ class ToolContractTests(unittest.TestCase):
             truncated_paths=0,
         )
         with (
-            patch.object(review_delivery_tool, "postgres_runtime", return_value=runtime),
+            patch.object(deliver_tool, "postgres_runtime", return_value=runtime),
             patch.object(
-                review_delivery_tool, "gateway_source_session", return_value=source
+                deliver_tool, "gateway_source_session", return_value=source
             ),
             patch.object(
-                review_delivery_tool,
+                deliver_tool,
                 "pull_request_identity",
                 return_value=(self.repository, 7, pull),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_live_run_state",
                 return_value=SimpleNamespace(phase="reviewing", parts=0),
             ),
             patch.object(
-                review_delivery_tool,
+                deliver_tool,
                 "review_run_snapshot",
                 return_value=pull,
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "summarize_postgres_coverage",
                 return_value=coverage,
             ),
             patch.object(
-                review_delivery_tool.review_publication_application,
+                deliver_tool.publish,
                 "prepare_postgres_publication",
             ) as prepare,
         ):
             result = json.loads(
-                review_delivery_tool.review_deliver.__wrapped__({"run_id": 41})
+                deliver_tool.review_deliver.__wrapped__({"run_id": 41})
             )
 
         self.assertEqual(result["stage"], "validation_failed")
@@ -1417,7 +1420,7 @@ class ToolContractTests(unittest.TestCase):
             truncated_paths=0,
         )
 
-        self.assertEqual(review_delivery_tool._recoverable_diff_gap(coverage), 0)
+        self.assertEqual(deliver_tool._recoverable_diff_gap(coverage), 0)
 
     def test_delivery_publishes_after_one_coverage_recovery_attempt(self) -> None:
         runtime = self._runtime()
@@ -1447,32 +1450,32 @@ class ToolContractTests(unittest.TestCase):
             ignored_previous_verdicts=(),
         )
         with (
-            patch.object(review_delivery_tool, "postgres_runtime", return_value=runtime),
+            patch.object(deliver_tool, "postgres_runtime", return_value=runtime),
             patch.object(
-                review_delivery_tool, "gateway_source_session", return_value=source
+                deliver_tool, "gateway_source_session", return_value=source
             ),
             patch.object(
-                review_delivery_tool,
+                deliver_tool,
                 "pull_request_identity",
                 return_value=(self.repository, 7, pull),
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_live_run_state",
                 return_value=SimpleNamespace(phase="rendering", parts=0),
             ),
             patch.object(
-                review_delivery_tool,
+                deliver_tool,
                 "review_run_snapshot",
                 return_value=pull,
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "summarize_postgres_coverage",
                 return_value=coverage,
             ) as summarize,
             patch.object(
-                review_delivery_tool.settings.ReviewAgentSettings,
+                deliver_tool.settings.ReviewAgentSettings,
                 "from_environment",
                 return_value=SimpleNamespace(
                     feedback_enabled=False,
@@ -1481,13 +1484,13 @@ class ToolContractTests(unittest.TestCase):
                 ),
             ),
             patch.object(
-                review_delivery_tool.review_publication_application,
+                deliver_tool.publish,
                 "prepare_postgres_publication",
                 return_value=prepared,
             ) as prepare,
         ):
             result = json.loads(
-                review_delivery_tool.review_deliver.__wrapped__({"run_id": 41})
+                deliver_tool.review_deliver.__wrapped__({"run_id": 41})
             )
 
         self.assertEqual(result["stage"], "queued_for_publication")
@@ -1499,11 +1502,11 @@ class ToolContractTests(unittest.TestCase):
 
     def test_malformed_worker_session_fails_before_source_or_database_work(self) -> None:
         with (
-            patch.object(review_source_tools, "gateway_source_session") as source,
+            patch.object(source_tools, "gateway_source_session") as source,
             patch.object(review_tool_runtime, "postgres_runtime") as runtime,
         ):
             result = json.loads(
-                review_source_tools.review_begin(
+                source_tools.review_begin(
                     {"existing_run_id": 41},
                     session_id="review-agent-job-invalid",
                 )
@@ -1518,11 +1521,11 @@ class ToolContractTests(unittest.TestCase):
         runtime.transaction.side_effect = RuntimeError("internal detail")
         with (
             patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime),
-            patch.object(review_source_tools, "gateway_source_session") as source,
+            patch.object(source_tools, "gateway_source_session") as source,
             self.assertLogs("review_agent.review.tool_runtime", level="ERROR"),
         ):
             result = json.loads(
-                review_source_tools.review_begin(
+                source_tools.review_begin(
                     {"existing_run_id": 41},
                     session_id=self.session_id,
                 )
@@ -1546,27 +1549,27 @@ class ToolContractTests(unittest.TestCase):
         secret_detail = "postgresql://operator:secret@example.test/reviews"
         with (
             patch.object(
-                review_delivery_tool,
+                deliver_tool,
                 "gateway_source_session",
                 return_value=source,
             ),
             patch.object(
-                review_delivery_tool,
+                deliver_tool,
                 "pull_request_identity",
                 return_value=(self.repository, 7, pull),
             ),
             patch.object(
-                review_delivery_tool,
+                deliver_tool,
                 "postgres_runtime",
                 return_value=runtime,
             ),
             patch.object(
-                review_run_application,
+                review_runs,
                 "load_live_run_state",
                 return_value=SimpleNamespace(phase="reviewing", parts=0),
             ),
             patch.object(
-                review_delivery_tool,
+                deliver_tool,
                 "review_run_snapshot",
                 side_effect=review_tool_runtime.ToolInputError(
                     "primary review failure"
@@ -1578,7 +1581,7 @@ class ToolContractTests(unittest.TestCase):
                 return_value=runtime,
             ),
             patch.object(
-                review_tool_runtime.review_run_application,
+                review_tool_runtime.review_runs,
                 "fail_live_run",
                 side_effect=RuntimeError(secret_detail),
             ),
@@ -1588,7 +1591,7 @@ class ToolContractTests(unittest.TestCase):
             ) as logged,
         ):
             result = json.loads(
-                review_delivery_tool.review_deliver.__wrapped__({"run_id": 41})
+                deliver_tool.review_deliver.__wrapped__({"run_id": 41})
             )
 
         self.assertEqual(result["error"], "primary review failure")
@@ -1611,7 +1614,7 @@ class ToolContractTests(unittest.TestCase):
             review_agent,
             "_installed_result_max_chars",
             return_value=160_000,
-        ), patch.object(model_window, "default_budget", return_value=(100_000, 200_000)):
+        ), patch.object(hermes_window, "default_budget", return_value=(100_000, 200_000)):
             review_agent.register(registry)
 
         manifest = (PACKAGE_ROOT / "review_agent" / "plugin.yaml").read_text(

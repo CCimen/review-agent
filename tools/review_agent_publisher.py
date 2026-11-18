@@ -27,7 +27,7 @@ def _load_package() -> None:
 
 _load_package()
 
-from review_agent.worker_telemetry import WorkerTelemetry  # noqa: E402
+from review_agent.postgres.telemetry import WorkerTelemetry  # noqa: E402
 
 from review_agent.github.gateway_client import ReviewGitHubGatewayClient  # noqa: E402
 from review_agent.postgres.runtime import (  # noqa: E402

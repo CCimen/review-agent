@@ -14,7 +14,7 @@ from ..domain.documentation_operating_policy import (
 )
 from ..domain.review import ReviewPurpose, ReviewRunId
 from . import jobs, registry, review_runs, webhook_deliveries
-from .. import failure_codes
+from ..domain import failure_codes
 
 DocumentationTrigger = Literal["manual", "automatic", "check_rerun"]
 

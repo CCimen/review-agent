@@ -12,7 +12,7 @@ import importlib.util
 import os
 import json
 from pathlib import Path
-from review_agent.admin.api import create_app
+from review_agent.console.app import create_app
 from review_agent.build_info import read_build_info
 from review_agent.postgres.runtime import PostgreSQLRuntime
 from review_agent.settings import PostgresDatabaseUrl
@@ -53,7 +53,7 @@ for endpoint, fields in ((registration["post"], {"email"}), (completion, {"token
     assert request["additionalProperties"] is False
 os.environ["REVIEW_AGENT_DATABASE_URL"] = "postgresql://localhost/not_connected"
 os.environ["REVIEW_AGENT_ADMIN_PUBLIC_URL"] = "https://admin.example.test"
-from review_agent.admin.api import app_from_environment
+from review_agent.console.app import app_from_environment
 served = [Path(route.app.directory) for route in app_from_environment().routes if getattr(route, "name", None) == "assets"]
 assert served == [static / "assets"], served
 assert not Path("/opt/hermes").exists()

@@ -12,12 +12,12 @@ import uuid
 from typing import Protocol
 
 
-from . import failure_codes
-from .review import run_application as review_run_application
+from .domain import failure_codes
+from .review import runs as review_runs
 from .github.publication import GitHubPublicationError, GitHubPublicationGateway
-from .postgres import publications, review_runs
+from .postgres import publications, review_runs as postgres_review_runs
 from .postgres.runtime import TRANSIENT_DATABASE_ERRORS, PostgreSQLRuntime
-from .review.publication_application import (
+from .publication.publish import (
     publish_postgres_publication,
     publish_postgres_run_failure_status,
 )
@@ -78,7 +78,7 @@ class PublisherPolicy:
 @dataclass(frozen=True, slots=True)
 class _ClaimedWork:
     publication: publications.StoredPublication | None = None
-    failure_status: review_runs.FailureStatusTarget | None = None
+    failure_status: postgres_review_runs.FailureStatusTarget | None = None
 
 
 class PublicationWorker:
@@ -149,13 +149,13 @@ class PublicationWorker:
                 connection
             )
             if exhausted is not None:
-                review_run_application.fail_run_after_publication_in_transaction(
+                review_runs.fail_run_after_publication_in_transaction(
                     connection,
                     exhausted.review_run_id,
                     failure_code=failure_codes.PUBLICATION_ATTEMPTS_EXHAUSTED,
                 )
             if self._prefer_failure_status:
-                failure_claim = review_runs.claim_next_failure_status(
+                failure_claim = postgres_review_runs.claim_next_failure_status(
                     connection, lease_owner=self._lease_owner,
                     lease_duration=self._policy.lease_duration,
                 )
@@ -171,7 +171,7 @@ class PublicationWorker:
                 if not publication_claim.acquired:
                     return None
                 return _ClaimedWork(publication=publication_claim.publication)
-            failure_claim = review_runs.claim_next_failure_status(
+            failure_claim = postgres_review_runs.claim_next_failure_status(
                 connection, lease_owner=self._lease_owner,
                 lease_duration=self._policy.lease_duration,
             )
@@ -180,7 +180,7 @@ class PublicationWorker:
             self._prefer_failure_status = False
             return _ClaimedWork(failure_status=failure_claim.target)
 
-    def _deliver_failure_status(self, target: review_runs.FailureStatusTarget) -> None:
+    def _deliver_failure_status(self, target: postgres_review_runs.FailureStatusTarget) -> None:
         logger.info("Delivering failure status for review run %s", int(target.run_id))
         stop = threading.Event()
         lost = threading.Event()
@@ -214,26 +214,26 @@ class PublicationWorker:
                 int(target.run_id), exc.code,
                 exc.retry_at.isoformat() if exc.retry_at is not None else None,
             )
-        except review_runs.FailureStatusLeaseLost:
+        except postgres_review_runs.FailureStatusLeaseLost:
             logger.info("Failure status %s lost its lease", int(target.run_id))
         finally:
             stop.set()
             heartbeat.join()
 
     def _heartbeat_failure_status(
-        self, target: review_runs.FailureStatusTarget,
+        self, target: postgres_review_runs.FailureStatusTarget,
         stop: threading.Event, lost: threading.Event,
     ) -> None:
         while not stop.wait(self._policy.heartbeat_interval.total_seconds()):
             try:
                 with self._runtime.transaction() as connection:
-                    review_runs.heartbeat_failure_status(
+                    postgres_review_runs.heartbeat_failure_status(
                         connection, run_id=target.run_id,
                         lease_owner=self._lease_owner,
                         lease_generation=target.delivery_lease_generation,
                         lease_duration=self._policy.lease_duration,
                     )
-            except review_runs.FailureStatusLeaseLost:
+            except postgres_review_runs.FailureStatusLeaseLost:
                 lost.set()
                 return
             except TRANSIENT_DATABASE_ERRORS as exc:

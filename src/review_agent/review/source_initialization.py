@@ -8,11 +8,11 @@ import logging
 from dataclasses import dataclass
 from typing import cast
 
-from .. import changed_files
+from ..github import changed_files
 from . import (
     contract as review_contract,
-    parts_application as review_parts_application,
-    run_application as review_run_application,
+    parts as review_parts,
+    runs as review_runs,
 )
 from ..domain.review import (
     ReviewRunId,
@@ -20,7 +20,7 @@ from ..domain.review import (
     part_sizes,
     plan_review_parts,
 )
-from ..model_runtime.window import ModelWindow
+from ..hermes.window import ModelWindow
 from ..github.gateway import GitHubGatewayError
 from ..postgres.coverage import FileIndexSummary
 from ..postgres.runtime import PostgreSQLRuntime
@@ -44,11 +44,11 @@ logger = logging.getLogger(__name__)
 class InitializedReview:
     repository: str
     pr_number: int
-    subject: review_run_application.RunSubject
+    subject: review_runs.RunSubject
     pull: JsonObject
     file_index: FileIndexSummary
     changed_files_reported: int
-    phase: review_run_application.RunPhase
+    phase: review_runs.RunPhase
     started_at: str
     # Review parts this run already had when the call started.
     parts: int = 0
@@ -156,7 +156,7 @@ def _split_large_review(
         part_target=target,
         part_limit=limit,
     )
-    planned = review_parts_application.split_review(
+    planned = review_parts.split_review(
         runtime, run_id=ReviewRunId(source.run_id), lease=source.lease, plan=plan
     )
     if planned:
@@ -191,15 +191,15 @@ def initialize_review(
     """
     repository, number, pull = pull_identity or pull_request_identity(source)
     subject = run_subject(repository=repository, pr_number=number, run_id=source.run_id)
-    persisted = review_run_application.load_live_run_state(runtime, subject)
+    persisted = review_runs.load_live_run_state(runtime, subject)
     review_contract.require_matching_execution_contract(
         cast(JsonObject, json.loads(persisted.resolved_config.canonical_json)),
         installed_contract,
     )
 
-    def snapshot(phase: review_run_application.RunPhase) -> JsonObject:
+    def snapshot(phase: review_runs.RunPhase) -> JsonObject:
         result = load_application_snapshot(
-            lambda: review_run_application.load_live_snapshot(
+            lambda: review_runs.load_live_snapshot(
                 runtime,
                 subject,
                 phase=phase,
@@ -211,7 +211,7 @@ def initialize_review(
     phase = persisted.phase
     pull = snapshot(phase)
     if phase == "accepted":
-        review_run_application.advance_live_phase(runtime, subject, "fetching_pr")
+        review_runs.advance_live_phase(runtime, subject, "fetching_pr")
         phase = "fetching_pr"
 
     file_index = persisted.file_index
@@ -226,7 +226,7 @@ def initialize_review(
         except (TypeError, ValueError):
             reported = 0
         changed_files_reported = max(reported, len(files))
-        file_index = review_run_application.register_live_changed_files(
+        file_index = review_runs.register_live_changed_files(
             runtime,
             subject,
             files=cast(list[dict[str, object]], files),

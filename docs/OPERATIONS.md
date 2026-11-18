@@ -457,7 +457,7 @@ reports incomplete coverage when one of these boundaries stops it:
 | Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES` (65,000 UTF-8 bytes per comment part, including framing and metadata). Larger reviews are split into continuation comments. |
 | Diff cache | At most 16 snapshots and 32 MiB per tool process; eviction causes a fresh read, never a skipped file. Debug logs from `hermes_plugins.review_agent_tools.review.diff_cache` report hits and oversized snapshots without source content. |
 
-An INFO log from `hermes_plugins.review_agent_tools.review.source_tools` reports
+An INFO log from `hermes_plugins.review_agent_tools.tools.source` reports
 `Java guidance returned` with the run ID and profile digest when the Java
 companion is delivered. It confirms delivery to the model, not that every check
 was applied.

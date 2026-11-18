@@ -15,7 +15,7 @@ from ..domain.documentation_policy import (
     parse_policy,
 )
 from ..github.source import read_documentation_policy_at_revision
-from ..source_control import GitHubReadClient, GitHubReadError
+from ..github.client import GitHubReadClient, GitHubReadError
 
 
 @dataclass(frozen=True, slots=True)

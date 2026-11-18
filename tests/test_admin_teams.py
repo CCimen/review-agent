@@ -55,7 +55,7 @@ class AdminTeamTests(unittest.TestCase):
             "id": 5001, "login": "CCimen", "type": "User"
         }
         with patch(
-            "review_agent.admin.repository_requests_api.operator_setup.github_app_authenticator",
+            "review_agent.console.api.repository_requests.readiness.github_app_authenticator",
             return_value=authenticator,
         ):
             added = self.client.post(path, json={"login": "CCimen"})
@@ -84,7 +84,7 @@ class AdminTeamTests(unittest.TestCase):
         self.fixture.login("reader@example.com")
         self.assertFalse(self.client.get(path).json()["can_manage"])
         self.assertEqual(self.client.post(f"{path}/5001/revoke").status_code, 403)
-        with patch("review_agent.admin.repository_requests_api.operator_setup.github_app_authenticator", return_value=authenticator):
+        with patch("review_agent.console.api.repository_requests.readiness.github_app_authenticator", return_value=authenticator):
             self.assertEqual(self.client.post(path, json={"login": "CCimen"}).status_code, 403)
         self.fixture.login("maintainer@example.com")
         self.assertEqual(self.client.post(f"{path}/5001/revoke").status_code, 204)
@@ -836,7 +836,7 @@ class AdminTeamTests(unittest.TestCase):
         self.fixture.login()
         with (
             patch(
-                "review_agent.operator_setup.github_app_authenticator",
+                "review_agent.operations.readiness.github_app_authenticator",
                 return_value=Mock(),
             ),
             patch.object(
@@ -957,7 +957,7 @@ class AdminTeamTests(unittest.TestCase):
 
         with (
             patch(
-                "review_agent.operator_setup.github_app_authenticator",
+                "review_agent.operations.readiness.github_app_authenticator",
                 return_value=Mock(),
             ),
             patch.object(

@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent.admin.api import create_app  # noqa: E402
+from review_agent.console.app import create_app  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 

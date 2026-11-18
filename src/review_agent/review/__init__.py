@@ -1,1 +1,1 @@
-"""The code review: model tools, run lifecycle, findings, rendering and publication."""
+"""Code-review use cases: run lifecycle, findings, parts, decisions, feedback and the behavior receipt."""

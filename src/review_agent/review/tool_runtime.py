@@ -12,9 +12,10 @@ import re
 import threading
 from typing import Any, Callable, TypeVar, cast
 
-from .. import capacity, failure_codes, memory_validation, settings
-from . import contract as review_contract, run_application as review_run_application
-from ..model_runtime import window as model_window
+from .. import capacity, settings
+from ..domain import failure_codes, review_validation
+from . import contract as review_contract, runs as review_runs
+from ..hermes import window as hermes_window
 from ..domain.review import ReviewRunId
 from ..github.gateway import (
     GitHubGatewayError,
@@ -35,7 +36,7 @@ ApplicationResult = TypeVar("ApplicationResult")
 _process_runtime: PostgreSQLRuntime | None = None
 _process_runtime_lock = threading.Lock()
 logger = logging.getLogger(__name__)
-ReviewRunTerminal = review_run_application.ReviewRunTerminal
+ReviewRunTerminal = review_runs.ReviewRunTerminal
 _REVIEW_PART = "review_part"
 _MODEL_WINDOW = "model_window"
 
@@ -76,13 +77,13 @@ def worker_lease_fence(
                         review_run_id=ReviewRunId(run_id),
                         lease_generation=lease.lease_generation,
                     )
-                window = model_window.execution_window(
+                window = hermes_window.execution_window(
                     lease.job_id, lease.lease_generation
                 )
             except (
                 ToolInputError,
                 postgres_jobs.ReviewJobError,
-                model_window.ModelWindowError,
+                hermes_window.ModelWindowError,
                 PostgreSQLRuntimeError,
             ) as exc:
                 return error_output(f"{exc}; stop this review turn")
@@ -101,13 +102,13 @@ def worker_lease_fence(
     return decorate
 
 
-def session_window(context: dict[str, Any]) -> model_window.ModelWindow:
+def session_window(context: dict[str, Any]) -> hermes_window.ModelWindow:
     """The window admitted for the calling session's execution.
 
     The lease fence takes it from the execution's admission, never from the model.
     """
     window = context.get(_MODEL_WINDOW)
-    if not isinstance(window, model_window.ModelWindow):
+    if not isinstance(window, hermes_window.ModelWindow):
         raise ToolInputError("the review execution's model window is unavailable")
     return window
 
@@ -156,8 +157,8 @@ def parse_path(raw: Any, *, required: bool = True) -> str:
     if not value and not required:
         return ""
     try:
-        return memory_validation.normalize_path(value)
-    except memory_validation.ReviewMemoryError as exc:
+        return review_validation.normalize_path(value)
+    except review_validation.ReviewMemoryError as exc:
         raise ToolInputError(str(exc)) from exc
 
 
@@ -317,8 +318,8 @@ def run_subject(
     repository: str,
     pr_number: int,
     run_id: int,
-) -> review_run_application.RunSubject:
-    return review_run_application.RunSubject(
+) -> review_runs.RunSubject:
+    return review_runs.RunSubject(
         repository=repository,
         pr_number=pr_number,
         run_id=run_id,
@@ -327,8 +328,8 @@ def run_subject(
 
 def pull_snapshot(
     pull: JsonObject,
-) -> review_run_application.PullSnapshot[JsonObject]:
-    return review_run_application.PullSnapshot(
+) -> review_runs.PullSnapshot[JsonObject]:
+    return review_runs.PullSnapshot(
         payload=pull,
         base_sha=pull_base_sha(pull),
         head_sha=pull_head_sha(pull),
@@ -338,7 +339,7 @@ def pull_snapshot(
 
 def _load_pull_snapshot(
     source: GatewaySourceSession,
-) -> review_run_application.PullSnapshot[JsonObject]:
+) -> review_runs.PullSnapshot[JsonObject]:
     _, _, pull = pull_request_identity(source)
     return pull_snapshot(pull)
 
@@ -349,7 +350,7 @@ def load_application_snapshot(
     """Translate terminal snapshots and application errors for model tools."""
     try:
         return operation()
-    except review_run_application.ReviewRunError as exc:
+    except review_runs.ReviewRunError as exc:
         raise ToolInputError(str(exc)) from exc
 
 
@@ -358,13 +359,13 @@ def review_run_snapshot(
     source: GatewaySourceSession,
     repository: str,
     pr_number: int,
-    phase: review_run_application.RunPhase,
+    phase: review_runs.RunPhase,
     expected_head_sha: str | None = None,
     observed_pull: JsonObject | None = None,
 ) -> JsonObject:
     """Adapt the GitHub pull loader and failure-status effect to the run owner."""
     result = load_application_snapshot(
-        lambda: review_run_application.load_live_snapshot(
+        lambda: review_runs.load_live_snapshot(
             postgres_runtime(),
             run_subject(
                 repository=repository,
@@ -395,8 +396,8 @@ def tool_failure_detail(exc: BaseException) -> str:
         exc,
         (
             ToolInputError,
-            memory_validation.ReviewMemoryError,
-            review_run_application.ReviewRunError,
+            review_validation.ReviewMemoryError,
+            review_runs.ReviewRunError,
         ),
     ):
         return f"{type(exc).__name__}: {exc}"
@@ -414,7 +415,7 @@ def mark_run_failed(
 ) -> None:
     """Fail a live run from a tool, keeping a code-owned cause for operators."""
     try:
-        failed = review_run_application.fail_live_run(
+        failed = review_runs.fail_live_run(
             postgres_runtime(),
             run_subject(
                 repository=repository,

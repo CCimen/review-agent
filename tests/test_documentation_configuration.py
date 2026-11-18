@@ -85,7 +85,7 @@ class ConfigurationAPITests(unittest.TestCase):
         snapshot = DocumentationConfiguration(
             "not_configured", datetime.now(timezone.utc), default_branch="main", revision="a" * 40,
         )
-        with patch("review_agent.operator_setup.github_app_authenticator") as authenticator, patch(
+        with patch("review_agent.operations.readiness.github_app_authenticator") as authenticator, patch(
             "review_agent.documentation.configuration.read_configuration", return_value=snapshot,
         ):
             response = self.client.post(self.url + "/refresh")
@@ -115,7 +115,7 @@ class ConfigurationAPITests(unittest.TestCase):
                     (self.repository_id,),
                 )
             return DocumentationConfiguration("not_configured", datetime.now(timezone.utc))
-        with patch("review_agent.operator_setup.github_app_authenticator"), patch(
+        with patch("review_agent.operations.readiness.github_app_authenticator"), patch(
             "review_agent.documentation.configuration.read_configuration", side_effect=changed,
         ):
             response = self.client.post(self.url + "/refresh")

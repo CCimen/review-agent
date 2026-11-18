@@ -14,7 +14,7 @@ import sys
 
 import psycopg
 
-from review_agent_private_io import write_private_file
+from review_agent_private_io import write_private_file  # noqa: E402
 
 
 def _plugin_parent() -> Path:
@@ -23,7 +23,7 @@ def _plugin_parent() -> Path:
         Path(__file__).resolve().parents[1] / "src",
     )
     for candidate in candidates:
-        if (candidate / "review_agent" / "operator_application.py").exists():
+        if (candidate / "review_agent" / "operations" / "inspection.py").exists():
             sys.path.insert(0, str(candidate))
             return candidate
     raise SystemExit("Could not locate the review_agent package")
@@ -31,8 +31,9 @@ def _plugin_parent() -> Path:
 
 _plugin_parent()
 
-from review_agent import operator_application, operator_input  # noqa: E402
-from review_agent.review import decision_application  # noqa: E402
+from review_agent.operations import inspection  # noqa: E402
+from review_agent.domain import input_checks  # noqa: E402
+from review_agent.review import decisions as review_decisions  # noqa: E402
 from review_agent.domain.feedback import (  # noqa: E402
     FeedbackDomainError,
     FeedbackTriageStatus,
@@ -40,7 +41,7 @@ from review_agent.domain.feedback import (  # noqa: E402
 from review_agent.domain.finding import FindingDomainError  # noqa: E402
 from review_agent.postgres import (  # noqa: E402
     findings as postgres_findings,
-    quality_reporting,
+    quality_report,
     quality_triage,
     reporting as postgres_reporting,
     review_runs as postgres_review_runs,
@@ -67,7 +68,7 @@ class _MemoryCommandError(ValueError):
 
 
 _EXPECTED_COMMAND_ERRORS = (
-    operator_input.OperatorInputError,
+    input_checks.OperatorInputError,
     FeedbackDomainError,
     FindingDomainError,
     postgres_findings.FingerprintNotFound,
@@ -296,18 +297,18 @@ def _failure_exit(exc: Exception) -> int:
 def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
     result: object
     if args.command == "list":
-        result = operator_application.list_findings(
+        result = inspection.list_findings(
             runtime, repository=args.repo, limit=args.limit,
             include_suppressed=not args.open_only,
         )
     elif args.command == "show":
-        result = decision_application.show_finding(
+        result = review_decisions.show_finding(
             runtime, repository=args.repo, fingerprint=args.fingerprint
         )
     elif args.command == "decide":
-        result = decision_application.decide_finding(
+        result = review_decisions.decide_finding(
             runtime,
-            decision_application.OperatorDecisionRequest(
+            review_decisions.OperatorDecisionRequest(
                 repository=args.repo, fingerprint=args.fingerprint,
                 decision=args.decision, reason=args.reason, actor=args.actor,
                 occurrence_id=args.occurrence_id, pr_number=args.pr,
@@ -316,7 +317,7 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
             ),
         )
     elif args.command == "triage-feedback":
-        result = decision_application.triage_review_feedback(
+        result = review_decisions.triage_review_feedback(
             runtime,
             feedback_id=args.feedback_id,
             status=args.status,
@@ -329,48 +330,48 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
             reason=args.reason,
         )
     elif args.command == "export":
-        export = operator_application.export_repository(
+        export = inspection.export_repository(
             runtime, repository=args.repo, row_limit=args.row_limit
         )
         _write_or_print(_json(export.to_json_obj(), pretty=True) + "\n", args.output)
         return 0
     elif args.command == "stats":
-        result = operator_application.finding_stats(
+        result = inspection.finding_stats(
             runtime, repository=args.repo,
             expiring_within_days=args.expiring_within_days,
         )
     elif args.command == "runs":
         if args.mark_stalled:
-            result = operator_application.mark_stalled_runs(
+            result = inspection.mark_stalled_runs(
                 runtime, repository=args.repo, pr_number=args.pr,
                 older_than_minutes=args.stale_after_minutes,
             )
         elif args.run_id is not None:
-            result = operator_application.run_diagnostics(runtime, run_id=args.run_id)
+            result = inspection.run_diagnostics(runtime, run_id=args.run_id)
         elif args.stats:
-            result = operator_application.run_stats(
+            result = inspection.run_stats(
                 runtime, repository=args.repo, pr_number=args.pr, days=args.days,
                 stale_after_minutes=args.stale_after_minutes,
             )
         else:
-            result = operator_application.list_runs(
+            result = inspection.list_runs(
                 runtime, repository=args.repo, pr_number=args.pr, limit=args.limit,
                 failed_only=args.failed,
             )
     elif args.command == "publications":
-        result = operator_application.list_publications(
+        result = inspection.list_publications(
             runtime, repository=args.repo, pr_number=args.pr, limit=args.limit
         )
     elif args.command == "coverage":
-        result = operator_application.coverage(runtime, run_id=args.run_id)
+        result = inspection.coverage(runtime, run_id=args.run_id)
     elif args.command == "quality":
-        report = operator_application.quality_report(
+        report = inspection.quality_report(
             runtime,
             repository=args.repo,
             days=args.days,
         )
         if args.quality_format == "markdown":
-            print(quality_reporting.render_markdown(report), end="")
+            print(quality_report.render_markdown(report), end="")
         else:
             print(_json(report, pretty=True))
         return 0

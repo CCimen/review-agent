@@ -7,7 +7,7 @@ import hashlib
 from pathlib import Path
 
 from .. import capacity
-from . import guidance_context as repository_guidance_loader
+from . import guidance as repository_guidance_loader
 from ..domain import (
     documentation_policy,
     repository_decision_context,

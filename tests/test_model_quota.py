@@ -9,8 +9,8 @@ from unittest.mock import Mock, patch
 
 import jwt
 
-from review_agent.model_runtime import quota as model_quota
-from review_agent.model_runtime.accounts import (
+from review_agent.hermes import quota as hermes_quota
+from review_agent.hermes.accounts import (
     AccountAvailability,
     ModelProvider,
     RuntimeAccount,
@@ -55,7 +55,7 @@ class ModelQuotaAccountTests(unittest.TestCase):
         )
         with (
             patch.object(
-                model_quota,
+                hermes_quota,
                 "import_module",
                 side_effect={
                     "hermes_cli.auth": auth,
@@ -63,10 +63,10 @@ class ModelQuotaAccountTests(unittest.TestCase):
                 }.__getitem__,
             ),
             patch.object(
-                model_quota, "read_accounts", return_value=(account,)
+                hermes_quota, "read_accounts", return_value=(account,)
             ) as accounts,
         ):
-            self.assertIsNotNone(model_quota.fetch_account_quota(account))
+            self.assertIsNotNone(hermes_quota.fetch_account_quota(account))
             usage.fetch_account_usage.assert_called_once_with(
                 "openai-codex",
                 api_key=current_token,
@@ -78,7 +78,7 @@ class ModelQuotaAccountTests(unittest.TestCase):
             auth.resolve_codex_runtime_credentials.return_value["api_key"] = token(
                 "account-b"
             )
-            self.assertIsNone(model_quota.fetch_account_quota(account))
+            self.assertIsNone(hermes_quota.fetch_account_quota(account))
             usage.fetch_account_usage.assert_not_called()
             auth.resolve_codex_runtime_credentials.return_value["api_key"] = (
                 current_token
@@ -88,7 +88,7 @@ class ModelQuotaAccountTests(unittest.TestCase):
                     ModelProvider.CODEX, AccountAvailability.AVAILABLE, 1, "b" * 64
                 ),
             )
-            self.assertIsNone(model_quota.fetch_account_quota(account))
+            self.assertIsNone(hermes_quota.fetch_account_quota(account))
 
 
 class ModelQuotaCacheTests(unittest.IsolatedAsyncioTestCase):
@@ -97,8 +97,8 @@ class ModelQuotaCacheTests(unittest.IsolatedAsyncioTestCase):
             ModelProvider.CODEX, AccountAvailability.AVAILABLE, 1, identity * 64
         )
 
-    def snapshot(self) -> model_quota.QuotaSnapshot:
-        return model_quota.QuotaSnapshot(time.time(), "Pro", (), 0, None, None)
+    def snapshot(self) -> hermes_quota.QuotaSnapshot:
+        return hermes_quota.QuotaSnapshot(time.time(), "Pro", (), 0, None, None)
 
     async def test_concurrent_and_manual_refreshes_share_one_account_request(
         self,
@@ -106,19 +106,19 @@ class ModelQuotaCacheTests(unittest.IsolatedAsyncioTestCase):
         started = threading.Event()
         release = threading.Event()
 
-        def fetch(_account: RuntimeAccount) -> model_quota.QuotaSnapshot:
+        def fetch(_account: RuntimeAccount) -> hermes_quota.QuotaSnapshot:
             started.set()
             if not release.wait(3):
                 raise TimeoutError("Test did not release quota response")
             return self.snapshot()
 
         with (
-            patch.object(model_quota, "read_accounts", return_value=(self.account(),)),
+            patch.object(hermes_quota, "read_accounts", return_value=(self.account(),)),
             patch.object(
-                model_quota, "fetch_account_quota", side_effect=fetch
+                hermes_quota, "fetch_account_quota", side_effect=fetch
             ) as remote,
         ):
-            cache = model_quota.QuotaCache()
+            cache = hermes_quota.QuotaCache()
             first = asyncio.create_task(cache.read(ModelProvider.CODEX, wait=True))
             self.assertTrue(await asyncio.to_thread(started.wait, 3))
             other = await cache.read(ModelProvider.CODEX, refresh=True)
@@ -137,7 +137,7 @@ class ModelQuotaCacheTests(unittest.IsolatedAsyncioTestCase):
         started = threading.Event()
         release = threading.Event()
 
-        def fetch(_account: RuntimeAccount) -> model_quota.QuotaSnapshot:
+        def fetch(_account: RuntimeAccount) -> hermes_quota.QuotaSnapshot:
             started.set()
             if not release.wait(3):
                 raise TimeoutError("Test did not release quota response")
@@ -145,13 +145,13 @@ class ModelQuotaCacheTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(
-                model_quota, "read_accounts", return_value=(self.account(),)
+                hermes_quota, "read_accounts", return_value=(self.account(),)
             ) as accounts,
             patch.object(
-                model_quota, "fetch_account_quota", side_effect=fetch
+                hermes_quota, "fetch_account_quota", side_effect=fetch
             ) as remote,
         ):
-            cache = model_quota.QuotaCache()
+            cache = hermes_quota.QuotaCache()
             first = asyncio.create_task(cache.read(ModelProvider.CODEX, wait=True))
             self.assertTrue(await asyncio.to_thread(started.wait, 3))
             accounts.return_value = (self.account("b"),)
@@ -169,13 +169,13 @@ class ModelQuotaCacheTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         snapshot = self.snapshot()
         with (
-            patch.object(model_quota, "read_accounts", return_value=(self.account(),)),
-            patch.object(model_quota, "monotonic", return_value=0) as clock,
+            patch.object(hermes_quota, "read_accounts", return_value=(self.account(),)),
+            patch.object(hermes_quota, "monotonic", return_value=0) as clock,
             patch.object(
-                model_quota, "fetch_account_quota", return_value=snapshot
+                hermes_quota, "fetch_account_quota", return_value=snapshot
             ) as remote,
         ):
-            cache = model_quota.QuotaCache()
+            cache = hermes_quota.QuotaCache()
             initial = await cache.read(ModelProvider.CODEX, wait=True)
             self.assertFalse(initial.data.stale)
             clock.return_value = 31

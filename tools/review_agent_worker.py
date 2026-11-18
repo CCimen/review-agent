@@ -27,7 +27,7 @@ def _load_package() -> None:
 
 _load_package()
 
-from review_agent.worker_telemetry import WorkerTelemetry  # noqa: E402
+from review_agent.postgres.telemetry import WorkerTelemetry  # noqa: E402
 
 from review_agent.review import contract as review_contract  # noqa: E402
 from review_agent.github.gateway_client import ReviewGitHubGatewayClient  # noqa: E402
@@ -37,7 +37,7 @@ from review_agent.postgres.runtime import (  # noqa: E402
 )
 from review_agent.settings import ReviewAgentSettings  # noqa: E402
 from review_agent.postgres.deployment_settings import apply_at_startup  # noqa: E402
-from review_agent.model_runtime.hermes_chat import (  # noqa: E402
+from review_agent.hermes.chat import (  # noqa: E402
     HermesChatClient,
     HermesChatSettings,
 )

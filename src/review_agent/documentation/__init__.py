@@ -1,1 +1,1 @@
-"""Documentation review: scope, model tools, findings and preflight."""
+"""Documentation review: scope, preflight, findings and configuration."""

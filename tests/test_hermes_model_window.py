@@ -13,7 +13,7 @@ CONFIG = {"compression": {"threshold": 0.8}}
 @unittest.skipUnless(importlib.util.find_spec("hermes_cli"), "requires Hermes")
 class HermesModelWindowTests(unittest.TestCase):
     def resolve(self, provider: str, model: str, context_tokens: int):
-        from review_agent.model_runtime import window as model_window
+        from review_agent.hermes import window as hermes_window
 
         runtime = {
             "provider": provider,
@@ -38,7 +38,7 @@ class HermesModelWindowTests(unittest.TestCase):
                 return_value=CONFIG,
             ),
         ):
-            window = model_window.resolve(provider, model)
+            window = hermes_window.resolve(provider, model)
         resolve_runtime.assert_called_once_with(requested=provider, target_model=model)
         context_length.assert_called_once_with(
             model, base_url=runtime["base_url"], api_key="", provider=provider
@@ -46,13 +46,13 @@ class HermesModelWindowTests(unittest.TestCase):
         return window
 
     def test_resolves_through_the_functions_hermes_uses_for_its_sessions(self) -> None:
-        from review_agent.model_runtime import window as model_window
+        from review_agent.hermes import window as hermes_window
 
         window = self.resolve("openai-codex", "selected-model", 500_000)
         self.assertEqual(
-            window, model_window.ModelWindow(500_000, 100_000, 200_000, 400_000)
+            window, hermes_window.ModelWindow(500_000, 100_000, 200_000, 400_000)
         )
-        self.assertEqual(model_window.default_budget(), (100_000, 200_000))
+        self.assertEqual(hermes_window.default_budget(), (100_000, 200_000))
 
     def test_an_output_reservation_moves_the_compaction_point_as_in_hermes(self) -> None:
         from agent.context_compressor import ContextCompressor

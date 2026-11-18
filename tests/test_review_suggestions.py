@@ -8,7 +8,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent import suggestion_validation  # noqa: E402
+from review_agent.domain import suggestions as domain_suggestions  # noqa: E402
 
 
 class SuggestionValidationTests(unittest.TestCase):
@@ -38,8 +38,8 @@ class SuggestionValidationTests(unittest.TestCase):
 
     def validate(
         self, **overrides: object
-    ) -> suggestion_validation.SuggestionValidation:
-        return suggestion_validation.validate_suggestion(
+    ) -> domain_suggestions.SuggestionValidation:
+        return domain_suggestions.validate_suggestion(
             self.raw(**overrides),
             repository=self.repository,
             pr_number=self.pr_number,
@@ -71,9 +71,9 @@ class SuggestionValidationTests(unittest.TestCase):
         separate = dict(first, start_line=3, end_line=3)
         other_path = dict(first, path="src/other.py")
 
-        self.assertTrue(suggestion_validation.ranges_overlap(first, second))
-        self.assertFalse(suggestion_validation.ranges_overlap(first, separate))
-        self.assertFalse(suggestion_validation.ranges_overlap(first, other_path))
+        self.assertTrue(domain_suggestions.ranges_overlap(first, second))
+        self.assertFalse(domain_suggestions.ranges_overlap(first, separate))
+        self.assertFalse(domain_suggestions.ranges_overlap(first, other_path))
 
     def test_rejects_ambiguous_terminal_newline(self) -> None:
         result = self.validate(
@@ -90,7 +90,7 @@ class SuggestionValidationTests(unittest.TestCase):
         self.assertEqual(result.rejection_reason, "suggestion_expected_text_mismatch")
 
     def test_rejects_context_only_range(self) -> None:
-        result = suggestion_validation.validate_suggestion(
+        result = domain_suggestions.validate_suggestion(
             self.raw(
                 start_line=1,
                 end_line=1,
@@ -134,7 +134,7 @@ class SuggestionValidationTests(unittest.TestCase):
         )
         for raw, reason in cases:
             with self.subTest(reason=reason):
-                result = suggestion_validation.validate_suggestion(
+                result = domain_suggestions.validate_suggestion(
                     raw,
                     repository=self.repository,
                     pr_number=self.pr_number,
@@ -149,10 +149,10 @@ class SuggestionValidationTests(unittest.TestCase):
                 self.assertEqual(result.rejection_reason, reason)
 
     def test_key_is_stable_for_one_finding_and_head(self) -> None:
-        first = suggestion_validation.suggestion_key(
+        first = domain_suggestions.suggestion_key(
             self.repository, self.pr_number, self.head_sha, self.fingerprint
         )
-        second = suggestion_validation.suggestion_key(
+        second = domain_suggestions.suggestion_key(
             self.repository.upper(), self.pr_number, self.head_sha, self.fingerprint
         )
 
@@ -160,7 +160,7 @@ class SuggestionValidationTests(unittest.TestCase):
         self.assertRegex(first, r"^sha256:[0-9a-f]{64}$")
     def test_high_risk_finding_metadata_is_ineligible(self) -> None:
         self.assertEqual(
-            suggestion_validation.suggestion_eligibility_rejection(
+            domain_suggestions.suggestion_eligibility_rejection(
                 rule_id="multitenancy.missing-resource-scope",
                 category="correctness",
                 path="src/resources.py",
@@ -174,7 +174,7 @@ class SuggestionValidationTests(unittest.TestCase):
             "suggestion_high_risk_domain",
         )
         self.assertEqual(
-            suggestion_validation.suggestion_eligibility_rejection(
+            domain_suggestions.suggestion_eligibility_rejection(
                 rule_id="correctness.default",
                 category="security",
                 path="src/flags.py",
@@ -190,7 +190,7 @@ class SuggestionValidationTests(unittest.TestCase):
         for category in ("migration", "contracts", "data_contract"):
             with self.subTest(category=category):
                 self.assertEqual(
-                    suggestion_validation.suggestion_eligibility_rejection(
+                    domain_suggestions.suggestion_eligibility_rejection(
                         rule_id="correctness.local-change",
                         category=category,
                         path="src/change.py",

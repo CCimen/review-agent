@@ -11,7 +11,7 @@ from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow
 
 from ..domain.finding import FindingId, FindingOccurrenceId
-from ..suggestion_validation import ValidatedSuggestion
+from ..domain.suggestions import ValidatedSuggestion
 from .findings import FindingBatch
 
 

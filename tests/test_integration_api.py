@@ -143,7 +143,7 @@ class IntegrationAPITests(unittest.TestCase):
             self.assertNotIn(issued["token"], str(event))
 
     def test_revocation_is_rechecked_by_the_reporting_application(self) -> None:
-        from review_agent.admin import application as admin_application
+        from review_agent.console import application as console_application
         from review_agent.postgres.team_access import (
             AccessDenied,
             IntegrationAccessRequest,
@@ -151,14 +151,14 @@ class IntegrationAPITests(unittest.TestCase):
 
         issued = self.create_integration()
         request = IntegrationAccessRequest(sha256(issued["token"].encode()).hexdigest())
-        admin_application.overview(self.helper.runtime, access=request)
+        console_application.overview(self.helper.runtime, access=request)
         revoked = self.client.post(
             f"/api/integrations/{issued['integration']['id']}/revoke",
             json={"reason": "Consumer retired"},
         )
         self.assertEqual(revoked.status_code, 200, revoked.text)
         with self.assertRaises(AccessDenied):
-            admin_application.overview(self.helper.runtime, access=request)
+            console_application.overview(self.helper.runtime, access=request)
         self.use(issued)
         response = self.client.get("/api/v1/overview", params=self.window)
         self.assertEqual(response.status_code, 401)

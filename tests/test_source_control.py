@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent import source_control  # noqa: E402
+from review_agent.github import client as github_client  # noqa: E402
 
 
 class _FakeResponse:
@@ -108,10 +108,10 @@ class GitHubReadClientTests(unittest.TestCase):
                     response.read = Mock(side_effect=TimeoutError("private detail"))
                 else:
                     opener.open.side_effect = TimeoutError("private detail")
-                client = source_control.GitHubReadClient(
+                client = github_client.GitHubReadClient(
                     "installation-token", opener=opener, max_attempts=1
                 )
-                with self.assertRaises(source_control.GitHubReadError) as raised:
+                with self.assertRaises(github_client.GitHubReadError) as raised:
                     client.request("/repos/example/project/pulls/1", max_bytes=100)
                 self.assertTrue(raised.exception.retryable)
                 self.assertEqual(raised.exception.kind, "timeout")
@@ -122,9 +122,9 @@ class GitHubReadClientTests(unittest.TestCase):
     def test_archive_download_uses_an_exact_commit_and_rejects_truncation(self) -> None:
         opener = Mock()
         opener.open.return_value = _FakeResponse(b"archive")
-        client = source_control.GitHubReadClient("installation-token", opener=opener)
+        client = github_client.GitHubReadClient("installation-token", opener=opener)
         sha = "a" * 40
-        with patch.object(source_control.urllib.request, "build_opener", return_value=opener):
+        with patch.object(github_client.urllib.request, "build_opener", return_value=opener):
             self.assertEqual(
                 client.request_archive("example/project", sha, max_bytes=32),
                 b"archive",
@@ -135,13 +135,13 @@ class GitHubReadClientTests(unittest.TestCase):
                 f"https://api.github.com/repos/example/project/tarball/{sha}",
             )
             opener.open.return_value = _FakeResponse(b"x" * 33)
-            with self.assertRaises(source_control.GitHubReadError) as raised:
+            with self.assertRaises(github_client.GitHubReadError) as raised:
                 client.request_archive("example/project", sha, max_bytes=32)
             self.assertEqual(raised.exception.kind, "response_too_large")
 
     def test_archive_redirect_preserves_subject_and_drops_installation_token(self) -> None:
         sha = "a" * 40
-        handler = source_control.GitHubArchiveRedirectHandler()
+        handler = github_client.GitHubArchiveRedirectHandler()
         request = urllib.request.Request(
             f"https://api.github.com/repos/example/project/tarball/{sha}",
             headers={"Authorization": "Bearer installation-token"},
@@ -165,7 +165,7 @@ class GitHubReadClientTests(unittest.TestCase):
                 ))
 
     def test_same_origin_redirect_with_query_keeps_the_token(self) -> None:
-        handler = source_control.SameOriginHttpsRedirectHandler()
+        handler = github_client.SameOriginHttpsRedirectHandler()
         request = urllib.request.Request(
             "https://api.github.com/repos/example/project/pulls/1/files"
             "?per_page=100&page=1",
@@ -192,18 +192,18 @@ class GitHubReadClientTests(unittest.TestCase):
 
         with (
             patch.object(
-                source_control.urllib.request,
+                github_client.urllib.request,
                 "build_opener",
                 side_effect=lambda *handlers: build_opener(*handlers, transport),
             ),
             patch.object(
-                source_control.urllib.request,
+                github_client.urllib.request,
                 "urlopen",
                 side_effect=AssertionError("unsafe global opener used"),
             ),
         ):
-            client = source_control.GitHubReadClient("read-token", max_attempts=1)
-            with self.assertRaises(source_control.GitHubReadError):
+            client = github_client.GitHubReadClient("read-token", max_attempts=1)
+            with self.assertRaises(github_client.GitHubReadError):
                 client.request("/repos/example/project")
 
         self.assertEqual(len(transport.requests), 1)
@@ -219,12 +219,12 @@ class GitHubReadClientTests(unittest.TestCase):
         )
         opener = Mock(spec=urllib.request.OpenerDirector)
         opener.open.side_effect = [transient, response]
-        client = source_control.GitHubReadClient(
+        client = github_client.GitHubReadClient(
             "read-token",
             opener=cast(urllib.request.OpenerDirector, opener),
         )
 
-        with patch.object(source_control.time, "sleep") as sleeper:
+        with patch.object(github_client.time, "sleep") as sleeper:
             data, truncated, headers = client.request(
                 "/repos/example/project", max_bytes=4
             )
@@ -242,14 +242,14 @@ class GitHubReadClientTests(unittest.TestCase):
         transient = _http_error(502)
         opener = Mock(spec=urllib.request.OpenerDirector)
         opener.open.side_effect = transient
-        client = source_control.GitHubReadClient(
+        client = github_client.GitHubReadClient(
             "read-token",
             request_timeout_seconds=10,
             max_attempts=1,
             opener=cast(urllib.request.OpenerDirector, opener),
         )
 
-        with self.assertRaises(source_control.GitHubReadError) as raised:
+        with self.assertRaises(github_client.GitHubReadError) as raised:
             client.request("/repos/example/project")
 
         self.assertEqual(raised.exception.kind, "http_error")
@@ -268,17 +268,17 @@ class GitHubReadClientTests(unittest.TestCase):
 
         opener = Mock(spec=urllib.request.OpenerDirector)
         opener.open.side_effect = open_request
-        source_control.GitHubReadClient(
+        github_client.GitHubReadClient(
             "read-token", opener=cast(urllib.request.OpenerDirector, opener)
         ).request("/repos/example/project")
-        source_control.GitHubReadClient(
+        github_client.GitHubReadClient(
             "", opener=cast(urllib.request.OpenerDirector, opener)
         ).request("/repos/example/project")
 
         self.assertEqual(authorizations, ["Bearer read-token", None])
 
     def test_request_classifies_terminal_failures_without_retry(self) -> None:
-        client = source_control.GitHubReadClient("")
+        client = github_client.GitHubReadClient("")
 
         for status, kind in (
             (401, "unauthorized"),
@@ -293,10 +293,10 @@ class GitHubReadClientTests(unittest.TestCase):
                 terminal = _http_error(status)
                 opener = Mock(spec=urllib.request.OpenerDirector)
                 opener.open.side_effect = terminal
-                client = source_control.GitHubReadClient(
+                client = github_client.GitHubReadClient(
                     "", opener=cast(urllib.request.OpenerDirector, opener)
                 )
-                with self.assertRaises(source_control.GitHubReadError) as error:
+                with self.assertRaises(github_client.GitHubReadError) as error:
                     client.request("/repos/example/project")
                 self.assertEqual(error.exception.kind, kind)
                 self.assertFalse(error.exception.retryable)
@@ -319,7 +319,7 @@ class GitHubReadClientTests(unittest.TestCase):
             ({}, 60),
         ):
             with self.subTest(headers=headers):
-                deadline = source_control.github_retry_at(
+                deadline = github_client.github_retry_at(
                     _http_error_with_headers(429, headers), rate_limited=True, now=now,
                 )
                 self.assertEqual(deadline, now + timedelta(seconds=seconds))
@@ -329,19 +329,19 @@ class GitHubReadClientTests(unittest.TestCase):
             with self.subTest(value=value):
                 opener = Mock(spec=urllib.request.OpenerDirector)
                 opener.open.side_effect = _http_error_with_headers(503, {"Retry-After": value})
-                client = source_control.GitHubReadClient(
+                client = github_client.GitHubReadClient(
                     "", max_attempts=3, opener=cast(urllib.request.OpenerDirector, opener),
                 )
                 with (
-                    patch.object(source_control.time, "sleep"),
-                    self.assertRaises(source_control.GitHubReadError) as raised,
+                    patch.object(github_client.time, "sleep"),
+                    self.assertRaises(github_client.GitHubReadError) as raised,
                 ):
                     client.request("/repos/example/project")
                 self.assertIsNone(raised.exception.retry_at)
                 self.assertEqual(opener.open.call_count, 3)
 
     def test_request_distinguishes_rate_limits_from_authorization_denials(self) -> None:
-        client = source_control.GitHubReadClient("")
+        client = github_client.GitHubReadClient("")
 
         for error in (
             _http_error(429),
@@ -352,13 +352,13 @@ class GitHubReadClientTests(unittest.TestCase):
             with self.subTest(status=error.code, headers=dict(error.headers.items())):
                 opener = Mock(spec=urllib.request.OpenerDirector)
                 opener.open.side_effect = error
-                client = source_control.GitHubReadClient(
+                client = github_client.GitHubReadClient(
                     "",
                     max_attempts=3,
                     opener=cast(urllib.request.OpenerDirector, opener),
                 )
                 before = datetime.now(timezone.utc)
-                with self.assertRaises(source_control.GitHubReadError) as raised:
+                with self.assertRaises(github_client.GitHubReadError) as raised:
                     client.request("/repos/example/project")
                 self.assertIsNotNone(raised.exception.retry_at)
                 assert raised.exception.retry_at is not None
@@ -376,12 +376,12 @@ class GitHubReadClientTests(unittest.TestCase):
             with self.subTest(kind=kind, failure=type(failure).__name__):
                 opener = Mock(spec=urllib.request.OpenerDirector)
                 opener.open.side_effect = failure
-                client = source_control.GitHubReadClient(
+                client = github_client.GitHubReadClient(
                     "", opener=cast(urllib.request.OpenerDirector, opener)
                 )
                 with (
-                    patch.object(source_control.time, "sleep") as sleeper,
-                    self.assertRaises(source_control.GitHubReadError) as error,
+                    patch.object(github_client.time, "sleep") as sleeper,
+                    self.assertRaises(github_client.GitHubReadError) as error,
                 ):
                     client.request("/repos/example/project")
                 self.assertEqual(error.exception.kind, kind)
@@ -395,8 +395,8 @@ class GitHubReadClientTests(unittest.TestCase):
         opener = Mock(spec=urllib.request.OpenerDirector)
         opener.open.side_effect = [urllib.error.URLError("reset"), _FakeResponse(b"{}")]
         with (
-            patch.object(source_control.urllib.request, "build_opener", return_value=opener),
-            patch.object(source_control.time, "sleep"),
+            patch.object(github_client.urllib.request, "build_opener", return_value=opener),
+            patch.object(github_client.time, "sleep"),
         ):
             client = gateway._gateway_github_client("token")  # pyright: ignore[reportPrivateUsage]
             self.assertEqual(client.request_json("/repos/example/project"), {})
@@ -420,17 +420,17 @@ class GitHubReadClientTests(unittest.TestCase):
         opener = Mock(spec=urllib.request.OpenerDirector)
         opener.open.side_effect = lambda *a, **k: steps.pop(0)(*a, **k)
         with (
-            patch.object(source_control.time, "monotonic", side_effect=lambda: clock[0]),
-            patch.object(source_control.time, "sleep", side_effect=wait),
+            patch.object(github_client.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(github_client.time, "sleep", side_effect=wait),
         ):
-            client = source_control.GitHubReadClient(
+            client = github_client.GitHubReadClient(
                 "", opener=cast(urllib.request.OpenerDirector, opener),
                 request_timeout_seconds=10.0, max_attempts=3, retry_window_seconds=33.0,
             )
             # The first read retries twice inside the window and succeeds at 26 s.
             self.assertEqual(client.request_json("/repos/example/project"), {})
             # A later read of the same operation cannot retry past the window.
-            with self.assertRaises(source_control.GitHubReadError) as error:
+            with self.assertRaises(github_client.GitHubReadError) as error:
                 client.request_json("/repos/example/project/contents/a.py")
         self.assertEqual(error.exception.kind, "timeout")
         self.assertTrue(error.exception.retryable)
@@ -438,15 +438,15 @@ class GitHubReadClientTests(unittest.TestCase):
         self.assertEqual(clock[0], 36.0)
 
     def test_request_json_rejects_truncated_or_invalid_payloads(self) -> None:
-        client = source_control.GitHubReadClient("")
+        client = github_client.GitHubReadClient("")
 
         with patch.object(client, "request", return_value=(b"{}", True, {})):
-            with self.assertRaises(source_control.GitHubReadError) as error:
+            with self.assertRaises(github_client.GitHubReadError) as error:
                 client.request_json("/repos/example/project")
         self.assertEqual(error.exception.kind, "response_too_large")
 
         with patch.object(client, "request", return_value=(b"not-json", False, {})):
-            with self.assertRaises(source_control.GitHubReadError) as error:
+            with self.assertRaises(github_client.GitHubReadError) as error:
                 client.request_json("/repos/example/project")
         self.assertEqual(error.exception.kind, "invalid_json")
 

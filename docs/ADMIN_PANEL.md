@@ -84,14 +84,14 @@ private database and gateway, which the chart does not supply.
    container's terminal:
 
    ```bash
-   python -m review_agent.admin_auth --email admin@example.org
+   python -m review_agent.console.auth --email admin@example.org
    ```
 
    From a local Compose terminal:
 
    ```bash
    docker compose -f compose.yaml -f compose.admin.yaml exec review-admin \
-     python -m review_agent.admin_auth --email admin@example.org
+     python -m review_agent.console.auth --email admin@example.org
    ```
 
    Enter the password at the hidden prompt, never in arguments, environment

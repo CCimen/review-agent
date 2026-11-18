@@ -14,7 +14,7 @@ from psycopg.types.json import Jsonb
 from ..review import contract as review_contract
 from ..review.contract import SHARED_CONNECTION_ID
 from ..deployment_settings import DeploymentSettings
-from ..model_runtime.accounts import (
+from ..hermes.accounts import (
     AccountAvailability,
     ManagedRuntimeStatus,
     ModelProvider,

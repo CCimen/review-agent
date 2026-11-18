@@ -14,12 +14,12 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent.domain import repository_guidance_context  # noqa: E402
 from review_agent.review import (  # noqa: E402
-    run_application as review_run_application,
+    runs as review_runs,
 )
 from review_agent.domain.review import ReviewRunId  # noqa: E402
 from review_agent.postgres import repository_guidance  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
 
@@ -41,7 +41,7 @@ class PostgreSQLRepositoryGuidanceTests(unittest.TestCase):
     def start_run(self) -> ReviewRunId:
         result = support.start_postgres_review(
             self.runtime,
-            review_run_application.PostgresRunRequest(
+            review_runs.PostgresRunRequest(
                 provider="github",
                 provider_repository_id=123,
                 repository="example-org/example-repository",

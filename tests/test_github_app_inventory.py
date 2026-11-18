@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from review_agent import operator_application  # noqa: E402
+from review_agent.operations import inspection  # noqa: E402
 from review_agent.github import app_auth, app_inventory  # noqa: E402
 from review_agent.postgres import github_app  # noqa: E402
 from review_agent.postgres.runtime import (  # noqa: E402
@@ -315,7 +315,7 @@ class GitHubAppInventoryTests(unittest.TestCase):
                 github_app, "reconcile_selected_installation", return_value=expected
             ) as reconcile,
         ):
-            result = operator_application.sync_github_app_installation(
+            result = inspection.sync_github_app_installation(
                 cast(PostgreSQLRuntime, Runtime()),
                 cast(app_auth.GitHubAppAuthenticator, object()),
                 provider_installation_id=7001,
@@ -384,7 +384,7 @@ class GitHubAppInventoryTests(unittest.TestCase):
                 return_value=(installed, enabled),
             ) as accept,
         ):
-            result = operator_application.onboard_github_app_repository(
+            result = inspection.onboard_github_app_repository(
                 cast(PostgreSQLRuntime, Runtime()),
                 cast(app_auth.GitHubAppAuthenticator, object()),
                 repository="CCimen/review-agent",
@@ -477,12 +477,12 @@ class GitHubAppInventoryTests(unittest.TestCase):
                     return_value=runtime,
                 ),
                 patch.object(
-                    admin_cli.operator_setup,
+                    admin_cli.operations_readiness,
                     "github_app_authenticator",
                     return_value=object(),
                 ),
                 patch.object(
-                    operator_application,
+                    inspection,
                     "sync_github_app_installation",
                     side_effect=side_effect,
                     return_value=return_value,

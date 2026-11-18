@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from ..domain.review import JsonObject, ReviewPurpose
 from ..postgres import jobs
-from ..worker_telemetry import TokenUsage
+from ..postgres.telemetry import TokenUsage
 from . import part_instructions
 
 

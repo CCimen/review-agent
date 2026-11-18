@@ -49,7 +49,7 @@ include = ["review_agent*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-review_agent = ["plugin.yaml", "postgres_migrations/*.sql"]
+review_agent = ["plugin.yaml", "postgres/migrations/*.sql"]
 
 [tool.ruff]
 target-version = "py311"

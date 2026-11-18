@@ -7,14 +7,14 @@ from dataclasses import replace
 from .. import capacity
 from ..review import (
     contract as review_contract,
-    run_application as review_run_application,
+    runs as review_runs,
 )
 from ..domain import repository_decision_context, repository_guidance_context
 from ..domain.documentation_scope import ChangedPath, DocumentationScope
 from . import scope as documentation_scope
 from ..repository_context import (
-    decision_context as repository_decision_loader,
-    guidance_context as repository_guidance_loader,
+    decisions as repository_decision_loader,
+    guidance as repository_guidance_loader,
 )
 from ..domain.documentation_policy import DocumentationPolicyError, parse_policy
 from ..domain.documentation_review import DocumentationOutcome, DocumentationResult
@@ -27,7 +27,7 @@ from ..postgres import (
     documentation_reviews,
     github_app,
     jobs,
-    review_runs,
+    review_runs as postgres_review_runs,
 )
 from ..postgres.runtime import PostgreSQLRuntime
 from ..review.source_initialization import initialize_review
@@ -115,7 +115,7 @@ def run_preflight(
     """Freeze scope or a zero-model result under the same worker lease as inference."""
     run_id = ReviewRunId(source.run_id)
     with runtime.transaction() as connection:
-        run_scope = review_runs.get_run_scope(connection, run_id)
+        run_scope = postgres_review_runs.get_run_scope(connection, run_id)
         if run_scope.run.purpose is not ReviewPurpose.DOCUMENTATION:
             raise ToolInputError("documentation preflight requires a documentation review")
         try:
@@ -139,7 +139,7 @@ def run_preflight(
             if exc.reason != "documentation_comparison_unavailable":
                 raise
             with runtime.transaction() as connection:
-                review_runs.lock_run(connection, run_id)
+                postgres_review_runs.lock_run(connection, run_id)
                 jobs.require_live_lease(connection, job_id=source.lease.job_id,
                     review_run_id=run_id, lease_generation=source.lease.lease_generation)
                 documentation_reviews.initialize(connection, run_id=run_id, comparison_sha=None)
@@ -179,7 +179,7 @@ def run_preflight(
             base=base, head=head,
         )
         with runtime.transaction() as connection:
-            review_runs.lock_run(connection, run_id)
+            postgres_review_runs.lock_run(connection, run_id)
             jobs.require_live_lease(connection, job_id=source.lease.job_id,
                 review_run_id=run_id, lease_generation=source.lease.lease_generation)
             result = documentation_reviews.freeze_scope(connection, run_id=run_id, scope=scope)
@@ -187,7 +187,7 @@ def run_preflight(
     outcome = deterministic_outcome(result.scope)
     if outcome is not None:
         with runtime.transaction() as connection:
-            review_runs.lock_run(connection, run_id)
+            postgres_review_runs.lock_run(connection, run_id)
             jobs.require_live_lease(connection, job_id=source.lease.job_id,
                 review_run_id=run_id, lease_generation=source.lease.lease_generation)
             return documentation_reviews.finalize(
@@ -221,10 +221,10 @@ def run_preflight(
             )
         return context
 
-    review_run_application.load_or_create_live_repository_guidance(
+    review_runs.load_or_create_live_repository_guidance(
         runtime, initialized.subject, loader=load_guidance,
     )
-    review_run_application.load_or_create_live_repository_decisions(
+    review_runs.load_or_create_live_repository_decisions(
         runtime, initialized.subject, loader=load_decisions,
     )
     return result

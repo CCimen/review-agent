@@ -12,11 +12,11 @@ import re
 from typing import Any, Mapping, cast
 import urllib.parse
 
-from .. import changed_files
+from . import changed_files
 from ..domain.review import ReviewPurpose
 from ..domain.documentation_policy import CONFIG_PATH, MAX_CONFIG_BYTES
 from ..postgres.review_runs import ReviewRunScope
-from ..source_control import GitHubReadClient, GitHubReadError
+from .client import GitHubReadClient, GitHubReadError
 
 
 JsonObject = dict[str, Any]

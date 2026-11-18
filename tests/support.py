@@ -28,18 +28,18 @@ from review_agent.postgres import (  # noqa: E402
     review_runs as postgres_review_runs,
 )
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent.review import run_application  # noqa: E402
+from review_agent.review import runs as review_runs  # noqa: E402
 
 
 def start_postgres_review(
-    runtime: PostgreSQLRuntime, request: run_application.PostgresRunRequest
+    runtime: PostgreSQLRuntime, request: review_runs.PostgresRunRequest
 ) -> postgres_review_runs.RunStart:
     """Start one exact review run without a durable job."""
     with runtime.transaction() as connection:
-        pull_request_id, subject_id = run_application.ensure_review_scope(
+        pull_request_id, subject_id = review_runs.ensure_review_scope(
             connection, request
         )
-        return run_application.start_run_in_transaction(
+        return review_runs.start_run_in_transaction(
             connection,
             pull_request_id=pull_request_id,
             review_subject_id=subject_id,
@@ -53,7 +53,7 @@ def register_postgres_changed_files(
     runtime: PostgreSQLRuntime,
     *,
     run_id: ReviewRunId,
-    files: Sequence[run_application.PostgresChangedFile],
+    files: Sequence[review_runs.PostgresChangedFile],
     changed_files_reported: int,
     registration_complete: bool,
 ) -> postgres_coverage.CoverageRegistration:

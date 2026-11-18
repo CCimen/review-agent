@@ -17,7 +17,7 @@ from .contract import (
     EMBEDDING_MODEL,
     GraphError,
 )
-from ..source_control import SameOriginHttpsRedirectHandler
+from ..https import SameOriginHttpsRedirectHandler
 
 
 def embedding_inputs(value: Mapping[str, object]) -> list[str]:

@@ -26,9 +26,9 @@ from review_agent.domain.review import (  # noqa: E402
 from review_agent.postgres import registry  # noqa: E402
 from review_agent.postgres import review_runs as postgres_review_runs  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent.postgres_migrations import runner  # noqa: E402
+from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.review import (  # noqa: E402
-    run_application as review_run_application,
+    runs as review_runs,
 )
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from tests import support  # noqa: E402
@@ -248,8 +248,8 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
         repository: str = "team/reviewer",
         request_key: str = "github:issue-comment:1001",
         head_sha: str = "a" * 40,
-    ) -> review_run_application.PostgresRunRequest:
-        return review_run_application.PostgresRunRequest(
+    ) -> review_runs.PostgresRunRequest:
+        return review_runs.PostgresRunRequest(
             provider="github",
             provider_repository_id=provider_repository_id,
             repository=repository,
@@ -284,10 +284,10 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
 
     def test_start_is_idempotent_and_cross_scope_key_conflict_rolls_back(self) -> None:
         def admit(
-            request: review_run_application.PostgresRunRequest,
+            request: review_runs.PostgresRunRequest,
         ) -> postgres_review_runs.RunStart:
             with self.runtime.transaction() as connection:
-                return review_run_application.admit_postgres_review_in_transaction(
+                return review_runs.admit_postgres_review_in_transaction(
                     connection,
                     request,
                     priority=0,
@@ -469,9 +469,9 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
                 connection, run_id, ReviewPhase.RENDERING
             )
 
-        review_run_application.reopen_live_finding_collection(
+        review_runs.reopen_live_finding_collection(
             self.runtime,
-            review_run_application.RunSubject(
+            review_runs.RunSubject(
                 repository="team/reviewer",
                 pr_number=14,
                 run_id=int(run_id),

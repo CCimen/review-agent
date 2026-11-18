@@ -11,7 +11,7 @@ import psycopg
 from psycopg.rows import TupleRow
 from psycopg_pool import ConnectionPool
 
-from ..postgres_migrations import runner
+from .migrations import runner
 from ..settings import PostgresDatabaseUrl
 
 

@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_PARENT = ROOT / "src"
 sys.path.insert(0, str(PLUGIN_PARENT))
 
-from review_agent import operator_application, operator_setup  # noqa: E402
+from review_agent.operations import inspection, readiness as operations_readiness  # noqa: E402
 from review_agent.github import app_auth  # noqa: E402
 from review_agent.github.gateway import (  # noqa: E402
     GitHubGatewayRejected,
@@ -68,7 +68,7 @@ def _load_admin_cli():
 class OperatorSetupTests(unittest.TestCase):
     def test_capabilities_state_the_shipped_app_only_contract(self) -> None:
         self.assertEqual(
-            operator_setup.capabilities().to_json_obj(),
+            operations_readiness.capabilities().to_json_obj(),
             {
                 "advisory_only": True,
                 "authentication": "github-app",
@@ -90,7 +90,7 @@ class OperatorSetupTests(unittest.TestCase):
         )
 
     def test_registration_url_prefills_only_required_app_contract(self) -> None:
-        personal = operator_setup.github_app_registration_url(
+        personal = operations_readiness.github_app_registration_url(
             owner="CCimen",
             owner_type="user",
             public_url="https://reviews.example.test/",
@@ -118,7 +118,7 @@ class OperatorSetupTests(unittest.TestCase):
             },
         )
 
-        organization = operator_setup.github_app_registration_url(
+        organization = operations_readiness.github_app_registration_url(
             owner="Example Org",
             owner_type="organization",
             public_url="https://reviews.example.test",
@@ -143,7 +143,7 @@ class OperatorSetupTests(unittest.TestCase):
         for public_url, homepage_url in invalid_urls:
             with self.subTest(public_url=public_url, homepage_url=homepage_url):
                 with self.assertRaises(ValueError):
-                    operator_setup.github_app_registration_url(
+                    operations_readiness.github_app_registration_url(
                         owner="example",
                         owner_type="user",
                         public_url=public_url,
@@ -181,7 +181,7 @@ class OperatorSetupTests(unittest.TestCase):
                 {"REVIEW_AGENT_REASONING_EFFORT": "invalid-ambient-value"},
                 clear=True,
             ):
-                report = operator_setup.preflight(supplied_environment)
+                report = operations_readiness.preflight(supplied_environment)
 
         payload = report.to_json_obj()
         rendered = json.dumps(payload, sort_keys=True)
@@ -205,7 +205,7 @@ class OperatorSetupTests(unittest.TestCase):
             key_path = Path(temp) / "github-app.pem"
             key_path.write_text(_private_key(), encoding="utf-8")
             key_path.chmod(0o400)
-            report = operator_setup.preflight(
+            report = operations_readiness.preflight(
                 {
                     "REVIEW_AGENT_DATABASE_URL": (
                         "postgresql://shared:owner-password@db/review_agent"
@@ -255,10 +255,10 @@ class OperatorSetupTests(unittest.TestCase):
                     }
                 )
                 with self.assertRaises(ValueError):
-                    operator_setup.validate_database_configuration(settings)
+                    operations_readiness.validate_database_configuration(settings)
 
     def test_preflight_reports_all_repairable_configuration_failures(self) -> None:
-        report = operator_setup.preflight(
+        report = operations_readiness.preflight(
             {
                 "REVIEW_AGENT_DATABASE_URL": "not-a-postgres-url",
                 "REVIEW_AGENT_GITHUB_APP_ID": "zero",
@@ -279,7 +279,7 @@ class OperatorSetupTests(unittest.TestCase):
         self.assertNotIn("/missing/key.pem", rendered)
 
     def test_doctor_uses_read_only_contract_and_returns_secret_safe_status(self) -> None:
-        snapshot = operator_application.DeploymentHealth(
+        snapshot = inspection.DeploymentHealth(
             generated_at=datetime.now(timezone.utc),
             stale_after_seconds=90,
             progress=(),
@@ -325,13 +325,13 @@ class OperatorSetupTests(unittest.TestCase):
         }
         with (
             patch.object(
-                operator_setup.operator_application,
+                operations_readiness.inspection,
                 "deployment_health",
                 return_value=snapshot,
             ),
-            patch.object(operator_setup.review_contract, "load_installed_contract"),
+            patch.object(operations_readiness.review_contract, "load_installed_contract"),
         ):
-            report = operator_setup.doctor(
+            report = operations_readiness.doctor(
                 environment,
                 runtime=runtime,
                 gateway=gateway,
@@ -372,7 +372,7 @@ class OperatorSetupTests(unittest.TestCase):
         )
 
     def test_smoke_test_checks_capacity_then_uses_only_gateway_dry_run(self) -> None:
-        snapshot = operator_application.DeploymentHealth(
+        snapshot = inspection.DeploymentHealth(
             generated_at=datetime.now(timezone.utc),
             stale_after_seconds=90,
             progress=(),
@@ -407,11 +407,11 @@ class OperatorSetupTests(unittest.TestCase):
             publication_permission=True,
         )
         with patch.object(
-            operator_setup.operator_application,
+            operations_readiness.inspection,
             "deployment_health",
             return_value=snapshot,
         ):
-            report = operator_setup.smoke_test(
+            report = operations_readiness.smoke_test(
                 {"REVIEW_AGENT_ACTIVE_JOB_LIMIT": "100"},
                 runtime=Mock(),
                 gateway=gateway,
@@ -440,7 +440,7 @@ class OperatorSetupTests(unittest.TestCase):
 
     def test_queue_readiness_still_rejects_work_that_needs_recovery(self) -> None:
         blocking_states = (
-            (100, 0, 0, operator_setup.OperatorCapacityUnavailable),
+            (100, 0, 0, operations_readiness.OperatorCapacityUnavailable),
             (0, 1, 0, ValueError),
             (0, 0, 1, ValueError),
         )
@@ -451,7 +451,7 @@ class OperatorSetupTests(unittest.TestCase):
                 expired_leases=expired_leases,
                 expired_publications=expired_publications,
             ):
-                snapshot = operator_application.DeploymentHealth(
+                snapshot = inspection.DeploymentHealth(
                     generated_at=datetime.now(timezone.utc),
                     stale_after_seconds=90,
                     progress=(),
@@ -479,11 +479,11 @@ class OperatorSetupTests(unittest.TestCase):
                 gateway = Mock()
 
                 with patch.object(
-                    operator_setup.operator_application,
+                    operations_readiness.inspection,
                     "deployment_health",
                     return_value=snapshot,
                 ):
-                    report = operator_setup.doctor(
+                    report = operations_readiness.doctor(
                         {"REVIEW_AGENT_ACTIVE_JOB_LIMIT": "100"}, runtime=Mock(),
                         gateway=gateway, hermes_probe=lambda: True,
                     )
@@ -492,7 +492,7 @@ class OperatorSetupTests(unittest.TestCase):
                         "error",
                     )
                     with self.assertRaises(error):
-                        operator_setup.smoke_test(
+                        operations_readiness.smoke_test(
                             {"REVIEW_AGENT_ACTIVE_JOB_LIMIT": "100"},
                             runtime=Mock(),
                             gateway=gateway,
@@ -513,7 +513,7 @@ class OperatorAdminCliTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(
             json.loads(stdout.getvalue()),
-            operator_setup.capabilities().to_json_obj(),
+            operations_readiness.capabilities().to_json_obj(),
         )
 
     def test_repository_context_validation_is_offline_and_secret_safe(self) -> None:
@@ -585,7 +585,7 @@ class OperatorAdminCliTests(unittest.TestCase):
                 admin = _load_admin_cli()
                 runtime = Mock()
                 before = datetime(2026, 3, 1, tzinfo=timezone.utc)
-                result = operator_application.RetentionReceipt(
+                result = inspection.RetentionReceipt(
                     result=retention.RetentionResult(
                         before=before,
                         limit=25,
@@ -601,7 +601,7 @@ class OperatorAdminCliTests(unittest.TestCase):
                 with (
                     patch.object(admin, "_runtime", return_value=runtime),
                     patch.object(
-                        admin.operator_application,
+                        admin.inspection,
                         "prune_receipt_history",
                         return_value=result,
                     ) as prune,
@@ -811,7 +811,7 @@ class OperatorAdminCliTests(unittest.TestCase):
         with (
             patch.object(admin, "_runtime", return_value=runtime),
             patch.object(
-                admin.operator_application,
+                admin.inspection,
                 "prune_receipt_history",
                 side_effect=PostgreSQLUnavailable("host=secret.internal"),
             ),
@@ -914,12 +914,12 @@ class OperatorAdminCliTests(unittest.TestCase):
         with (
             patch.object(admin, "_runtime", return_value=runtime),
             patch.object(
-                admin.operator_application,
+                admin.inspection,
                 "list_github_app_installations",
                 return_value=(installation,),
             ),
             patch.object(
-                admin.operator_application,
+                admin.inspection,
                 "list_github_app_repositories",
                 return_value=(repository,),
             ),
@@ -989,7 +989,7 @@ class OperatorAdminCliTests(unittest.TestCase):
         with (
             patch.object(admin, "_runtime", return_value=runtime),
             patch.object(
-                admin.operator_application,
+                admin.inspection,
                 "enable_github_app_repository",
                 return_value=access,
             ) as enable,
@@ -1054,12 +1054,12 @@ class OperatorAdminCliTests(unittest.TestCase):
         with (
             patch.object(admin, "_runtime", return_value=runtime),
             patch.object(
-                admin.operator_setup,
+                admin.operations_readiness,
                 "github_app_authenticator",
                 return_value="authenticator",
             ),
             patch.object(
-                admin.operator_application,
+                admin.inspection,
                 "onboard_github_app_repository",
                 return_value=result,
             ) as onboard,
@@ -1124,12 +1124,12 @@ class OperatorAdminCliTests(unittest.TestCase):
         with (
             patch.object(admin, "_runtime", return_value=runtime),
             patch.object(
-                admin.operator_setup,
+                admin.operations_readiness,
                 "github_app_authenticator",
                 return_value="authenticator",
             ),
             patch.object(
-                admin.operator_application,
+                admin.inspection,
                 "approve_github_app_installation",
                 return_value=installation,
             ) as approve,
@@ -1202,12 +1202,12 @@ class OperatorAdminCliTests(unittest.TestCase):
                 with (
                     patch.object(admin, "_runtime", return_value=runtime),
                     patch.object(
-                        admin.operator_setup,
+                        admin.operations_readiness,
                         "github_app_authenticator",
                         return_value="authenticator",
                     ),
                     patch.object(
-                        admin.operator_application,
+                        admin.inspection,
                         "onboard_github_app_repository",
                         side_effect=failure,
                     ),
@@ -1256,7 +1256,7 @@ class OperatorAdminCliTests(unittest.TestCase):
                 False,
             ),
             (
-                operator_setup.OperatorCapacityUnavailable("capacity-secret"),
+                operations_readiness.OperatorCapacityUnavailable("capacity-secret"),
                 os.EX_TEMPFAIL,
                 "smoke_test_unavailable",
                 True,
@@ -1270,7 +1270,7 @@ class OperatorAdminCliTests(unittest.TestCase):
                     patch.object(admin, "_runtime", return_value=runtime),
                     patch.object(admin, "_operator_client", return_value=Mock()),
                     patch.object(
-                        admin.operator_setup,
+                        admin.operations_readiness,
                         "smoke_test",
                         side_effect=failure,
                     ),

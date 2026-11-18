@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import os
-from .github_webhook import (
+from .github.webhook import (
     CommandKind,
     GitHubWebhookError,
     UnsupportedGitHubEvent,

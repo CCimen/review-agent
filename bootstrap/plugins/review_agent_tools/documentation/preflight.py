@@ -9,10 +9,11 @@ from ..review import (
     contract as review_contract,
     run_application as review_run_application,
 )
+from ..domain import repository_decision_context
 from ..domain.documentation_scope import ChangedPath, DocumentationScope
 from . import scope as documentation_scope
 from ..repository_context import (
-    decision_context as repository_decision_context,
+    decision_context as repository_decision_loader,
     guidance_context as repository_guidance_context,
 )
 from ..domain.documentation_policy import DocumentationPolicyError, parse_policy
@@ -210,11 +211,11 @@ def run_preflight(
             return repository_decision_context.unavailable(
                 base_sha=run_scope.base_sha, failure_code="decision_changed_file_index_incomplete",
             )
-        context = repository_decision_context.load(
+        context = repository_decision_loader.load(
             source, repository=run_scope.repository, base_sha=run_scope.base_sha,
             changed_paths=paths,
         )
-        if len(output_json(repository_decision_context.payload(context))) > capacity.current().result_max_chars // 3:
+        if len(output_json(repository_decision_loader.payload(context))) > capacity.current().result_max_chars // 3:
             return repository_decision_context.unavailable(
                 base_sha=run_scope.base_sha, failure_code="decision_context_result_budget",
             )

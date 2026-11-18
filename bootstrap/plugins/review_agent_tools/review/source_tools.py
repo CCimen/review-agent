@@ -21,9 +21,10 @@ from . import (
     run_application as review_run_application,
 )
 from ..repository_context import (
-    decision_context as repository_decision_context,
+    decision_context as repository_decision_loader,
     guidance_context as repository_guidance_context,
 )
+from ..domain import repository_decision_context
 from ..domain.review import DiffState, ReviewRunId
 from ..github.source import GIT_BLOB_SHA_RE
 from ..github.gateway import GitHubGatewayError, GitHubGatewayRejected
@@ -362,7 +363,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
                     base_sha=base_sha,
                     failure_code="decision_changed_file_index_incomplete",
                 )
-            loaded = repository_decision_context.load(
+            loaded = repository_decision_loader.load(
                 source,
                 repository=repository,
                 base_sha=base_sha,
@@ -371,7 +372,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
             if loaded.status == "loaded":
                 candidate = dict(result)
                 candidate["repository_decisions_untrusted"] = (
-                    repository_decision_context.payload(loaded)
+                    repository_decision_loader.payload(loaded)
                 )
                 if len(output_json(candidate)) > capacity.current().result_max_chars:
                     return repository_decision_context.unavailable(
@@ -387,7 +388,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
                 loader=load_decisions,
             )
         )
-        result["repository_decisions_untrusted"] = repository_decision_context.payload(
+        result["repository_decisions_untrusted"] = repository_decision_loader.payload(
             decision_context
         )
         if graph_context is not None:
@@ -395,7 +396,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
         rendered = output_json(result)
         if len(rendered) > capacity.current().result_max_chars:
             result["repository_decisions_untrusted"] = (
-                repository_decision_context.payload(
+                repository_decision_loader.payload(
                     repository_decision_context.unavailable(
                         base_sha=base_sha,
                         failure_code="decision_context_result_budget",

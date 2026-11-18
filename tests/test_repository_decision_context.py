@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
 import unittest
 from dataclasses import dataclass, replace
@@ -12,8 +14,9 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools import capacity  # noqa: E402
+from review_agent_tools.domain import repository_decision_context  # noqa: E402
 from review_agent_tools.repository_context import (  # noqa: E402
-    decision_context as repository_decision_context,
+    decision_context as repository_decision_loader,
 )
 from review_agent_tools.github.gateway import GitHubGatewayRetryable  # noqa: E402
 from review_agent_tools.github.source import ReviewFilePage  # noqa: E402
@@ -183,7 +186,7 @@ on_change = ["Run the retrieval evaluation."]
             state="not_found_at_revision",
         )
 
-        result = repository_decision_context.load(
+        result = repository_decision_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -222,7 +225,7 @@ on_change = ["Run the retrieval evaluation."]
             page(".review-agent/decisions/ADR-0007.md", adr),
         ]
 
-        result = repository_decision_context.load(
+        result = repository_decision_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -268,7 +271,7 @@ applies_to = ["src/rag/**"]
             prefix_page(adr, returned_lines=60),
         ]
 
-        result = repository_decision_context.load(
+        result = repository_decision_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -293,7 +296,7 @@ applies_to = ["src/**"]"""
             f"version = 1\n{entries}",
         )
 
-        result = repository_decision_context.load(
+        result = repository_decision_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -340,7 +343,7 @@ invariant = "Missing on-change evidence."
             page(".review-agent/decisions/ADR-0008.md", invalid),
         ]
 
-        result = repository_decision_context.load(
+        result = repository_decision_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,
@@ -412,13 +415,65 @@ on_change = ["Run the retrieval evaluation."]
             )
         )
 
+    def test_stored_snapshot_bytes_and_hash_stay_restorable(self) -> None:
+        # The canonical bytes and hash of one loaded context, recorded before the
+        # aggregate moved to the domain package. Stored rows carry this encoding.
+        stored = (
+            b'{"base_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","decisions":['
+            b'{"adr_path":".review-agent/decisions/ADR-0007.md",'
+            b'"applies_to":["src/rag/**"],"evidence":null,"id":"ADR-0007",'
+            b'"invariant":"Chunk size, overlap, and top-k form one budget.",'
+            b'"invariant_line":5,"matched_path_count":1,"metadata_hash":'
+            b'"sha256:cef62052183e5737d9b62ef180be6424ba1a0e1db5bedf4349e5a4247f8221c3",'
+            b'"on_change":["Run the retrieval evaluation."],"origin_pr":null,'
+            b'"status":"accepted","supersedes":null,'
+            b'"title":"Keep the retrieval budget coupled"}],"failure_code":null,'
+            b'"index_hash":'
+            b'"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",'
+            b'"index_path":".review-agent/decisions.toml","schema_version":1,'
+            b'"status":"loaded"}'
+        )
+        stored_hash = (
+            "sha256:8053f41bc23d127d981c6012f7543a1b70182582e48918956290a89059ca7a3c"
+        )
+        self.assertEqual("sha256:" + hashlib.sha256(stored).hexdigest(), stored_hash)
+
+        restored = repository_decision_context.restore_snapshot(
+            snapshot_id=9,
+            value=json.loads(stored),
+            expected_hash=stored_hash,
+        )
+
+        self.assertEqual(restored.snapshot_hash, stored_hash)
+        self.assertEqual(
+            repository_decision_context.snapshot_value(restored),
+            json.loads(stored),
+        )
+        self.assertEqual(
+            repository_decision_context.loaded(
+                base_sha=restored.base_sha,
+                index_hash="sha256:" + ("b" * 64),
+                decisions=restored.decisions,
+            ).snapshot_hash,
+            stored_hash,
+        )
+        with self.assertRaisesRegex(
+            repository_decision_context.RepositoryDecisionContextError,
+            "hash does not match",
+        ):
+            repository_decision_context.restore_snapshot(
+                snapshot_id=9,
+                value={**json.loads(stored), "base_sha": "c" * 40},
+                expected_hash=stored_hash,
+            )
+
     def test_gateway_failure_degrades_optional_context(self) -> None:
         source = self.source()
         source.client.handler.side_effect = GitHubGatewayRetryable(
             "github_503"
         )
 
-        result = repository_decision_context.load(
+        result = repository_decision_loader.load(
             source,
             repository=REPOSITORY,
             base_sha=BASE_SHA,

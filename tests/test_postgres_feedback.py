@@ -16,9 +16,7 @@ PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools import operator_application  # noqa: E402
-from review_agent_tools.repository_context import (  # noqa: E402
-    decision_context as repository_decision_context,
-)
+from review_agent_tools.domain import repository_decision_context  # noqa: E402
 from review_agent_tools.review import (  # noqa: E402
     feedback_application as review_feedback_application,
 )

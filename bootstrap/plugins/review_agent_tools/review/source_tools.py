@@ -22,9 +22,9 @@ from . import (
 )
 from ..repository_context import (
     decision_context as repository_decision_loader,
-    guidance_context as repository_guidance_context,
+    guidance_context as repository_guidance_loader,
 )
-from ..domain import repository_decision_context
+from ..domain import repository_decision_context, repository_guidance_context
 from ..domain.review import DiffState, ReviewRunId
 from ..github.source import GIT_BLOB_SHA_RE
 from ..github.gateway import GitHubGatewayError, GitHubGatewayRejected
@@ -324,7 +324,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
         base_sha = pull_base_sha(pull)
 
         def load_guidance() -> repository_guidance_context.RepositoryGuidanceContext:
-            loaded = repository_guidance_context.load(
+            loaded = repository_guidance_loader.load(
                 source,
                 repository=repository,
                 base_sha=base_sha,
@@ -333,7 +333,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
             if loaded.status == "loaded":
                 candidate = dict(result)
                 candidate["repository_guidance_untrusted"] = (
-                    repository_guidance_context.payload(loaded)
+                    repository_guidance_loader.payload(loaded)
                 )
                 if len(output_json(candidate)) > capacity.current().result_max_chars:
                     return repository_guidance_context.failed(
@@ -352,7 +352,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
             )
         )
         result["repository_guidance_untrusted"] = (
-            repository_guidance_context.payload(guidance_context)
+            repository_guidance_loader.payload(guidance_context)
         )
 
         def load_decisions(
@@ -406,7 +406,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
             rendered = output_json(result)
         if len(rendered) > capacity.current().result_max_chars:
             result["repository_guidance_untrusted"] = (
-                repository_guidance_context.payload(
+                repository_guidance_loader.payload(
                     repository_guidance_context.failed(
                         "unavailable",
                         base_sha=base_sha,

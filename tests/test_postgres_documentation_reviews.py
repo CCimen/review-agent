@@ -152,7 +152,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
             lease=jobs.WorkerLeaseSession(job_id=job.id, lease_generation=job.lease_generation), client=client)
         with patch.object(documentation_preflight.github_app, "authorize_documentation_review"), patch.object(
             documentation_preflight, "initialize_review", return_value=Mock(file_index=Mock(registration_complete=True)),
-        ), patch.object(documentation_preflight.repository_guidance_context, "load") as guidance:
+        ), patch.object(documentation_preflight.repository_guidance_loader, "load") as guidance:
             result = documentation_preflight.run_preflight(self.runtime, source, Mock())
         self.assertTrue(result.frozen)
         self.assertEqual(result.outcome, DocumentationOutcome.NOT_NEEDED)

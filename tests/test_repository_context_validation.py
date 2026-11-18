@@ -9,9 +9,10 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
+from review_agent_tools.domain import repository_guidance_context  # noqa: E402
 from review_agent_tools.repository_context import (  # noqa: E402
     validation as repository_context_validation,
-    guidance_context as repository_guidance_context,
+    guidance_context as repository_guidance_loader,
 )
 from review_agent_tools.domain import repository_decisions  # noqa: E402
 
@@ -138,7 +139,7 @@ on_change = ["Re-run the platform integration tests."]
                 "\n".join(
                     "bounded line"
                     for _ in range(
-                        repository_guidance_context.MAX_GUIDANCE_FILE_LINES + 1
+                        repository_guidance_loader.MAX_GUIDANCE_FILE_LINES + 1
                     )
                 ),
                 encoding="utf-8",

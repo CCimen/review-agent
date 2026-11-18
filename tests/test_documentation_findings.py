@@ -25,7 +25,7 @@ from review_agent_tools.feedback_commands import (
 )  # noqa: E402
 from review_agent_tools.memory_validation import ReviewMemoryError  # noqa: E402
 from review_agent_tools.postgres.documentation_reviews import coverage_reasons  # noqa: E402
-from review_agent_tools.repository_context.decision_context import (  # noqa: E402
+from review_agent_tools.domain.repository_decision_context import (  # noqa: E402
     not_configured,
 )
 from tests.test_postgres_documentation_reviews import evidence, scope  # noqa: E402
@@ -309,7 +309,7 @@ class DocumentationFindingTests(unittest.TestCase):
             DecisionIndexMatch,
             parse_adr,
         )
-        from review_agent_tools.repository_context.decision_context import (
+        from review_agent_tools.domain.repository_decision_context import (
             loaded,
             pending,
         )

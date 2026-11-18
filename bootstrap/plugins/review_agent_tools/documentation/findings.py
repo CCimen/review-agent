@@ -45,7 +45,7 @@ from ..postgres import (
     review_runs,
 )
 from ..postgres.runtime import PostgreSQLRuntime
-from ..repository_context.decision_context import RepositoryDecisionContext
+from ..domain.repository_decision_context import RepositoryDecisionContext
 
 _CITATION_SCHEMA: dict[str, object] = {
     "type": "object",

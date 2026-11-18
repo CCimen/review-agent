@@ -232,7 +232,7 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
         )
         from review_agent_tools.domain.review import ReviewPhase
         from review_agent_tools.postgres import findings, jobs, repository_decisions
-        from review_agent_tools.repository_context.decision_context import (
+        from review_agent_tools.domain.repository_decision_context import (
             not_configured,
         )
         from tests.test_documentation_findings import input_fixture, result_fixture

@@ -21,7 +21,7 @@ from ..domain.finding import (
     suppression_is_active,
 )
 from ..domain.review import ReviewRunId
-from ..repository_context import decision_context as repository_decision_context
+from ..domain import repository_decision_context
 from . import registry
 from . import repository_decisions as decision_snapshots
 

@@ -7,7 +7,7 @@ from typing import Any
 
 from .. import capacity, settings
 from ..repository_context import (
-    decision_context as repository_decision_context,
+    decision_context as repository_decision_loader,
     guidance_context as repository_guidance_context,
 )
 from ..domain.documentation_review import DocumentationResult, DocumentationReviewError
@@ -80,7 +80,7 @@ def docs_begin(args: dict[str, Any], **context: Any) -> str:
                        "previous_findings": len(previous)},
             "incomplete_reasons": list(scope.incomplete_reasons),
             "repository_guidance_untrusted": repository_guidance_context.payload(guidance),
-            "repository_decisions_untrusted": repository_decision_context.payload(decisions),
+            "repository_decisions_untrusted": repository_decision_loader.payload(decisions),
             "next_action": "Page selected areas, unmapped paths, and previous findings with review_agent_docs_scope; read exact evidence with review_agent_docs_file.",
         })
     except ReviewRunTerminal as terminal:

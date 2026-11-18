@@ -128,9 +128,15 @@ docker compose exec review-github-gateway \
 
 The command re-reads the live installation, requires Contents read, Issues
 write, and Pull requests write, and records who approved it and why. It does
-not list or enable repositories. A repository is enabled the first time an
-authorized user posts `/review` in it: the gateway requests a token restricted
-to that one repository, verifies its identity, and records it.
+not list or enable repositories. A repository is enabled when its first signed
+`/review` command is processed: the gateway requests a token restricted to that
+one repository, verifies its identity, and records it as enabled. Only then
+does the gateway check the sender
+([who can request a review](#who-can-request-a-review)). A command from someone
+who may not request reviews is rejected and starts no review, but the
+repository stays enabled. Anyone who can comment on a pull request in a
+repository the installation reaches can therefore cause it to be enabled. In
+explicit mode a comment never enables a repository.
 
 Platform administrators can do the same in the console under
 **Repositories → Access management**.

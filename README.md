@@ -9,8 +9,9 @@ with deterministic controls.
 
 Deploy Review Agent once, approve a GitHub App installation, and maintainers
 request reviews by commenting `/review` on a pull request. Repositories need no
-workflow, secret, or local setup. Reviews are advisory: the model has read-only
-tools, no shell, and no way to write to the repository or merge.
+workflow, secret, or local setup. Reviews are advisory: the model's tools read
+the pull request and record findings in the service's database, and it has no
+shell and no tool that writes to GitHub or merges.
 
 For each request the service records the pull request's base and head commits,
 lets the model read the diff and the files it asks for, checks every recorded

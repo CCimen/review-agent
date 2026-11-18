@@ -160,9 +160,11 @@ Feedback commands follow the same durable path, and the gateway rechecks the
 sender's write or admin permission and the open pull request before anything is
 recorded.
 
-Webhooks and inventory sync record repositories but never enable one. A
-repository is enabled by `github-app onboard`, or, under an installation
-approved for automatic activation, by the first authorized `/review` in it. See
+Installation webhooks and inventory sync record repositories but never enable
+one. A repository is enabled by `github-app onboard`, or, under an installation
+approved for automatic activation, when the gateway processes its first signed
+`/review` command. The gateway enables the repository before it checks the
+sender, so a rejected sender leaves the repository enabled and no run. See
 [Approve the installation](./GITHUB_APP_PILOT.md#4-approve-the-installation).
 
 Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` to show the copyable feedback commands

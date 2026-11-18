@@ -14,8 +14,9 @@ Last verified: 2026-11-17
 
 Review Agent is a self-hosted service that reviews GitHub pull requests on
 request. A maintainer comments `/review`; the service reviews the pull request's
-current commits with a language model that has read-only tools, and publishes
-advisory findings as pull request comments.
+current commits with a language model whose tools read the pull request and
+record findings in the service's database but cannot write to GitHub, and
+publishes advisory findings as pull request comments.
 
 It runs as one deployment per environment: a GitHub App for access, PostgreSQL
 for state, and [Hermes](https://hermes-agent.nousresearch.com/) as the model
@@ -105,8 +106,11 @@ See [Repository context](./REPOSITORY_CONTEXT.md).
 
 ## Serve many repositories
 
-One approved installation covers its current and future repositories. Each
-repository is enabled the first time an authorized user posts `/review` in it.
+One approved installation covers the repositories GitHub lets the App reach:
+all current and future ones, or only the selected ones. Each repository is
+enabled by the first `/review` command posted in it; a review starts only if
+the commenter
+[may request one](./GITHUB_APP_PILOT.md#who-can-request-a-review).
 All repositories share one queue and one PostgreSQL database; reviews of the
 same repository run one at a time, so
 [add review workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when wait
@@ -935,9 +939,15 @@ docker compose exec review-github-gateway \
 
 The command re-reads the live installation, requires Contents read, Issues
 write, and Pull requests write, and records who approved it and why. It does
-not list or enable repositories. A repository is enabled the first time an
-authorized user posts `/review` in it: the gateway requests a token restricted
-to that one repository, verifies its identity, and records it.
+not list or enable repositories. A repository is enabled when its first signed
+`/review` command is processed: the gateway requests a token restricted to that
+one repository, verifies its identity, and records it as enabled. Only then
+does the gateway check the sender
+([who can request a review](#who-can-request-a-review)). A command from someone
+who may not request reviews is rejected and starts no review, but the
+repository stays enabled. Anyone who can comment on a pull request in a
+repository the installation reaches can therefore cause it to be enabled. In
+explicit mode a comment never enables a repository.
 
 Platform administrators can do the same in the console under
 **Repositories → Access management**.
@@ -1132,6 +1142,10 @@ Add the target platform, public hostname, GitHub owner, installation scope,
 any explicit repositories, and the deployment tools the agent may use. The agent
 records the remaining non-secret choices in a validated installation plan.
 
+The assisted path covers Compose-based installations, including Dokploy: the
+installation plan accepts only the `compose` platform. For Kubernetes, follow
+the manual Helm procedure in [Deploy Review Agent](./DEPLOYMENT.md#deploy).
+
 For the optional [admin panel](ADMIN_PANEL.md), ask for it in the assignment.
 The agent can prepare the Compose service and hostname from the same release as
 the runtime image. You enter the first platform-owner password in the container
@@ -1208,8 +1222,12 @@ your decision.
    gives you the exact container command and waits until you confirm.
 5. **Approve DNS and the production deployment.**
 6. **Post the first `/review`** as a new top-level comment on a test pull
-   request after the agent's dry run passes. Test feedback commands only if you
-   want to validate that path.
+   request. The agent's dry run needs a repository that is already enabled. If
+   it is, for example after `github-app onboard`, post once the dry run has
+   passed. On a fresh automatic installation no repository is enabled yet:
+   post the first `/review` when the agent asks, and the agent runs the dry run
+   after that review has enabled the repository. Test feedback commands only if
+   you want to validate that path.
 
 ## What you receive
 
@@ -1405,8 +1423,9 @@ comment:
 ```
 
 `false-positive` and `intentional` suppress that finding while the same code
-context remains; `intentional` also requires the named decision to be accepted
-in the repository. The two `feedback` commands record evidence for operators.
+context remains and the decision has not expired (180 days for a comment);
+`intentional` also requires the named decision to be accepted in the
+repository. The two `feedback` commands record evidence for operators.
 No command changes prompts or policy on its own. See
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md).
 
@@ -1450,13 +1469,17 @@ repository, and each repository can add its own `.review-agent/` package.
 | To change | Edit | Scope |
 | --- | --- | --- |
 | The reviewer's identity, tone, and stance when explaining risk | `SOUL.md` in the deployment profile | Every repository served by the deployment |
-| Review rules: scope, severity, coverage, finding and suggestion format, feedback rules | `workspace/AGENTS.md` in the deployment profile | Every repository served by the deployment |
+| Review rules the model follows: scope, severity, coverage, and how it words findings and suggestions | `workspace/AGENTS.md` in the deployment profile | Every repository served by the deployment |
 | The review procedure and tool sequence | `skills/review-agent-pr/SKILL.md` (code) and `skills/review-agent-docs/SKILL.md` (documentation) in the deployment profile | Every repository served by the deployment |
 | Repository instructions, ordered technical context, accepted design decisions, documentation mappings | `.review-agent/` in the repository ([Repository context](./REPOSITORY_CONTEXT.md)) | One repository, from the pull request's base commit |
 | Provider, model, and reasoning effort | `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, `REVIEW_AGENT_REASONING_EFFORT`, or the console **Settings**; teams can use separate model connections ([Admin panel](./ADMIN_PANEL.md)) | The deployment, or one team |
 
-The console records the model route of each admitted request with that
-request. A saved route change applies to new requests only.
+The first three rows are instructions to the model. They do not change what
+code enforces, which the next section lists.
+
+When a request is admitted, the App worker stores its provider, model, and
+reasoning effort with the run, whether or not the console is deployed. A saved
+route change applies to new requests only.
 
 ## What no configuration can change
 
@@ -1481,7 +1504,11 @@ profile means building your own image from this repository.
    - `workspace/AGENTS.md`;
    - `profile.json` with exactly `schema_version` (`1`) and `skills`, a list
      of skill keys without duplicates;
-   - `skills/<key>/SKILL.md` for each listed skill.
+   - `skills/<key>/SKILL.md` for each listed skill;
+   - `skills/review-agent-pr/JAVA.md`, the Java companion that the
+     `review_agent_java_guidance` tool returns when Java code is in scope.
+     Keep it from the copied profile: the installer does not check for it, and
+     without it that tool returns an error instead of the guidance.
 3. Keep `review-agent-pr` and `review-agent-docs` in `skills`. The installer
    rejects a profile missing either one.
 4. Build the image and set `REVIEW_AGENT_PROFILE=<key>`. Compose passes it to
@@ -1497,8 +1524,9 @@ reuses the receipt's profile when `REVIEW_AGENT_PROFILE` is not set.
 ## Changing `SOUL.md` and `AGENTS.md`
 
 A change to `SOUL.md` or `AGENTS.md` affects every repository the deployment
-serves, so review it as a policy change. Put stable review rules and the
-visible comment contract in `AGENTS.md`, and procedure in the skill. A team
+serves, so review it as a policy change. Put stable review rules, including
+how the model words a finding, in `AGENTS.md`, and procedure in the skill.
+Neither changes the layout of the published comment, which code renders. A team
 that wants different wording or focus for its own repository uses
 `.review-agent/instructions.md` instead.
 
@@ -1652,8 +1680,9 @@ gives the format and limits.
 
 ## Get architecture-aware reviews
 
-Every code review checks whether the pull request introduces or worsens an
-architecture problem in the changed code: a rule implemented outside its owner,
+The review procedure instructs the reviewer to check, in every code review,
+whether the pull request introduces or worsens an architecture problem in the
+changed code: a rule implemented outside its owner,
 duplicated policy, hidden coupling, a misleading abstraction, or complexity that
 causes a concrete defect or change cost. Without context, the reviewer infers
 the intended structure from the diff and the files it reads. Two files make
@@ -1679,9 +1708,10 @@ First, describe the structure in a context file and list it in `config.toml`:
 ```
 
 Second, record each invariant that must not change without a decision as an
-accepted ADR whose `applies_to` covers the paths it protects. A pull request
-that breaks it gets a `design.adr-conflict` finding when the reviewer traces a
-real consequence in the changed code.
+accepted ADR whose `applies_to` covers the paths it protects. The reviewer is
+instructed to report a pull request that breaks it as a `design.adr-conflict`
+finding when it traces a real consequence in the changed code. That depends on
+the model; code does not detect an ADR conflict by itself.
 
 The reviewer treats both as evidence. It does not assess the whole repository's
 architecture, report structure the pull request did not change, or propose
@@ -3061,7 +3091,8 @@ connection. See
 ## How do I serve many repositories or a whole organization?
 
 Deploy once, install the App on the organization, and approve the installation
-once. Repositories then activate on their first authorized `/review`. See
+once. Each repository the installation reaches is then enabled by its first
+`/review` command; a review starts only if the commenter may request one. See
 [Set up and share the GitHub App](./GITHUB_APP_PILOT.md), and
 [scale workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when queue wait
 time grows.
@@ -3085,9 +3116,11 @@ locations per query. Nothing reranks findings or context. See
 
 ## Does it find security problems?
 
-Yes, within the pull request. Every code review applies security-audit guidance
-to the changed code and reports vulnerabilities and flawed security logic the
-pull request introduces or worsens. It does not run exploits, query a CVE
+Yes, within the pull request. The review procedure instructs the reviewer to
+apply security-audit guidance to the changed code and to report vulnerabilities
+and flawed security logic the pull request introduces or worsens. Those are
+instructions to the model: code checks each finding it records, not that every
+path was traced. It does not run exploits, query a CVE
 database, audit unchanged code, or certify a repository as secure; keep
 deterministic scanners in CI. See [How reviews work](./HOW_REVIEWS_WORK.md).
 
@@ -3102,7 +3135,8 @@ against it. It does not assess the whole repository.
 ## Does feedback affect later reviews?
 
 `/review false-positive` and `/review intentional` suppress the same finding in
-later rounds while the code and ADR still match. `/review feedback scope` and
+later rounds while the code and ADR still match and the decision has not
+expired (180 days for a comment). `/review feedback scope` and
 `/review feedback missed` record evidence only. See
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md).
 
@@ -3111,8 +3145,9 @@ later rounds while the code and ADR still match. `/review feedback scope` and
 Each repository can add review focus, communication preferences, technical
 context, and accepted ADRs through its [`.review-agent/`
 package](./REPOSITORY_CONTEXT.md), read from the pull request's base commit. The
-deployment profile owns identity, procedure, evidence gates, severity, tools,
-authorization, and publication; see
+deployment profile owns the reviewer's identity, procedure, and review rules
+such as severity. Tools, authorization, the finding gates, and publication are
+fixed in code, and neither a profile nor a repository can change them; see
 [Behavior ownership](./BEHAVIOR_OWNERSHIP.md).
 
 ## What is stored in PostgreSQL?
@@ -3159,7 +3194,7 @@ Last verified: 2026-11-17
 | Capability | Summary | Details |
 | --- | --- | --- |
 | Code review on request | `/review` reviews the pull request's current base and head commits and publishes advisory findings | [How reviews work](./HOW_REVIEWS_WORK.md) |
-| Security review | Every code review traces untrusted input across trust boundaries in the changed code | [How reviews work](./HOW_REVIEWS_WORK.md#4-the-review) |
+| Security review | The review procedure instructs the reviewer to trace untrusted input across trust boundaries in the changed code; code checks the findings it records, not the model's reasoning | [How reviews work](./HOW_REVIEWS_WORK.md#4-the-review) |
 | Large pull requests | Changed files that together exceed one session are reviewed in up to twelve parts and merged into one review; files left unread are reported as incomplete coverage | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
 | Re-review and feedback | Earlier findings are re-checked; maintainers can mark a finding false positive or intentional | [Feedback and decisions](./FEEDBACK_AND_DECISIONS.md) |
 | Repository context | A `.review-agent/` package adds instructions, platform context, and accepted design decisions | [Repository context](./REPOSITORY_CONTEXT.md) |
@@ -3453,9 +3488,11 @@ Feedback commands follow the same durable path, and the gateway rechecks the
 sender's write or admin permission and the open pull request before anything is
 recorded.
 
-Webhooks and inventory sync record repositories but never enable one. A
-repository is enabled by `github-app onboard`, or, under an installation
-approved for automatic activation, by the first authorized `/review` in it. See
+Installation webhooks and inventory sync record repositories but never enable
+one. A repository is enabled by `github-app onboard`, or, under an installation
+approved for automatic activation, when the gateway processes its first signed
+`/review` command. The gateway enables the repository before it checks the
+sender, so a rejected sender leaves the repository enabled and no run. See
 [Approve the installation](./GITHUB_APP_PILOT.md#4-approve-the-installation).
 
 Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` to show the copyable feedback commands
@@ -4179,9 +4216,17 @@ Rules the parser applies:
   reverse.
 - `/review docs intentional` is rejected: an accepted decision can explain a
   behavior change, but it does not make contradictory documentation correct.
-- `accepted-risk` is rejected in comments. Record accepted risk with
-  `review-agent-memory decide <fingerprint> accepted_risk` or on the finding's
-  page in the console.
+- `accepted-risk` is rejected in comments. Record accepted risk on the finding's
+  page in the console, or from the operator CLI:
+
+  ```bash
+  review-agent-memory decide <fingerprint> accepted_risk \
+    --repo <org>/<repo> \
+    --pr <number> \
+    --local-reference F2 \
+    --actor "github:alice" \
+    --reason "The endpoint is reachable only from the internal network; accepted until the next audit."
+  ```
 
 Only people with current GitHub `write` or `admin` permission on the
 repository can send feedback. Console requester grants allow requesting a
@@ -4195,10 +4240,20 @@ the code context has changed, request a fresh review and use its F reference.
 
 | Command | Immediate effect | Later use |
 | --- | --- | --- |
-| `false-positive` | Suppresses the finding in later reviews while its code-context hash still matches. | Points at evidence rules that need work. |
-| `intentional` | Suppresses the finding while both the code context and the accepted ADR's metadata still match. Accepted only when the ADR was `accepted` in the finding's stored base snapshot and its index entry covers the finding's path. | Keeps a repository decision; exposes weak ADR path mapping. |
+| `false-positive` | Suppresses the finding in later reviews while its code-context hash still matches and the decision has not expired. | Points at evidence rules that need work. |
+| `intentional` | Suppresses the finding while the code context and the accepted ADR's metadata both still match and the decision has not expired. Accepted only when the ADR was `accepted` in the finding's stored base snapshot and its index entry covers the finding's path. | Keeps a repository decision; exposes weak ADR path mapping. |
 | `feedback scope` | Records scope confusion. The finding is not suppressed. | Shows where pull request structure or repository context misled the review. |
 | `feedback missed` | Records a concrete missed issue. | Shows gaps in coverage, tools, or review rules. |
+
+Every suppressing decision expires, whether it is a false positive, an
+intentional decision, an accepted risk, or a duplicate. A decision made with a
+comment or on the console's finding page expires after 180 days. The CLI
+(`--expires-days`) and the console API (`expires_days`) accept 1 to 3,650 days
+and use 180 when none is given. A later review suppresses the finding only
+while the decision has not expired, the stored code-context hash still
+matches, and, for an intentional decision, the current base still has the same
+accepted ADR metadata. After expiry the finding is evaluated again even if the
+code did not change, and suppressing it again needs a new decision.
 
 No command changes prompts, skills, or policy. Changes to the reviewer happen
 only through a normal pull request to the profile or code.
@@ -4388,8 +4443,12 @@ write.
 - A worker leases the job and calls the private, authenticated Hermes API.
 - Hermes runs the review through the bundled plugin, not through a shell.
 - The model can read bounded pull-request context and record candidate findings.
-- Deterministic plugin code owns memory writes, publication, feedback parsing,
-  and GitHub mutations.
+- Deterministic plugin code validates each tool call and writes its result to
+  PostgreSQL: recorded findings and the frozen publication.
+- A separate publisher sends the frozen publication to GitHub through the
+  gateway, which performs the write.
+- Feedback commands are parsed at admission and recorded by the App worker,
+  outside the model path.
 
 ## Tool surface
 
@@ -4427,7 +4486,10 @@ request and the sender's current write or admin permission. The gateway can then
 post only a code-owned reaction or explanation.
 
 Human feedback can inform later reviewer changes, but it never rewrites
-prompts, skills, suppressions or policy by itself. Run Hermes `/learn` only in
+prompts, skills or policy by itself. An authorized `false-positive` or
+`intentional` command does record a suppression of that one finding; see
+[Human-governed suppressions](#human-governed-suppressions).
+Run Hermes `/learn` only in
 a separate operator profile or workstation that does not share the live
 reviewer's `HERMES_HOME`, skills directory or gateway.
 
@@ -4437,9 +4499,12 @@ The GitHub App key is mounted into the private gateway and, when the optional
 [admin panel](./ADMIN_PANEL.md) is deployed, into the admin service, which uses
 it to read App and installation status for access administration. No other
 service receives it. The gateway mints short-lived installation tokens restricted to one repository and one purpose.
-Callers supply a durable lease identity, never a repository, URL, HTTP method or
-credential. The gateway derives authority from PostgreSQL and checks the lease
-before and after provider I/O.
+For lease-bound review, feedback and publication operations, callers supply a
+durable lease identity, never a repository, URL, HTTP method or credential. The
+gateway derives authority from PostgreSQL and checks the lease before and after
+provider I/O. The operator smoke test is different: its caller names a
+repository and pull request, must present `API_SERVER_KEY`, and is accepted
+only for a repository that is already enabled.
 
 | Token purpose | Permissions | Used for |
 | --- | --- | --- |
@@ -4471,12 +4536,28 @@ database.
 
 ## Human-governed suppressions
 
-Only a GitHub collaborator with current write or admin permission, or an
-operator command, can suppress a finding. The model can record observations, but
-it cannot mark itself correct or dismiss its own findings.
+Only a human decision suppresses a finding. There are three paths, and each
+checks a different authority:
 
-A suppression applies only while the finding's code context is unchanged, and
-can carry an expiry date. When the code changes, the finding is evaluated again.
+- **GitHub feedback command.** The gateway checks the sender's current GitHub
+  write or admin permission and the exact open pull request. The App worker
+  then records the decision.
+- **Console.** The console requires a signed-in platform owner or admin, or a
+  maintainer of the team that owns the repository, and writes the decision to
+  the audit log. Console roles are not GitHub permissions.
+- **Operator CLI** (`review-agent-memory decide`). It runs with the
+  deployment's database credentials, checks no GitHub or console permission,
+  and records `--actor` as typed. Whoever can run commands in the container can
+  record a decision.
+
+The model can record observations, but it cannot mark itself correct or dismiss
+its own findings.
+
+A suppression applies only while the finding's code context is unchanged and
+the decision has not expired. Every suppressing decision expires, after 180
+days unless another period is given; see
+[What each command changes](./FEEDBACK_AND_DECISIONS.md#what-each-command-changes).
+When the code changes or the decision expires, the finding is evaluated again.
 ADRs are context, not immunity: an accepted ADR can explain an architectural
 decision, but the reviewer still checks the invariants the ADR requires.
 

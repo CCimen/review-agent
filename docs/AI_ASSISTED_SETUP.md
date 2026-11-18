@@ -42,6 +42,10 @@ Add the target platform, public hostname, GitHub owner, installation scope,
 any explicit repositories, and the deployment tools the agent may use. The agent
 records the remaining non-secret choices in a validated installation plan.
 
+The assisted path covers Compose-based installations, including Dokploy: the
+installation plan accepts only the `compose` platform. For Kubernetes, follow
+the manual Helm procedure in [Deploy Review Agent](./DEPLOYMENT.md#deploy).
+
 For the optional [admin panel](ADMIN_PANEL.md), ask for it in the assignment.
 The agent can prepare the Compose service and hostname from the same release as
 the runtime image. You enter the first platform-owner password in the container
@@ -118,8 +122,12 @@ your decision.
    gives you the exact container command and waits until you confirm.
 5. **Approve DNS and the production deployment.**
 6. **Post the first `/review`** as a new top-level comment on a test pull
-   request after the agent's dry run passes. Test feedback commands only if you
-   want to validate that path.
+   request. The agent's dry run needs a repository that is already enabled. If
+   it is, for example after `github-app onboard`, post once the dry run has
+   passed. On a fresh automatic installation no repository is enabled yet:
+   post the first `/review` when the agent asks, and the agent runs the dry run
+   after that review has enabled the repository. Test feedback commands only if
+   you want to validate that path.
 
 ## What you receive
 

@@ -186,8 +186,9 @@ comment:
 ```
 
 `false-positive` and `intentional` suppress that finding while the same code
-context remains; `intentional` also requires the named decision to be accepted
-in the repository. The two `feedback` commands record evidence for operators.
+context remains and the decision has not expired (180 days for a comment);
+`intentional` also requires the named decision to be accepted in the
+repository. The two `feedback` commands record evidence for operators.
 No command changes prompts or policy on its own. See
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md).
 

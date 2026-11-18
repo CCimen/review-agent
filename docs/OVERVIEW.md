@@ -11,8 +11,9 @@ last_verified: 2026-11-17
 
 Review Agent is a self-hosted service that reviews GitHub pull requests on
 request. A maintainer comments `/review`; the service reviews the pull request's
-current commits with a language model that has read-only tools, and publishes
-advisory findings as pull request comments.
+current commits with a language model whose tools read the pull request and
+record findings in the service's database but cannot write to GitHub, and
+publishes advisory findings as pull request comments.
 
 It runs as one deployment per environment: a GitHub App for access, PostgreSQL
 for state, and [Hermes](https://hermes-agent.nousresearch.com/) as the model

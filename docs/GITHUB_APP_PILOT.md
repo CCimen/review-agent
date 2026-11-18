@@ -24,12 +24,14 @@ Examples use Compose.
 
 ## 1. Register the App
 
-From a source checkout with
-[its virtual environment](./REPOSITORY_CONTEXT.md#start-with-the-copyable-package),
-generate a prefilled registration URL:
+Generate a prefilled registration URL with the release image you will deploy.
+The command needs no network, database or secrets:
 
 ```bash
-.venv/bin/review-agent-admin github-app registration-url \
+docker run --rm --network none \
+  --entrypoint review-agent-admin \
+  ghcr.io/ccimen/review-agent:<release> \
+  github-app registration-url \
   --owner <account> --owner-type <user-or-organization> \
   --public-url https://review.example.org \
   --homepage-url https://docs.example.org/review-agent/

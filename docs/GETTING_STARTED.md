@@ -49,13 +49,17 @@ again. If no comment appears, follow the
 
 To give the reviewer team instructions, platform context, and accepted design
 decisions, copy the starter package when the repository has no `.review-agent/`
-directory, then validate it offline from a Review Agent checkout with
-[its virtual environment](./REPOSITORY_CONTEXT.md#start-with-the-copyable-package):
+directory, then validate it offline with the release image, from inside that
+repository:
 
 ```bash
 cp -R examples/repository-context/.review-agent /path/to/repository/
-.venv/bin/review-agent-admin repository-context validate \
-  /path/to/repository
+cd /path/to/repository
+docker run --rm --read-only --network none \
+  --entrypoint review-agent-admin \
+  --mount type=bind,source="$PWD",target=/repo,readonly \
+  ghcr.io/ccimen/review-agent:<release> \
+  repository-context validate /repo
 ```
 
 See [Repository context](./REPOSITORY_CONTEXT.md).

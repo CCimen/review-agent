@@ -405,10 +405,11 @@ wiring if you maintain a modified Compose file.
 
 Drain every long-running Review Agent component before running a migration.
 This prevents an old process from writing against a schema that changed after
-its image was built. A review still queued when the images change fails with
-`review_contract_changed`, because a release changes the installed reviewer:
-let the [queue](./OPERATIONS.md#queue) finish before you stop the services,
-or request those reviews again afterwards, as
+its image was built. When a release changes the installed reviewer, a review
+still queued under the previous one fails with `review_contract_changed`; the
+release's upgrade notes say when that applies. In that case let the
+[queue](./OPERATIONS.md#queue) finish before you stop the services, or request
+those reviews again afterwards, as
 [Failure codes](./OPERATIONS.md#failure-codes) describes.
 
 <Tabs groupId="upgrade-platform">
@@ -599,11 +600,21 @@ Removed since 0.4.14:
   `candidate_verifications` and `candidate_reconciliations`. From the
   publications listing: the four `verification_*` fields, which were always
   null.
-- The OpenShift template. The Helm chart under `examples/helm/` remains.
+- The OpenShift template. The Helm chart under `examples/helm/` remains. An
+  installation plan with `deployment.platform: openshift` no longer validates;
+  `compose` is the only accepted platform.
 
-Migration 039 adds two constraints that existing data already satisfies. The
-tables of the removed tools stay in the schema, empty and unused, so the
-previous release still runs after a rollback; a later release drops them.
+This release changes the installed reviewer, so reviews queued under 0.4.14
+fail with `review_contract_changed` after the switch: let the queue finish
+first or request them again, as the upgrade sequence above says.
+
+Migration 039 adds two constraints: a finding decision must name the
+occurrence it judged, and a changed file's part must be a part of its review.
+If existing rows violate either, the migration fails and changes nothing. The
+tables of the removed tools, and any rows in them, are retained; this release
+no longer reads or writes them. Whether the previous release can run against
+the migrated database is decided as [Rollback boundary](#rollback-boundary)
+describes, not by these notes.
 
 ### Rollback boundary
 

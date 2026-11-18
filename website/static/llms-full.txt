@@ -86,13 +86,17 @@ again. If no comment appears, follow the
 
 To give the reviewer team instructions, platform context, and accepted design
 decisions, copy the starter package when the repository has no `.review-agent/`
-directory, then validate it offline from a Review Agent checkout with
-[its virtual environment](./REPOSITORY_CONTEXT.md#start-with-the-copyable-package):
+directory, then validate it offline with the release image, from inside that
+repository:
 
 ```bash
 cp -R examples/repository-context/.review-agent /path/to/repository/
-.venv/bin/review-agent-admin repository-context validate \
-  /path/to/repository
+cd /path/to/repository
+docker run --rm --read-only --network none \
+  --entrypoint review-agent-admin \
+  --mount type=bind,source="$PWD",target=/repo,readonly \
+  ghcr.io/ccimen/review-agent:<release> \
+  repository-context validate /repo
 ```
 
 See [Repository context](./REPOSITORY_CONTEXT.md).
@@ -504,10 +508,11 @@ wiring if you maintain a modified Compose file.
 
 Drain every long-running Review Agent component before running a migration.
 This prevents an old process from writing against a schema that changed after
-its image was built. A review still queued when the images change fails with
-`review_contract_changed`, because a release changes the installed reviewer:
-let the [queue](./OPERATIONS.md#queue) finish before you stop the services,
-or request those reviews again afterwards, as
+its image was built. When a release changes the installed reviewer, a review
+still queued under the previous one fails with `review_contract_changed`; the
+release's upgrade notes say when that applies. In that case let the
+[queue](./OPERATIONS.md#queue) finish before you stop the services, or request
+those reviews again afterwards, as
 [Failure codes](./OPERATIONS.md#failure-codes) describes.
 
 ### Compose
@@ -693,11 +698,21 @@ Removed since 0.4.14:
   `candidate_verifications` and `candidate_reconciliations`. From the
   publications listing: the four `verification_*` fields, which were always
   null.
-- The OpenShift template. The Helm chart under `examples/helm/` remains.
+- The OpenShift template. The Helm chart under `examples/helm/` remains. An
+  installation plan with `deployment.platform: openshift` no longer validates;
+  `compose` is the only accepted platform.
 
-Migration 039 adds two constraints that existing data already satisfies. The
-tables of the removed tools stay in the schema, empty and unused, so the
-previous release still runs after a rollback; a later release drops them.
+This release changes the installed reviewer, so reviews queued under 0.4.14
+fail with `review_contract_changed` after the switch: let the queue finish
+first or request them again, as the upgrade sequence above says.
+
+Migration 039 adds two constraints: a finding decision must name the
+occurrence it judged, and a changed file's part must be a part of its review.
+If existing rows violate either, the migration fails and changes nothing. The
+tables of the removed tools, and any rows in them, are retained; this release
+no longer reads or writes them. Whether the previous release can run against
+the migrated database is decided as [Rollback boundary](#rollback-boundary)
+describes, not by these notes.
 
 ### Rollback boundary
 
@@ -784,12 +799,14 @@ Examples use Compose.
 
 ## 1. Register the App
 
-From a source checkout with
-[its virtual environment](./REPOSITORY_CONTEXT.md#start-with-the-copyable-package),
-generate a prefilled registration URL:
+Generate a prefilled registration URL with the release image you will deploy.
+The command needs no network, database or secrets:
 
 ```bash
-.venv/bin/review-agent-admin github-app registration-url \
+docker run --rm --network none \
+  --entrypoint review-agent-admin \
+  ghcr.io/ccimen/review-agent:<release> \
+  github-app registration-url \
   --owner <account> --owner-type <user-or-organization> \
   --public-url https://review.example.org \
   --homepage-url https://docs.example.org/review-agent/

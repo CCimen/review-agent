@@ -42,18 +42,22 @@ Every file is optional. `documentation.toml` and the decision files work without
 
 ## Start with the copyable package
 
-From a Review Agent checkout with its virtual environment, copy the starter
-only when the repository has no package. Edit an existing package in place.
-Then validate the target repository:
+A Review Agent checkout runs its commands from a virtual environment that
+holds the pinned requirements and the checkout itself. Create it once, then
+copy the starter only when the repository has no package. Edit an existing
+package in place. Then validate the target repository:
 
 ```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+.venv/bin/python -m pip install --disable-pip-version-check --no-deps -e .
 repository_root=/path/to/repository
 if [ -e "$repository_root/.review-agent" ]; then
   echo ".review-agent already exists; preserve it and edit it in place."
 else
   cp -R examples/repository-context/.review-agent "$repository_root/"
 fi
-.venv/bin/python tools/review_agent_admin.py repository-context validate \
+.venv/bin/review-agent-admin repository-context validate \
   "$repository_root"
 ```
 
@@ -219,7 +223,7 @@ After committing a change locally, preview its documentation scope without
 GitHub, PostgreSQL, a model, or running repository commands:
 
 ```bash
-.venv/bin/python tools/review_agent_admin.py repository-context docs-scope \
+.venv/bin/review-agent-admin repository-context docs-scope \
   /path/to/repository \
   --base <target-base-commit> \
   --head <pull-request-head-commit>

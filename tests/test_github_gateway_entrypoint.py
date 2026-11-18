@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 from datetime import datetime, timedelta, timezone
 import os
@@ -46,18 +45,7 @@ from review_agent.github.publication import (  # noqa: E402
 )
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent.code_graph.contract import GraphIdentity  # noqa: E402
-
-
-def _entrypoint_module():
-    spec = importlib.util.spec_from_file_location(
-        "review_agent_github_gateway_entrypoint",
-        ROOT / "tools" / "review_agent_github_gateway.py",
-    )
-    if spec is None or spec.loader is None:
-        raise AssertionError("could not load GitHub gateway entrypoint")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from review_agent.cli import github_gateway  # noqa: E402
 
 
 class _Runtime:
@@ -167,7 +155,7 @@ class _Gateway:
 
 class GitHubGatewayEntrypointTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.module = _entrypoint_module()
+        self.module = github_gateway
         self.gateway = _Gateway()
         self.publication_gateway = Mock()
         self.publication_gateway.execute.return_value = "review-agent[bot]"

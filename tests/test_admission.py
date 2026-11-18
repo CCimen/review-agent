@@ -16,11 +16,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "tools"))
 
-import review_agent_admission as admission_entrypoint  # noqa: E402
-
-from review_agent import admission  # noqa: E402
+from review_agent.cli import admission  # noqa: E402
 from review_agent.review import contract as review_contract  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLUnavailable  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl, SettingsError  # noqa: E402
@@ -183,7 +180,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
             contract_environment={"REVIEW_AGENT_MODEL": "test-review-model"},
         )
         self.runtime = MagicMock()
-        self.server = admission_entrypoint.AdmissionServer(
+        self.server = admission.AdmissionServer(
             ("127.0.0.1", 0),
             config=config,
             runtime=self.runtime,
@@ -248,7 +245,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
 
     def test_github_app_route_durably_acknowledges_without_a_github_read(self) -> None:
         with patch.object(
-            admission_entrypoint.admission,
+            admission,
             "receive_github_app_delivery",
             return_value=admission.WebhookReceiptResponse("received"),
             create=True,
@@ -260,7 +257,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
 
     def test_github_app_route_fails_before_receipt_and_preserves_conflicts(self) -> None:
         with patch.object(
-            admission_entrypoint.admission,
+            admission,
             "receive_github_app_delivery",
             create=True,
         ) as receive:
@@ -269,7 +266,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
         receive.assert_not_called()
 
         with patch.object(
-            admission_entrypoint.admission,
+            admission,
             "receive_github_app_delivery",
             side_effect=admission.GitHubAppDeliveryConflict("conflict detail"),
             create=True,
@@ -305,7 +302,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
         self.assertLess(len(body), self.server.github_app_max_body_bytes)
 
         with patch.object(
-            admission_entrypoint.admission,
+            admission,
             "receive_github_app_delivery",
             return_value=admission.WebhookReceiptResponse("received"),
         ) as receive:
@@ -318,7 +315,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
         receive.assert_called_once()
 
         with patch.object(
-            admission_entrypoint.admission,
+            admission,
             "receive_github_app_delivery",
             create=True,
         ) as receive:
@@ -333,18 +330,18 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
         self,
     ) -> None:
         with patch.object(
-            admission_entrypoint.admission,
+            admission,
             "load_config",
             return_value=self.server.config,
         ):
-            configured = admission_entrypoint.load_server_config({})
+            configured = admission.load_server_config({})
             self.assertEqual(configured.github_app_max_body_bytes, 2_097_152)
 
             with self.assertRaisesRegex(
                 SettingsError,
                 "REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES must not exceed 2097152",
             ):
-                admission_entrypoint.load_server_config(
+                admission.load_server_config(
                     {"REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES": "2097153"}
                 )
 
@@ -394,7 +391,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
             with self.subTest(failure=type(failure).__name__):
                 with (
                     patch.object(
-                        admission_entrypoint.admission,
+                        admission,
                         "receive_github_app_delivery",
                         side_effect=failure,
                     ),
@@ -413,7 +410,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
         failure = RuntimeError("readiness secret")
         with (
             patch.object(
-                admission_entrypoint.admission,
+                admission,
                 "ready_check",
                 side_effect=failure,
             ),

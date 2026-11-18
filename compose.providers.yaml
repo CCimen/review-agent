@@ -18,7 +18,6 @@ services:
       hermes-review:
         condition: service_healthy
     environment:
-      PYTHONPATH: /opt/review-agent-bootstrap/plugins
       PYTHONDONTWRITEBYTECODE: "1"
       REVIEW_AGENT_HERMES_CONTROL_TOKEN: "${REVIEW_AGENT_HERMES_CONTROL_TOKEN:?set REVIEW_AGENT_HERMES_CONTROL_TOKEN}"
       API_SERVER_KEY: "${API_SERVER_KEY:?set API_SERVER_KEY}"

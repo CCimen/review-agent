@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -15,17 +16,9 @@ from scripts.validate_release_tag import is_release_tag
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
-
-def _admin_module():
-    spec = importlib.util.spec_from_file_location(
-        "review_agent_admin_onboarding_test", ROOT / "tools/review_agent_admin.py"
-    )
-    if spec is None or spec.loader is None:
-        raise AssertionError("could not load review-agent-admin")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from review_agent.cli import admin as admin_cli  # noqa: E402
 
 
 def _llms_generator_module():
@@ -122,7 +115,7 @@ class AiOnboardingContractTests(unittest.TestCase):
         self.assertEqual(plan["github"]["repositories"], [])
 
     def test_admin_parser_accepts_the_operator_commands(self) -> None:
-        parser = _admin_module()._parser()
+        parser = admin_cli._parser()
         commands = (
             ("capabilities",),
             ("preflight",),
@@ -175,13 +168,15 @@ class AiOnboardingContractTests(unittest.TestCase):
         completed = subprocess.run(
             [
                 sys.executable,
-                str(ROOT / "tools/review_agent_admin.py"),
+                "-m",
+                "review_agent.cli.admin",
                 "repository-context",
                 "validate",
                 str(ROOT / "examples/repository-context"),
             ],
             check=False,
             cwd=ROOT,
+            env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
             capture_output=True,
             text=True,
         )

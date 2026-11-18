@@ -24,11 +24,12 @@ Examples use Compose.
 
 ## 1. Register the App
 
-From a source checkout with the Python requirements installed, generate a
-prefilled registration URL:
+From a source checkout with
+[its virtual environment](./REPOSITORY_CONTEXT.md#start-with-the-copyable-package),
+generate a prefilled registration URL:
 
 ```bash
-python3 tools/review_agent_admin.py github-app registration-url \
+.venv/bin/review-agent-admin github-app registration-url \
   --owner <account> --owner-type <user-or-organization> \
   --public-url https://review.example.org \
   --homepage-url https://docs.example.org/review-agent/

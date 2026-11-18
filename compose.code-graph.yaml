@@ -14,7 +14,7 @@ services:
     image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
     restart: unless-stopped
     user: "10000:10000"
-    entrypoint: ["/opt/hermes/.venv/bin/python", "/usr/local/bin/review_agent_code_graph.py"]
+    entrypoint: ["/usr/local/bin/review-agent-code-graph"]
     environment:
       REVIEW_AGENT_GITHUB_GATEWAY_URL: http://review-github-gateway:8646
       REVIEW_AGENT_CODE_GRAPH_CACHE_BYTES: "${REVIEW_AGENT_CODE_GRAPH_CACHE_BYTES:-10737418240}"

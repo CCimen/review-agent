@@ -15,13 +15,11 @@ import psycopg
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOLS = ROOT / "tools"
 PLUGIN_PARENT = ROOT / "src"
-sys.path.insert(0, str(TOOLS))
 sys.path.insert(0, str(PLUGIN_PARENT))
 
-import review_agent_memory as memory  # noqa: E402
-from review_agent_private_io import write_private_file  # noqa: E402
+from review_agent.cli import records as memory  # noqa: E402
+from review_agent.cli.records import write_private_file  # noqa: E402
 from review_agent.domain import input_checks  # noqa: E402
 from review_agent.postgres import quality_report, quality_triage  # noqa: E402
 from review_agent.postgres.runtime import (  # noqa: E402

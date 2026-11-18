@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import timedelta
-import importlib.util
 import logging
 import os
 from pathlib import Path
@@ -17,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "src"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent.github import app_worker  # noqa: E402
+from review_agent.cli import github_app_worker as app_worker  # noqa: E402
 from review_agent.github.app_processor import GitHubAppProcessor  # noqa: E402
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 
@@ -40,18 +39,6 @@ class _Processor:
     def process_next(self, *, lease_owner: str) -> object | None:
         self.owners.append(lease_owner)
         return self.result
-
-
-def _entrypoint_module():
-    spec = importlib.util.spec_from_file_location(
-        "review_agent_github_app_worker_entrypoint",
-        ROOT / "tools" / "review_agent_github_app_worker.py",
-    )
-    if spec is None or spec.loader is None:
-        raise AssertionError("could not load GitHub App worker entrypoint")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 class GitHubAppWorkerTests(unittest.TestCase):
@@ -112,7 +99,7 @@ class GitHubAppWorkerTests(unittest.TestCase):
 
 class GitHubAppWorkerEntrypointTests(unittest.TestCase):
     def test_main_enables_operator_visible_info_logs(self) -> None:
-        module = _entrypoint_module()
+        module = app_worker
         with (
             patch.object(module.logging, "basicConfig") as basic_config,
             patch.object(
@@ -131,7 +118,7 @@ class GitHubAppWorkerEntrypointTests(unittest.TestCase):
         )
 
     def test_worker_requires_one_valid_internal_gateway_origin(self) -> None:
-        module = _entrypoint_module()
+        module = app_worker
         for value in ("", "not-a-url", "ftp://gateway", "http://user@gateway"):
             with self.subTest(value=value), patch.dict(
                 os.environ, {"REVIEW_AGENT_GITHUB_GATEWAY_URL": value}, clear=False

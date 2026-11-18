@@ -49,11 +49,12 @@ again. If no comment appears, follow the
 
 To give the reviewer team instructions, platform context, and accepted design
 decisions, copy the starter package when the repository has no `.review-agent/`
-directory, then validate it offline:
+directory, then validate it offline from a Review Agent checkout with
+[its virtual environment](./REPOSITORY_CONTEXT.md#start-with-the-copyable-package):
 
 ```bash
 cp -R examples/repository-context/.review-agent /path/to/repository/
-.venv/bin/python tools/review_agent_admin.py repository-context validate \
+.venv/bin/review-agent-admin repository-context validate \
   /path/to/repository
 ```
 

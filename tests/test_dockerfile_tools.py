@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import shlex
-import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
-from fnmatch import fnmatch
 import importlib.util
 from pathlib import Path
+import tomllib
 import types
 
 
@@ -37,72 +34,49 @@ def _load_install_module():
     return module
 
 
-def _docker_copy_sources() -> list[str]:
-    sources: list[str] = []
-    for raw_line in (ROOT / "Dockerfile").read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line.startswith("COPY "):
-            continue
-        parts = shlex.split(line)
-        index = 1
-        while index < len(parts) and parts[index].startswith("--"):
-            index += 1
-        sources.extend(parts[index:-1])
-    return sources
-
-
-def _copy_source_covers(source: str, relative_path: str) -> bool:
-    if "*" in source:
-        return fnmatch(relative_path, source)
-    if source.endswith("/"):
-        return relative_path.startswith(source)
-    return relative_path == source
+def _installed_commands() -> dict[str, str]:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return project["project"]["scripts"]
 
 
 class DockerfileToolsTests(unittest.TestCase):
-    def tearDown(self) -> None:
-        for name in (
-            "memory_validation",
-            "feedback_commands",
-            "feedback_contract",
-            "review_agent_memory",
-        ):
-            sys.modules.pop(name, None)
+    def test_every_installed_command_is_one_cli_module(self) -> None:
+        modules = []
+        for command, target in _installed_commands().items():
+            module, _, function = target.partition(":")
+            self.assertTrue(command.startswith("review-agent-"), command)
+            self.assertEqual("main", function, command)
+            package, _, name = module.rpartition(".")
+            self.assertEqual("review_agent.cli", package, command)
+            modules.append(name)
 
-    def test_container_installs_every_review_memory_runtime_module(self) -> None:
-        sources = _docker_copy_sources()
-        modules = [
-            str(path.relative_to(ROOT))
-            for path in sorted((ROOT / "tools").glob("review_agent_*.py"))
-        ]
-
-        missing = [
-            module
-            for module in modules
-            if not any(_copy_source_covers(source, module) for source in sources)
-        ]
-
-        self.assertEqual([], missing)
+        self.assertEqual(
+            sorted(modules),
+            sorted(
+                path.stem
+                for path in (ROOT / "src" / "review_agent" / "cli").glob("*.py")
+                if path.name != "__init__.py"
+            ),
+        )
 
     def test_container_keeps_stable_operator_command_names(self) -> None:
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        commands = set(_installed_commands())
 
-        self.assertIn(
-            "cp /usr/local/bin/review_agent_memory.py /usr/local/bin/review-agent-memory",
-            dockerfile,
+        self.assertLessEqual(
+            {
+                "review-agent-memory",
+                "review-agent-admin",
+                "review-agent-github-app-worker",
+                "review-agent-github-gateway",
+            },
+            commands,
         )
-        self.assertIn(
-            "cp /usr/local/bin/review_agent_admin.py /usr/local/bin/review-agent-admin",
-            dockerfile,
-        )
+        self.assertNotIn("review-agent-database", commands)
         self.assertNotIn("review-agent-database", dockerfile)
+        # Compose files and the Helm chart call the commands in /usr/local/bin.
         self.assertIn(
-            "cp /usr/local/bin/review_agent_github_app_worker.py /usr/local/bin/review-agent-github-app-worker",
-            dockerfile,
-        )
-        self.assertIn(
-            "cp /usr/local/bin/review_agent_github_gateway.py /usr/local/bin/review-agent-github-gateway",
-            dockerfile,
+            "ln -s /opt/hermes/.venv/bin/review-agent-* /usr/local/bin/", dockerfile
         )
 
     def test_container_installs_the_pinned_python_dependencies(self) -> None:
@@ -176,28 +150,6 @@ class DockerfileToolsTests(unittest.TestCase):
             r"ENV REVIEW_AGENT_HERMES_IMAGE=\$\{HERMES_IMAGE\}",
         )
 
-    def test_installed_memory_cli_imports_support_modules(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            # The commands sit in one directory and find the package under the
-            # src/ beside it, as in a checkout.
-            install_dir = Path(temp) / "bin"
-            install_dir.mkdir()
-            (Path(temp) / "src").symlink_to(ROOT / "src", target_is_directory=True)
-            for module in (ROOT / "tools").glob("review_agent_*.py"):
-                shutil.copy2(module, install_dir / module.name)
-            shutil.copy2(
-                install_dir / "review_agent_memory.py",
-                install_dir / "review-agent-memory",
-            )
-
-            completed = subprocess.run(
-                [sys.executable, str(install_dir / "review-agent-memory"), "--help"],
-                check=False,
-                capture_output=True,
-                text=True,
-                env={},
-            )
-        self.assertEqual(0, completed.returncode, completed.stderr)
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,8 @@
-"""One-process durable review worker backed directly by PostgreSQL."""
+"""Run one bounded-concurrency PostgreSQL-backed Review Agent worker process."""
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -9,34 +10,43 @@ from datetime import timedelta
 import json
 import logging
 import os
+from pathlib import Path
 import re
+import signal
 import socket
+import sys
 import threading
 import time
 import uuid
 from typing import cast
 
 
-from .documentation import preflight as documentation_preflight
-from .domain import failure_codes
-from . import settings
-from .review import (
+from ..documentation import preflight as documentation_preflight
+from ..domain import failure_codes
+from .. import settings
+from ..review import (
     contract as review_contract,
     runs as review_runs,
 )
-from .domain.review import JsonObject, ReviewPurpose
-from .hermes.chat import HermesChatClient
-from .github.gateway import GitHubGatewayRejected, GitHubGatewayRetryable
-from .github.gateway_client import ReviewGitHubGatewayClient
-from .review.tool_runtime import GatewaySourceSession, ToolInputError
-from .review.turn import ClaimedReview, ReviewTurnError
-from .postgres import jobs, parts as postgres_parts, review_runs as postgres_review_runs
-from .postgres.runtime import TRANSIENT_DATABASE_ERRORS, PostgreSQLRuntime
-from .postgres.telemetry import (
+from ..domain.review import JsonObject, ReviewPurpose
+from ..hermes.chat import HermesChatClient, HermesChatSettings
+from ..github.gateway import GitHubGatewayRejected, GitHubGatewayRetryable
+from ..github.gateway_client import ReviewGitHubGatewayClient
+from ..review.tool_runtime import GatewaySourceSession, ToolInputError
+from ..review.turn import ClaimedReview, ReviewTurnError
+from ..postgres import jobs, parts as postgres_parts, review_runs as postgres_review_runs
+from ..postgres.deployment_settings import apply_at_startup
+from ..postgres.runtime import (
+    TRANSIENT_DATABASE_ERRORS,
+    PostgreSQLRuntime,
+    PostgreSQLRuntimeRole,
+)
+from ..postgres.telemetry import (
     TokenUsage,
     WorkerTelemetry,
     record_usage,
 )
+from ..settings import ReviewAgentSettings
 
 logger = logging.getLogger(__name__)
 _ERROR_CODE = re.compile(r"[a-z][a-z0-9_]{0,59}")
@@ -354,7 +364,7 @@ class ReviewWorker:
                 )
                 terminal_documentation = result.frozen
                 if terminal_documentation:
-                    from .publication.publish import (
+                    from ..publication.publish import (
                         prepare_postgres_documentation_publication,
                     )
 
@@ -485,3 +495,124 @@ def default_lease_owner(environment: Mapping[str, str]) -> str:
     return configured or (
         f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:12]}"
     )
+
+
+def _seconds(name: str, default: str) -> timedelta:
+    raw = os.environ.get(name, default).strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise WorkerConfigurationError(f"{name} must be a number") from exc
+    return timedelta(seconds=value)
+
+
+def _positive_integer(name: str, default: str) -> int:
+    raw = os.environ.get(name, default).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise WorkerConfigurationError(f"{name} must be an integer") from exc
+    if value < 1:
+        raise WorkerConfigurationError(f"{name} must be positive")
+    return value
+
+
+def _policy() -> WorkerPolicy:
+    return WorkerPolicy(
+        lease_duration=_seconds("REVIEW_AGENT_JOB_LEASE_SECONDS", "120"),
+        heartbeat_interval=_seconds("REVIEW_AGENT_JOB_HEARTBEAT_SECONDS", "30"),
+        retry_delay=_seconds("REVIEW_AGENT_JOB_RETRY_SECONDS", "30"),
+        poll_interval=_seconds("REVIEW_AGENT_JOB_POLL_SECONDS", "2"),
+        request_timeout=_seconds("REVIEW_AGENT_HERMES_TIMEOUT_SECONDS", "7200"),
+        recovery_interval=_seconds("REVIEW_AGENT_JOB_RECOVERY_SECONDS", "30"),
+        recovery_batch_size=_positive_integer(
+            "REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE", "100"
+        ),
+        priority_aging_interval=_seconds(
+            "REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS", "900"
+        ),
+        concurrency=_positive_integer("REVIEW_AGENT_WORKER_CONCURRENCY", "4"),
+        runtime_key=os.environ.get("REVIEW_AGENT_MODEL_CONNECTION", "shared"),
+    )
+
+
+def _chat_settings() -> HermesChatSettings:
+    hermes_home = Path(os.environ.get("HERMES_HOME", "/opt/data"))
+    return HermesChatSettings(
+        endpoint=os.environ.get(
+            "REVIEW_AGENT_HERMES_CHAT_URL",
+            "http://127.0.0.1:8642/v1/review-agent/review",
+        ).strip(),
+        bearer_token=os.environ.get("API_SERVER_KEY", "").strip(),
+        skill_path=Path(
+            os.environ.get(
+                "REVIEW_AGENT_SKILL_PATH",
+                str(hermes_home / "skills" / "review-agent-pr" / "SKILL.md"),
+            )
+        ),
+        documentation_skill_path=hermes_home / "skills" / "review-agent-docs" / "SKILL.md",
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--once", action="store_true", help="claim at most one job")
+    args = parser.parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO, stream=sys.stdout,
+        format="%(levelname)s %(name)s %(message)s",
+    )
+
+    stop = threading.Event()
+
+    def request_stop(_signal: int, _frame: object) -> None:
+        stop.set()
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+
+    configured = ReviewAgentSettings.from_environment()
+    with_settings = PostgreSQLRuntime(configured.postgres_database_url, role=PostgreSQLRuntimeRole.OPERATOR)
+    with_settings.open()
+    try:
+        apply_at_startup(with_settings, "worker")
+    finally:
+        with_settings.close()
+    policy = _policy()
+    chat_settings = _chat_settings()
+    try:
+        review_contract.load_installed_contract()
+    except review_contract.ReviewContractError as exc:
+        parser.error(str(exc))
+    lease_owner = default_lease_owner(os.environ)
+    runtime = PostgreSQLRuntime(
+        configured.postgres_database_url,
+        role=PostgreSQLRuntimeRole.WORKER,
+        worker_concurrency=policy.concurrency,
+    )
+    runtime.open()
+    try:
+        with WorkerTelemetry(
+            runtime,
+            kind="review",
+            lease_owner=lease_owner,
+            capacity=policy.concurrency,
+            stop_event=stop,
+        ) as telemetry:
+            worker = ReviewWorker(
+                runtime,
+                HermesChatClient(chat_settings),
+                policy,
+                lease_owner=lease_owner,
+                stop_event=stop,
+                telemetry=telemetry,
+                source_client=ReviewGitHubGatewayClient(configured.github_gateway_url),
+            )
+            worker.run(once=args.once)
+        return 0
+    finally:
+        runtime.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

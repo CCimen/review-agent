@@ -1,26 +1,37 @@
-"""Recoverable PostgreSQL-backed publication worker."""
+"""Run one recoverable Review Agent publisher process."""
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
 import os
+import signal
 import socket
+import sys
 import threading
 import uuid
 from typing import Protocol
 
 
-from .domain import failure_codes
-from .review import runs as review_runs
-from .github.publication import GitHubPublicationError, GitHubPublicationGateway
-from .postgres import publications, review_runs as postgres_review_runs
-from .postgres.runtime import TRANSIENT_DATABASE_ERRORS, PostgreSQLRuntime
-from .publication.publish import (
+from ..domain import failure_codes
+from ..review import runs as review_runs
+from ..github.gateway_client import ReviewGitHubGatewayClient
+from ..github.publication import GitHubPublicationError, GitHubPublicationGateway
+from ..postgres import publications, review_runs as postgres_review_runs
+from ..postgres.deployment_settings import apply_at_startup
+from ..postgres.runtime import (
+    TRANSIENT_DATABASE_ERRORS,
+    PostgreSQLRuntime,
+    PostgreSQLRuntimeRole,
+)
+from ..postgres.telemetry import WorkerTelemetry
+from ..publication.publish import (
     publish_postgres_publication,
     publish_postgres_run_failure_status,
 )
+from ..settings import ReviewAgentSettings
 
 
 logger = logging.getLogger(__name__)
@@ -318,3 +329,72 @@ def default_publisher_name() -> str:
     return configured or (
         f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:12]}"
     )
+
+
+def _seconds(name: str, default: str) -> timedelta:
+    raw = os.environ.get(name, default).strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise PublisherConfigurationError(f"{name} must be a number") from exc
+    return timedelta(seconds=value)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--once", action="store_true", help="claim at most one publication"
+    )
+    args = parser.parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO,
+        stream=sys.stdout,
+        format="%(levelname)s %(name)s %(message)s",
+    )
+    stop = threading.Event()
+
+    def request_stop(_signal: int, _frame: object) -> None:
+        stop.set()
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+
+    configured = ReviewAgentSettings.from_environment()
+    runtime = PostgreSQLRuntime(
+        configured.postgres_database_url,
+        role=PostgreSQLRuntimeRole.WORKER,
+    )
+    runtime.open()
+    try:
+        apply_at_startup(runtime, "publisher")
+        policy = PublisherPolicy(
+            lease_duration=_seconds("REVIEW_AGENT_PUBLICATION_LEASE_SECONDS", "120"),
+            heartbeat_interval=_seconds(
+                "REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS", "30"
+            ),
+            retry_delay=_seconds("REVIEW_AGENT_PUBLICATION_RETRY_SECONDS", "30"),
+            poll_interval=_seconds("REVIEW_AGENT_PUBLICATION_POLL_SECONDS", "2"),
+            max_comment_bytes=configured.publish_max_bytes,
+        )
+        lease_owner = default_publisher_name()
+        with WorkerTelemetry(
+            runtime,
+            kind="publisher",
+            lease_owner=lease_owner,
+            capacity=1,
+            stop_event=stop,
+        ):
+            PublicationWorker(
+                runtime,
+                ReviewGitHubGatewayClient(configured.github_gateway_url),
+                policy,
+                lease_owner=lease_owner,
+                stop_event=stop,
+            ).run(once=args.once)
+        return 0
+    finally:
+        runtime.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

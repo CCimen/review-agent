@@ -520,33 +520,50 @@ kubectl exec deployment/hermes-review -- review-agent-admin doctor
 
 ### Upgrade notes
 
-**After 0.4.14: the Python package is `review_agent`.** Its source moved from
-`bootstrap/plugins/review_agent_tools/` to `src/review_agent/`, its import
-name changed with it, and its modules were regrouped into packages by what they
-do. Installed command names (`review-agent-*` and
-`/opt/review-agent-bootstrap/install.sh`), HTTP routes, tables, environment
-variables and reviewer tool names are unchanged. So are the Hermes plugin name
-`review-agent-tools` and its directory `plugins/review_agent_tools` in the
-Hermes home.
+**After 0.4.14: the Python package is `review_agent`, and the images install it.**
+Its source moved from `bootstrap/plugins/review_agent_tools/` to
+`src/review_agent/`, its import name changed with it, and its modules were
+regrouped into packages by what they do. The command scripts in `tools/` became
+modules in that package, and both images now install the package into their
+Python environment instead of copying its files. The main image no longer holds
+`/opt/review-agent-bootstrap/plugins/` or `/usr/local/bin/review_agent_*.py`.
+Installed command names (`review-agent-*` in `/usr/local/bin`, and
+`/opt/review-agent-bootstrap/install.sh`), their arguments, HTTP routes, tables,
+environment variables and reviewer tool names are unchanged. So are the Hermes
+plugin name `review-agent-tools` and its directory `plugins/review_agent_tools`
+in the Hermes home.
 
-Three module paths changed. A command that names the old path fails, because
-the module `review_agent_tools` no longer exists:
+The 0.4.14 `compose.yaml` and `compose.admin.yaml` work unchanged with these
+images. The 0.4.14 `compose.providers.yaml` and `compose.code-graph.yaml` do
+not: each starts a service by a path that no longer exists, so
+`review-provider-control` and `review-code-graph` fail to start, and the
+console, which waits for `review-provider-control`, does not start either. Use
+this release's file for those two overlays. Every command that names a path or
+a module:
 
 | Where | 0.4.14 | Now |
 | --- | --- | --- |
 | `review-provider-control` entrypoint in `compose.providers.yaml` | `python -m review_agent_tools.provider_gateway` | `python -m review_agent.hermes.provider_gateway` |
-| Console image command | `uvicorn review_agent_tools.admin.api:app_from_environment` | `uvicorn review_agent.console.app:app_from_environment` |
+| `review-code-graph` entrypoint in `compose.code-graph.yaml` | `/opt/hermes/.venv/bin/python /usr/local/bin/review_agent_code_graph.py` | `/usr/local/bin/review-agent-code-graph` |
+| Console image command | `uvicorn review_agent_tools.admin_api:app_from_environment` | `uvicorn review_agent.console.app:app_from_environment` |
 | First platform owner, run in the console container | `python -m review_agent_tools.admin_auth` | `python -m review_agent.console.auth` |
+| Operator commands in a source checkout | `python tools/review_agent_admin.py` | `.venv/bin/review-agent-admin`, after `pip install --no-deps -e .` into that environment |
 
-Use this release's `compose.providers.yaml`; its `PYTHONPATH` is unchanged. The
-console image starts the new command itself, so only a deployment that
-overrides the image command must change it. The 0.4.14 `compose.yaml`,
-`compose.admin.yaml` and `compose.code-graph.yaml` work unchanged with these
-images.
+The console image starts the new command itself, so only a deployment that
+overrides the image command must change it. This release's
+`compose.providers.yaml` no longer sets
+`PYTHONPATH=/opt/review-agent-bootstrap/plugins`: the package is installed, so
+nothing needs it. A deployment that still sets it is unaffected, because that
+directory no longer exists and Python skips it. The console image's build
+metadata moved from `/app/bootstrap/plugins/review_agent_tools/_build.json` to
+`_build.json` in the installed package
+(`/opt/admin-venv/lib/python3.14/site-packages/review_agent/`).
 
 Logger names follow the module path. In every service except `hermes-review`
 the prefix `review_agent_tools.` is now `review_agent.`: for example,
-`review_agent_tools.worker` became `review_agent.worker`. Inside `hermes-review`
+`review_agent_tools.worker` became `review_agent.cli.worker`. What a command
+logged as `__main__` now carries its module, for example
+`review_agent.cli.github_gateway`. Inside `hermes-review`
 the plugin's loggers keep the prefix `hermes_plugins.review_agent_tools.`. The
 rest of a name changed where its module moved, so a log filter on a module
 needs that module's new path; [CONTRIBUTING.md](https://github.com/CCimen/review-agent/blob/main/CONTRIBUTING.md#where-the-code-lives)

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Operate and diagnose one Review Agent deployment."""
 
 from __future__ import annotations
@@ -16,47 +15,32 @@ import urllib.request
 
 import psycopg
 
-
-def _load_package() -> None:
-    candidates = (
-        Path("/opt/review-agent-bootstrap/plugins"),
-        Path(__file__).resolve().parents[1] / "src",
-    )
-    for candidate in candidates:
-        if (candidate / "review_agent" / "operations" / "readiness.py").is_file():
-            sys.path.insert(0, str(candidate))
-            return
-    raise SystemExit("Could not locate the review_agent package")
-
-
-_load_package()
-
-from review_agent.documentation import scope as documentation_scope  # noqa: E402
-from review_agent.operations import (  # noqa: E402
+from ..documentation import scope as documentation_scope
+from ..operations import (
     inspection,
     readiness as operations_readiness,
 )
-from review_agent.domain import input_checks  # noqa: E402
-from review_agent.repository_context import (  # noqa: E402
+from ..domain import input_checks
+from ..repository_context import (
     validation as repository_context_validation,
 )
-from review_agent.github import app_auth, app_inventory  # noqa: E402
-from review_agent.github.gateway import (  # noqa: E402
+from ..github import app_auth, app_inventory
+from ..github.gateway import (
     GitHubGatewayError,
     GitHubGatewayRetryable,
 )
-from review_agent.github.gateway_client import (  # noqa: E402
+from ..github.gateway_client import (
     ReviewGitHubGatewayClient,
 )
-from review_agent.postgres import github_app, jobs, registry  # noqa: E402
-from review_agent.postgres import roles as database_roles  # noqa: E402
-from review_agent.postgres.runtime import (  # noqa: E402
+from ..postgres import github_app, jobs, registry
+from ..postgres import roles as database_roles
+from ..postgres.runtime import (
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,
     PostgreSQLRuntimeRole,
 )
-from review_agent.settings import ReviewAgentSettings  # noqa: E402
-from review_agent.postgres.migrations import runner  # noqa: E402
+from ..settings import ReviewAgentSettings
+from ..postgres.migrations import runner
 
 
 def _parser() -> argparse.ArgumentParser:

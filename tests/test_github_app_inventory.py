@@ -13,7 +13,6 @@ from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from review_agent.operations import inspection  # noqa: E402
@@ -23,7 +22,7 @@ from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLUnavailable,
 )
-from tools import review_agent_admin as admin_cli  # noqa: E402
+from review_agent.cli import admin as admin_cli  # noqa: E402
 
 
 NOW = datetime(2026, 8, 26, 9, tzinfo=timezone.utc)

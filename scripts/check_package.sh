@@ -1,6 +1,7 @@
 #!/bin/sh
 # Build the wheel, install it outside the checkout, and prove the installed copy
-# is the whole package: its modules, its migrations and its plugin manifest.
+# is the whole package: its modules, its migrations, its plugin manifest and its
+# commands.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 PACKAGE=src/review_agent
@@ -83,6 +84,24 @@ for name in core:
     import_module(name)
 print(f"Core: {len(core)} modules import without the optional groups")
 PY
+
+# Every command in [project.scripts] is installed and answers --help. The Hermes
+# contract check takes no arguments and reads the Hermes image, so only its
+# presence is checked here; scripts/check_image.sh runs it.
+"$PYTHON" - <<'PY' >"$WORK/commands"
+from importlib.metadata import entry_points
+
+for script in sorted(entry_points(group="console_scripts"), key=lambda item: item.name):
+    if script.dist is not None and script.dist.name == "review-agent":
+        print(script.name)
+PY
+COMMANDS=$(wc -l <"$WORK/commands" | tr -d ' ')
+[ "$COMMANDS" -gt 0 ] || { printf '%s\n' "no commands are installed" >&2; exit 1; }
+while read -r command; do
+  [ -x "$WORK/venv/bin/$command" ] || { printf '%s\n' "$command is not installed" >&2; exit 1; }
+  [ "$command" = review-agent-hermes-contract ] || "$WORK/venv/bin/$command" --help >/dev/null
+done <"$WORK/commands"
+printf '%s\n' "Commands: $COMMANDS installed, each parser answers --help"
 
 install "$WHEEL[admin]"
 "$PYTHON" -c "import review_agent.console.app"

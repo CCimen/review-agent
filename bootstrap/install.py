@@ -14,9 +14,10 @@ from pathlib import Path
 from typing import NamedTuple, cast
 
 SOURCE = Path(__file__).resolve().parent
-# Nothing is installed yet when this runs. The package lies beside this file in
-# the image (plugins/review_agent) and under src/ in a checkout.
-sys.path[:0] = [str(SOURCE / "plugins"), str(SOURCE.parent / "src")]
+# The image has the package installed. A checkout has it under src/, which is
+# the only place this file adds to the import path.
+if (SOURCE.parent / "src" / "review_agent").is_dir():
+    sys.path.insert(0, str(SOURCE.parent / "src"))
 from review_agent.review import contract as review_contract  # noqa: E402
 
 try:

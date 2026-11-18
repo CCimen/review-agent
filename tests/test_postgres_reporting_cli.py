@@ -1731,15 +1731,6 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             report.failure_status_delivery_failure_code, "github_unreachable"
         )
 
-        queued = operator_application.prepare_failure_status_queue(
-            self.runtime,
-            repository=self.repository,
-            pr_number=43,
-            older_than_minutes=60,
-        )
-        self.assertEqual(
-            tuple(item.run_id for item in queued.targets), (started.run.id,)
-        )
         with self.runtime.transaction() as connection:
             recovered = review_runs.claim_failure_status(
                 connection,

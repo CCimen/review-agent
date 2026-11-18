@@ -256,15 +256,6 @@ def fail_run_after_publication_in_transaction(
     )
 
 
-def mark_superseded_in_transaction(
-    connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
-) -> postgres_review_runs.ReviewRun:
-    """Supersede one review and its optional durable job atomically."""
-    run = postgres_review_runs.mark_superseded(connection, run_id)
-    postgres_jobs.reconcile_run_jobs(connection, run_ids=(run.id,), status=run.status)
-    return run
-
-
 def fail_claimed_job_in_transaction(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -372,25 +363,6 @@ def start_postgres_review(
             request_key=request.request_key,
             trigger_comment_id=request.trigger_comment_id,
             trigger_user=request.trigger_user,
-        )
-
-
-def admit_postgres_review(
-    runtime: PostgreSQLRuntime,
-    request: PostgresRunRequest,
-    *,
-    priority: int,
-    max_attempts: int,
-    active_job_limit: int,
-) -> AdmittedReview:
-    """Persist the exact run and its queue record in one transaction."""
-    with runtime.transaction() as connection:
-        return admit_postgres_review_in_transaction(
-            connection,
-            request,
-            priority=priority,
-            max_attempts=max_attempts,
-            active_job_limit=active_job_limit,
         )
 
 

@@ -782,61 +782,6 @@ def retry_failure_status(
         raise FailureStatusLeaseLost("failure-status delivery lease was lost")
 
 
-def failed_runs_needing_status(
-    connection: psycopg.Connection[TupleRow],
-    *,
-    repository: str | None,
-    pr_number: int | None,
-    limit: int = 100,
-) -> tuple[FailureStatusTarget, ...]:
-    """Return a bounded recovery queue without claiming external delivery."""
-    _require_transaction(connection)
-    if isinstance(limit, bool) or limit < 1 or limit > 500:
-        raise ReviewRunError("failure status limit must be between 1 and 500")
-    conditions = [
-        "run.status IN ('failed', 'superseded')",
-        "run.failure_code IS NOT NULL",
-        "run.failure_status_delivery_status IN ('pending', 'publish_failed', 'failed')",
-        "(run.failure_status_delivery_status = 'failed' OR "
-        "run.failure_status_delivery_available_at <= statement_timestamp())",
-        "NOT EXISTS (SELECT 1 FROM review_agent.review_runs AS newer "
-        "WHERE newer.pull_request_id = run.pull_request_id AND newer.purpose = run.purpose AND newer.id > run.id)",
-    ]
-    parameters: list[object] = []
-    if repository is not None:
-        conditions.append("lower(repository.full_name) = lower(%s)")
-        parameters.append(repository)
-    if pr_number is not None:
-        conditions.append("pull_request.number = %s")
-        parameters.append(pr_number)
-    parameters.append(limit)
-    query = sql.SQL(
-        "SELECT run.id AS run_id, repository.full_name AS repository, "
-        "pull_request.number AS pr_number, subject.head_sha, run.status, "
-        "run.failure_code, run.failure_status_comment_id AS comment_id, "
-        "run.failure_status_posted_at AS posted_at, "
-        "run.failure_status_delivery_status AS delivery_status, "
-        "run.failure_status_delivery_attempt_count AS delivery_attempt_count, "
-        "run.failure_status_delivery_max_attempts AS delivery_max_attempts, "
-        "run.failure_status_delivery_lease_owner AS delivery_lease_owner, "
-        "run.failure_status_delivery_lease_generation AS delivery_lease_generation "
-        "FROM review_agent.review_runs AS run "
-        "JOIN review_agent.pull_requests AS pull_request "
-        "ON pull_request.id = run.pull_request_id "
-        "JOIN review_agent.repositories AS repository "
-        "ON repository.id = pull_request.repository_id "
-        "JOIN review_agent.review_subjects AS subject "
-        "ON subject.id = run.review_subject_id WHERE "
-    ) + sql.SQL(" AND ").join(
-        sql.SQL(cast(LiteralString, item)) for item in conditions
-    ) + sql.SQL(
-        " ORDER BY run.completed_at, run.id LIMIT %s"
-    )
-    with connection.cursor(row_factory=class_row(_FailureStatusTargetRow)) as cursor:
-        rows = cursor.execute(query, tuple(parameters)).fetchall()
-    return tuple(_failure_status_target(row) for row in rows)
-
-
 def suppress_unposted_failure_statuses_for_pull_request(
     connection: psycopg.Connection[TupleRow],
     *,

@@ -188,12 +188,6 @@ class StaleRunsResult:
         return len(self.runs)
 
 
-@dataclass(frozen=True, slots=True)
-class FailureStatusQueue:
-    marked: StaleRunsResult
-    targets: tuple[postgres_review_runs.FailureStatusTarget, ...]
-
-
 ACTIVE_JOB_STATUSES = (
     postgres_jobs.ReviewJobStatus.QUEUED,
     postgres_jobs.ReviewJobStatus.LEASED,
@@ -930,37 +924,6 @@ def mark_stalled_runs(
         cutoff=cutoff,
         runs=reports,
     )
-
-
-def prepare_failure_status_queue(
-    runtime: PostgreSQLRuntime,
-    *,
-    repository: str | None,
-    pr_number: int | None,
-    older_than_minutes: int,
-    limit: int = 100,
-    now: datetime | None = None,
-) -> FailureStatusQueue:
-    """Fail stale runs, then return the bounded external-delivery queue."""
-    marked = mark_stalled_runs(
-        runtime,
-        repository=repository,
-        pr_number=pr_number,
-        older_than_minutes=older_than_minutes,
-        now=now,
-    )
-    normalized_repository = _repository(repository)
-    normalized_pr = (
-        _positive(pr_number, field="pr_number") if pr_number is not None else None
-    )
-    with runtime.transaction() as connection:
-        targets = postgres_review_runs.failed_runs_needing_status(
-            connection,
-            repository=normalized_repository,
-            pr_number=normalized_pr,
-            limit=_positive(limit, field="limit"),
-        )
-    return FailureStatusQueue(marked=marked, targets=targets)
 
 
 def list_publications(

@@ -1306,18 +1306,19 @@ class PostgreSQLJobTests(unittest.TestCase):
         def admit(index: int) -> review_run_application.AdmittedReview | str:
             start.wait(timeout=5)
             try:
-                return review_run_application.admit_postgres_review(
-                    self.runtime,
-                    self.admission_request(
-                        provider_id=1100 + index,
-                        pr_number=50 + index,
-                        request_key=f"github:manual:capacity-{index}",
-                        head="a" if index == 0 else "c",
-                    ),
-                    priority=0,
-                    max_attempts=3,
-                    active_job_limit=1,
-                )
+                with self.runtime.transaction() as connection:
+                    return review_run_application.admit_postgres_review_in_transaction(
+                        connection,
+                        self.admission_request(
+                            provider_id=1100 + index,
+                            pr_number=50 + index,
+                            request_key=f"github:manual:capacity-{index}",
+                            head="a" if index == 0 else "c",
+                        ),
+                        priority=0,
+                        max_attempts=3,
+                        active_job_limit=1,
+                    )
             except jobs.ReviewQueueFull:
                 return "full"
 

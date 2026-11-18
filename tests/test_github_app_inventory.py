@@ -129,18 +129,20 @@ class GitHubAppInventoryTests(unittest.TestCase):
                     )
 
     def test_resolves_installation_id_from_repository_name(self) -> None:
-        authenticator = _Authenticator(total=1)
+        authenticator = Mock(spec=app_auth.GitHubAppAuthenticator)
+        authenticator.app_json.return_value = _Authenticator().app_json("metadata")
+        authenticator.installation_json.return_value = {
+            "id": 9001,
+            "full_name": "CCimen/review-agent",
+        }
 
-        installation_id = app_inventory.installation_id_for_repository(
-            cast(app_auth.GitHubAppAuthenticator, authenticator),
-            repository="CCimen/review-agent",
-            now=NOW,
+        snapshot = app_inventory.read_repository_inventory(
+            authenticator, repository="CCimen/review-agent"
         )
 
-        self.assertEqual(installation_id, 7001)
-        self.assertEqual(
-            authenticator.app_paths,
-            ["/repos/CCimen/review-agent/installation"],
+        self.assertEqual(snapshot.installation.definition.provider_installation_id, 7001)
+        authenticator.app_json.assert_called_once_with(
+            "/repos/CCimen/review-agent/installation"
         )
 
     def test_rejects_invalid_repository_installation_identity(self) -> None:
@@ -149,15 +151,16 @@ class GitHubAppInventoryTests(unittest.TestCase):
                 self.app_paths.append(path)
                 return {"id": False}
 
+        authenticator = InvalidAuthenticator()
         with self.assertRaisesRegex(
             app_inventory.GitHubAppInventoryPermanent,
             "installation id",
         ):
-            app_inventory.installation_id_for_repository(
-                cast(app_auth.GitHubAppAuthenticator, InvalidAuthenticator()),
+            app_inventory.read_repository_inventory(
+                cast(app_auth.GitHubAppAuthenticator, authenticator),
                 repository="CCimen/review-agent",
-                now=NOW,
             )
+        self.assertEqual(authenticator.token_requests, [])
 
     def test_reads_selected_installation_and_every_repository_page(self) -> None:
         authenticator = _Authenticator()

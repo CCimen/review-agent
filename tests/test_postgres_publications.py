@@ -25,7 +25,10 @@ from review_agent_tools.review import (  # noqa: E402
     publication_application as review_publication_application,
     run_application as review_run_application,
 )
-from review_agent_tools.domain.finding import FindingInput  # noqa: E402
+from review_agent_tools.domain.finding import (  # noqa: E402
+    MAX_FINDINGS_PER_REVIEW,
+    FindingInput,
+)
 from review_agent_tools.domain.publication import (  # noqa: E402
     CheckRunDelivery,
     IssueCommentDelivery,
@@ -55,6 +58,7 @@ from review_agent_tools.github.publication_gateway import (  # noqa: E402
     ReviewPublicationGateway,
 )
 from review_agent_tools.postgres import feedback, publications, quality_reporting, reporting  # noqa: E402
+from review_agent_tools.postgres import findings as finding_store  # noqa: E402
 from review_agent_tools.postgres import github_app  # noqa: E402
 from review_agent_tools.postgres import jobs  # noqa: E402
 from review_agent_tools.postgres import review_runs  # noqa: E402
@@ -932,9 +936,10 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(repeated.items[0].finding_id, canonical.finding_id)
         self.assertEqual(repeated.items[0].fingerprint, canonical.fingerprint)
         self.assertEqual(repeated.items[0].local_reference, canonical.local_reference)
-        history = review_finding_application.load_postgres_repeat_history(
-            self.runtime, run_id=next_run
-        )
+        with self.runtime.transaction() as connection:
+            history = finding_store.repeat_history(
+                connection, run_id=next_run, limit=MAX_FINDINGS_PER_REVIEW
+            )
         self.assertEqual(
             {item.local_reference for item in history},
             {item.local_reference for item in first.items},
@@ -1013,11 +1018,35 @@ class PostgreSQLPublicationTests(unittest.TestCase):
     def test_group_preserves_human_suppression_and_requires_reopen_before_split(
         self,
     ) -> None:
-        from review_agent_tools.domain.finding import resolve_decision
+        from review_agent_tools.domain.finding import (
+            FindingDecision,
+            FindingId,
+            resolve_decision,
+            suppression_is_active,
+        )
         from review_agent_tools.postgres import decisions
         from review_agent_tools.review.publication_planner import (
             PublicationPlanningError,
         )
+
+        def active_suppression(
+            *, finding_id: FindingId, run_id: review_runs.ReviewRunId, context_hash: str
+        ) -> FindingDecision | None:
+            """Apply the live suppression policy to the latest stored decision."""
+            with self.runtime.transaction() as connection:
+                stored = decisions.latest_suppression_decisions(
+                    connection, finding_ids=(finding_id,), current_run_id=run_id
+                ).get(finding_id)
+            if stored is None or not suppression_is_active(
+                decision=stored.latest.decision,
+                decision_context_hash=stored.latest.context_hash,
+                current_context_hash=context_hash,
+                expires_at=stored.latest.expires_at,
+                intentional_evidence_current=stored.intentional_evidence_current,
+                now=datetime.now(timezone.utc),
+            ):
+                return None
+            return stored.latest
 
         inputs = (
             self.finding(anchor="a", evidence="The first guard admits expired work."),
@@ -1092,16 +1121,14 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ),
             0,
         )
-        active = review_finding_application.load_postgres_active_suppression(
-            self.runtime,
+        active = active_suppression(
             finding_id=canonical.finding_id,
             run_id=second_run,
             context_hash="c" * 40,
         )
         self.assertEqual(active, original)
         self.assertEqual(
-            review_finding_application.load_postgres_active_suppression(
-                self.runtime,
+            active_suppression(
                 finding_id=second.items[2].finding_id,
                 run_id=second_run,
                 context_hash="c" * 40,
@@ -1109,8 +1136,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             original,
         )
         self.assertIsNone(
-            review_finding_application.load_postgres_active_suppression(
-                self.runtime,
+            active_suppression(
                 finding_id=canonical.finding_id,
                 run_id=second_run,
                 context_hash="d" * 40,
@@ -1245,9 +1271,10 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             request_key="github:issue-comment:group-failure-retry",
             findings=inputs,
         )
-        history = review_finding_application.load_postgres_repeat_history(
-            self.runtime, run_id=next_run
-        )
+        with self.runtime.transaction() as connection:
+            history = finding_store.repeat_history(
+                connection, run_id=next_run, limit=MAX_FINDINGS_PER_REVIEW
+            )
         self.assertEqual(
             {item.local_reference for item in history},
             {item.local_reference for item in batch.items},
@@ -1304,9 +1331,10 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 feedback_enabled=True,
                 max_comment_bytes=60_000,
             )
-        history = review_finding_application.load_postgres_repeat_history(
-            self.runtime, run_id=run_id
-        )
+        with self.runtime.transaction() as connection:
+            history = finding_store.repeat_history(
+                connection, run_id=run_id, limit=MAX_FINDINGS_PER_REVIEW
+            )
         canonical = next(
             item
             for item in history
@@ -1394,8 +1422,9 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             comment = create_comment(repository, issue_number, body)
             if github.create_calls == 1:
                 with self.runtime.transaction() as connection:
-                    review_run_application.mark_superseded_in_transaction(
-                        connection, run_id
+                    run = review_runs.mark_superseded(connection, run_id)
+                    jobs.reconcile_run_jobs(
+                        connection, run_ids=(run.id,), status=run.status
                     )
                 newer_run, _ = self.start_recorded_run(
                     request_key="github:issue-comment:newer-group",
@@ -2356,9 +2385,8 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 "UPDATE review_agent.publications SET delivery_available_at = statement_timestamp() "
                 "+ INTERVAL '30 days' WHERE id = %s", (prepared.id,),
             )
-            review_run_application.mark_superseded_in_transaction(
-                connection, run_id
-            )
+            run = review_runs.mark_superseded(connection, run_id)
+            jobs.reconcile_run_jobs(connection, run_ids=(run.id,), status=run.status)
 
         github = FakePostgresPublicationGitHub(self.runtime)
         worker = PublicationWorker(
@@ -4011,9 +4039,6 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 lease_owner="failure-worker",
                 lease_duration=timedelta(minutes=5),
             )
-            queued = review_runs.failed_runs_needing_status(
-                connection, repository="team/service", pr_number=41
-            )
             with self.assertRaises(review_runs.FailureStatusLeaseLost):
                 review_runs.claim_failure_status(
                     connection,
@@ -4023,7 +4048,6 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 )
 
         self.assertIsNone(ordinary_claim)
-        self.assertEqual(queued, ())
 
     def test_failure_status_retry_requires_a_nonblank_failure_code(self) -> None:
         run_id, _ = self.start_recorded_run(request_key="blank-delivery-failure")

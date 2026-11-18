@@ -28,7 +28,7 @@ class FailureCodesTests(unittest.TestCase):
         source = (ROOT / "admin" / "src" / "ui.tsx").read_text(encoding="utf-8")
         block = source.split("const failureSentences", 1)[1].split("};", 1)[0]
         explained = set(re.findall(r"^  ([a-z0-9_]+):", block, flags=re.M))
-        self.assertEqual(set(), set(failure_codes.ALL) - explained)
+        self.assertEqual(set(failure_codes.ALL), explained)
 
     def test_failure_detail_is_one_bounded_line(self):
         self.assertEqual(

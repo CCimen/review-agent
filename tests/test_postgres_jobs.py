@@ -45,9 +45,9 @@ from review_agent_tools.postgres.runtime import (  # noqa: E402
 )
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent_tools.model_runtime.hermes_chat import HermesChatClient  # noqa: E402
+from review_agent_tools.review.turn import ReviewTurnError  # noqa: E402
 from review_agent_tools.worker import (  # noqa: E402
-    HermesChatClient,
-    HermesRequestError,
     ReviewWorker,
     WorkerPolicy,
 )
@@ -793,7 +793,7 @@ class PostgreSQLJobTests(unittest.TestCase):
 
         def stop_during_first(*_args: object, **_kwargs: object) -> None:
             stop.set()
-            raise HermesRequestError("stop probe", retryable=False)
+            raise ReviewTurnError("stop probe", retryable=False)
 
         client.review.side_effect = stop_during_first
         worker = ReviewWorker(
@@ -869,7 +869,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             release.wait(timeout=5)
             with lock:
                 active -= 1
-            raise HermesRequestError("concurrency probe", retryable=False)
+            raise ReviewTurnError("concurrency probe", retryable=False)
 
         client.review.side_effect = review
         worker = ReviewWorker(

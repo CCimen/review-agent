@@ -38,9 +38,11 @@ from review_agent_tools.postgres.runtime import (  # noqa: E402
 )
 from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
 from review_agent_tools.postgres.deployment_settings import apply_at_startup  # noqa: E402
-from review_agent_tools.worker import (  # noqa: E402
+from review_agent_tools.model_runtime.hermes_chat import (  # noqa: E402
     HermesChatClient,
     HermesChatSettings,
+)
+from review_agent_tools.worker import (  # noqa: E402
     ReviewWorker,
     WorkerConfigurationError,
     WorkerPolicy,

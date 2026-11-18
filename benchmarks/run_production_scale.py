@@ -30,9 +30,11 @@ from review_agent_tools.review import contract as review_contract  # noqa: E402
 from review_agent_tools.model_runtime.hermes_control import (  # noqa: E402
     MANAGED_REVIEW_PATH,
 )
-from review_agent_tools.worker import (  # noqa: E402
+from review_agent_tools.model_runtime.hermes_chat import (  # noqa: E402
     HermesChatClient,
     HermesChatSettings,
+)
+from review_agent_tools.worker import (  # noqa: E402
     ReviewWorker,
     WorkerPolicy,
 )

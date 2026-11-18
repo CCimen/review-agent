@@ -29,16 +29,18 @@ from review_agent_tools.review import (  # noqa: E402
 from review_agent_tools.source_control import SameOriginHttpsRedirectHandler  # noqa: E402
 from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
 from review_agent_tools.postgres import jobs  # noqa: E402
-from review_agent_tools.worker_telemetry import TokenUsage, parse_usage  # noqa: E402
+from review_agent_tools.worker_telemetry import TokenUsage  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLUnavailable,
 )
-from review_agent_tools.worker import (  # noqa: E402
-    ClaimedReview,
+from review_agent_tools.model_runtime.hermes_chat import (  # noqa: E402
     HermesChatClient,
-    HermesRequestError,
     HermesChatSettings,
+    parse_usage,
+)
+from review_agent_tools.review.turn import ClaimedReview, ReviewTurnError  # noqa: E402
+from review_agent_tools.worker import (  # noqa: E402
     ReviewWorker,
     WorkerConfigurationError,
     WorkerPolicy,
@@ -168,7 +170,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 opener=opener,
             )
 
-            def failure(body: bytes | None = None, status: int | None = None) -> HermesRequestError:
+            def failure(body: bytes | None = None, status: int | None = None) -> ReviewTurnError:
                 if status is None:
                     opener.open.side_effect = None
                     opener.open.return_value = response
@@ -178,7 +180,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                         "http://127.0.0.1:8642", status, "error", HTTPMessage(),
                         io.BytesIO(body or b""),
                     )
-                with self.assertRaises(HermesRequestError) as caught:
+                with self.assertRaises(ReviewTurnError) as caught:
                     client.review(self._claim(generation=1), timeout=self._timeout())
                 return caught.exception
 
@@ -233,7 +235,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             )
             claimed = replace(self._claim(generation=1), purpose=ReviewPurpose.DOCUMENTATION)
             HermesChatClient(settings).review(claimed, timeout=self._timeout())
-            with self.assertRaisesRegex(HermesRequestError, "skill is not installed"):
+            with self.assertRaisesRegex(ReviewTurnError, "skill is not installed"):
                 HermesChatClient(replace(settings, documentation_skill_path=None)).review(
                     claimed, timeout=self._timeout(),
                 )
@@ -380,7 +382,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             for status, retryable in ((429, True), (400, False)):
                 with self.subTest(status=status):
                     _ChatHandler.response_status = status
-                    with self.assertRaises(HermesRequestError) as caught:
+                    with self.assertRaises(ReviewTurnError) as caught:
                         client.review(
                             self._claim(generation=1), timeout=self._timeout()
                         )
@@ -606,7 +608,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         def review(*_args: object, **_kwargs: object) -> None:
             started.set()
             release.wait()
-            raise HermesRequestError("termination probe", retryable=True)
+            raise ReviewTurnError("termination probe", retryable=True)
 
         def heartbeat(*_args: object, **_kwargs: object) -> jobs.ReviewJob:
             if stop.is_set():

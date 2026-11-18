@@ -534,6 +534,11 @@ def failure_status_target(
     return _failure_status_target(row)
 
 
+# One claim retires at most this many abandoned final attempts, so a backlog
+# or a row another transaction holds cannot stall the claim that follows.
+_EXHAUSTED_FAILURE_STATUS_BATCH = 20
+
+
 def claim_next_failure_status(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -555,10 +560,17 @@ def claim_next_failure_status(
             failure_status_delivery_lease_expires_at = NULL,
             failure_status_delivery_last_heartbeat_at = NULL,
             failure_status_delivery_completed_at = statement_timestamp()
-        WHERE failure_status_delivery_status = 'posting'
-          AND failure_status_delivery_lease_expires_at <= statement_timestamp()
-          AND failure_status_delivery_attempt_count >= failure_status_delivery_max_attempts
-        """
+        WHERE id IN (
+            SELECT id
+            FROM review_agent.review_runs
+            WHERE failure_status_delivery_status = 'posting'
+              AND failure_status_delivery_lease_expires_at <= statement_timestamp()
+              AND failure_status_delivery_attempt_count >= failure_status_delivery_max_attempts
+            ORDER BY failure_status_delivery_lease_expires_at, id
+            FOR UPDATE SKIP LOCKED LIMIT %s
+        )
+        """,
+        (_EXHAUSTED_FAILURE_STATUS_BATCH,),
     )
     row = connection.execute(
         """

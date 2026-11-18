@@ -3902,6 +3902,56 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             stored = review_runs.failure_status_target(connection, run_id)
         self.assertEqual(stored.delivery_status, "publish_failed")
 
+    def test_exhausted_failure_status_recovery_skips_a_locked_run(self) -> None:
+        run_ids: list[review_runs.ReviewRunId] = []
+        for pr_number in (51, 52):
+            run_id, _ = self.start_recorded_run(
+                request_key=f"failure-status-exhausted-{pr_number}",
+                pr_number=pr_number,
+            )
+            with self.runtime.transaction() as connection:
+                review_runs.fail_run(
+                    connection, run_id, failure_code="review_deliver_error"
+                )
+                review_runs.claim_failure_status(
+                    connection,
+                    run_id=run_id,
+                    lease_owner="dead-publisher",
+                    lease_duration=timedelta(minutes=5),
+                )
+                connection.execute(
+                    "UPDATE review_agent.review_runs SET "
+                    "failure_status_delivery_lease_expires_at = statement_timestamp(), "
+                    "failure_status_delivery_attempt_count = "
+                    "failure_status_delivery_max_attempts WHERE id = %s",
+                    (run_id,),
+                )
+            run_ids.append(run_id)
+        held, free = run_ids
+
+        with psycopg.connect(DSN) as holder:
+            holder.execute(
+                "SELECT id FROM review_agent.review_runs WHERE id = %s FOR UPDATE",
+                (held,),
+            )
+            with self.runtime.transaction() as connection:
+                claim = review_runs.claim_next_failure_status(
+                    connection,
+                    lease_owner="recovery-publisher",
+                    lease_duration=timedelta(minutes=5),
+                )
+            holder.rollback()
+
+        self.assertIsNone(claim)
+        with self.runtime.transaction() as connection:
+            statuses = {
+                run_id: review_runs.failure_status_target(
+                    connection, run_id
+                ).delivery_status
+                for run_id in run_ids
+            }
+        self.assertEqual(statuses, {held: "posting", free: "failed"})
+
     def test_newer_review_removes_an_unacknowledged_failure_status(self) -> None:
         failed_run, _ = self.start_recorded_run(
             request_key="failure-status-superseded-after-create"

@@ -14,7 +14,7 @@ from review_agent.review import (
     runs as review_runs,
 )
 from review_agent.domain.review import resolve_review_subject
-from review_agent.hermes.quota import QuotaCheck
+from review_agent.domain.model_execution import QuotaCheck
 from review_agent.postgres import jobs, registry
 
 

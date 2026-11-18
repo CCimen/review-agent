@@ -2,31 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from importlib import import_module
 import os
 import threading
 from typing import Protocol, cast
 
+from ..domain import model_execution
+
 
 class ModelWindowError(RuntimeError):
     """Hermes could not resolve a usable context window for the model."""
-
-
-@dataclass(frozen=True, slots=True)
-class ModelWindow:
-    """What one session of the model can hold.
-
-    ``result_chars`` bounds one tool result and ``turn_chars`` all tool results
-    of one model response; above either, Hermes replaces results with a preview
-    the reviewer cannot open. ``compaction_tokens`` is where the configured
-    compression threshold starts summarizing the session.
-    """
-
-    context_tokens: int
-    result_chars: int
-    turn_chars: int
-    compaction_tokens: int
 
 
 class _RuntimeProviderModule(Protocol):
@@ -125,7 +110,7 @@ def default_budget() -> tuple[int, int]:
         raise ModelWindowError("Hermes tool-result budget is unavailable") from exc
 
 
-def resolve(provider: str, model: str) -> ModelWindow:
+def resolve(provider: str, model: str) -> model_execution.ModelWindow:
     """Resolve the window the way Hermes resolves it for this model's session.
 
     A model connection runs its own Hermes home with one account per provider,
@@ -152,17 +137,21 @@ def resolve(provider: str, model: str) -> ModelWindow:
         raise
     except Exception as exc:  # Hermes has no shared error base for provider resolution.
         raise ModelWindowError("model context window could not be resolved") from exc
-    return ModelWindow(context_tokens, result_chars, turn_chars, compaction_tokens)
+    return model_execution.ModelWindow(
+        context_tokens, result_chars, turn_chars, compaction_tokens
+    )
 
 
 # One window per admitted execution, so every tool call of a session uses the
 # value resolved once at admission. Admission registers it after commit; the
 # execution's recorded completion removes it.
-_executions: dict[tuple[int, int], ModelWindow] = {}
+_executions: dict[tuple[int, int], model_execution.ModelWindow] = {}
 _executions_lock = threading.Lock()
 
 
-def register_execution(job_id: int, lease_generation: int, window: ModelWindow) -> None:
+def register_execution(
+    job_id: int, lease_generation: int, window: model_execution.ModelWindow
+) -> None:
     with _executions_lock:
         _executions[(job_id, lease_generation)] = window
 
@@ -172,7 +161,7 @@ def release_execution(job_id: int, lease_generation: int) -> None:
         _executions.pop((job_id, lease_generation), None)
 
 
-def execution_window(job_id: int, lease_generation: int) -> ModelWindow:
+def execution_window(job_id: int, lease_generation: int) -> model_execution.ModelWindow:
     with _executions_lock:
         window = _executions.get((job_id, lease_generation))
     if window is None:

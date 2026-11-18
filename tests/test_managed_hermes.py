@@ -17,6 +17,7 @@ from review_agent.hermes import (
     runtime_api as hermes_runtime_api,
     window as hermes_window,
 )
+from review_agent.domain.model_execution import ModelWindow
 from review_agent.review import contract as review_contract
 from review_agent.hermes.control import MANAGED_REVIEW_PATH
 from review_agent.hermes.accounts import (
@@ -121,7 +122,7 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         self.quota_response = self.enterContext(
             patch.object(hermes_quota, "fetch_account_quota", return_value=None)
         )
-        self.window = hermes_window.ModelWindow(
+        self.window = ModelWindow(
             context_tokens=500_000,
             result_chars=100_000,
             turn_chars=200_000,
@@ -169,7 +170,7 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         self.calls = 0
         self.cancel_handler = False
         self.reject_handler = False
-        self.windows_seen: list[hermes_window.ModelWindow] = []
+        self.windows_seen: list[ModelWindow] = []
         self.addCleanup(
             hermes_window.release_execution,
             self.session.job_id,

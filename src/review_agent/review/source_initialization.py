@@ -20,7 +20,7 @@ from ..domain.review import (
     part_sizes,
     plan_review_parts,
 )
-from ..hermes.window import ModelWindow
+from ..domain.model_execution import ModelWindow
 from ..github.gateway import GitHubGatewayError
 from ..postgres.coverage import FileIndexSummary
 from ..postgres.runtime import PostgreSQLRuntime

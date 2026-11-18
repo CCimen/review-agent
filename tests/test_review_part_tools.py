@@ -28,6 +28,7 @@ from review_agent.tools import (  # noqa: E402
     source as source_tools,
 )
 from review_agent.hermes import window as hermes_window  # noqa: E402
+from review_agent.domain.model_execution import ModelWindow  # noqa: E402
 from review_agent.domain.review import resolve_review_subject  # noqa: E402
 from review_agent.github.source import ReviewSourceBytes  # noqa: E402
 from review_agent.postgres.coverage import FileIndexSummary  # noqa: E402
@@ -54,7 +55,7 @@ PULL = {
     "changed_files": 3,
 }
 SOURCE = SimpleNamespace(run_id=41, lease=SimpleNamespace(job_id=7, lease_generation=3))
-WINDOW = hermes_window.ModelWindow(
+WINDOW = ModelWindow(
     context_tokens=500_000, result_chars=100_000, turn_chars=200_000, compaction_tokens=400_000
 )
 
@@ -128,7 +129,7 @@ class ReviewPartToolTests(unittest.TestCase):
         )
 
     def test_the_lease_fence_applies_its_execution_part_window_and_limits(self) -> None:
-        small = hermes_window.ModelWindow(
+        small = ModelWindow(
             context_tokens=128_000, result_chars=76_800, turn_chars=153_600, compaction_tokens=102_400
         )
 
@@ -179,7 +180,7 @@ class ReviewPartToolTests(unittest.TestCase):
         self.assertEqual(capacity.current(), before)
 
     def initialize(
-        self, *, window: hermes_window.ModelWindow | None
+        self, *, window: ModelWindow | None
     ) -> tuple[Any, Mock, Mock]:
         client = Mock()
         client.get_review_pull.return_value = SimpleNamespace(

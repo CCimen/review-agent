@@ -147,11 +147,15 @@ the private export, and their error codes.
    cohorts, do not read missing feedback as accuracy, and do not rank developers
    or repositories from the counts.
 2. **Triage missed issues.** Only an operator classifies one; a coding agent may
-   prepare the evidence but must not choose the status or owner. Find the
-   feedback ID with `review-agent-memory export --repo <org>/<repo> --row-limit
-   <per-table-row-limit> --output /opt/data/private-review/export.json` (table
-   `review_quality_feedback`). The export is private: do not give it to a coding
-   agent or paste it into model context, and delete it after triage. Then:
+   prepare the evidence but must not choose the status or owner. With the admin
+   console, a team maintainer or platform admin classifies pending feedback on
+   **Review quality**, which lists the backlog within their scope
+   ([review history and run actions](ADMIN_PANEL.md#review-history-and-run-actions)).
+   Without the console, find the feedback ID with `review-agent-memory export
+   --repo <org>/<repo> --row-limit <per-table-row-limit> --output
+   /opt/data/private-review/export.json` (table `review_quality_feedback`). The
+   export is private: do not give it to a coding agent or paste it into model
+   context, and delete it after triage. Then:
 
    ```console
    review-agent-memory triage-feedback <feedback-id> \

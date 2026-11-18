@@ -449,8 +449,8 @@ for service in $running; do
   fi
 done
 
-docker compose run --rm --no-deps --no-build review-profile-install
-docker compose run --rm --no-deps --no-build review-db-migrate
+docker compose run --rm --no-deps review-profile-install
+docker compose run --rm --no-deps review-db-migrate
 
 docker compose up -d --no-deps --no-build --force-recreate \
   --wait --wait-timeout 300 $APP_SERVICES

@@ -558,8 +558,8 @@ for service in $running; do
   fi
 done
 
-docker compose run --rm --no-deps --no-build review-profile-install
-docker compose run --rm --no-deps --no-build review-db-migrate
+docker compose run --rm --no-deps review-profile-install
+docker compose run --rm --no-deps review-db-migrate
 
 docker compose up -d --no-deps --no-build --force-recreate \
   --wait --wait-timeout 300 $APP_SERVICES
@@ -4140,8 +4140,11 @@ The report shows explicit signal counts, denominators, the current triage
 backlog (regardless of the activity window), coverage, and review-contract
 cohorts. It does not infer accuracy from missing feedback.
 
-Only an operator classifies a missed issue. Find the feedback row in an
-[export](#offline-operator-tools), then append a triage state:
+Only an operator classifies a missed issue. The console's **Review quality**
+page lists the backlog and records the classification
+([triage](./FEEDBACK_AND_DECISIONS.md#use-feedback-to-improve-the-reviewer)). Without the console,
+find the feedback row in an [export](#offline-operator-tools), then append a
+triage state:
 
 ```bash
 review-agent-memory triage-feedback <feedback-id> \
@@ -4427,11 +4430,15 @@ the private export, and their error codes.
    cohorts, do not read missing feedback as accuracy, and do not rank developers
    or repositories from the counts.
 2. **Triage missed issues.** Only an operator classifies one; a coding agent may
-   prepare the evidence but must not choose the status or owner. Find the
-   feedback ID with `review-agent-memory export --repo <org>/<repo> --row-limit
-   <per-table-row-limit> --output /opt/data/private-review/export.json` (table
-   `review_quality_feedback`). The export is private: do not give it to a coding
-   agent or paste it into model context, and delete it after triage. Then:
+   prepare the evidence but must not choose the status or owner. With the admin
+   console, a team maintainer or platform admin classifies pending feedback on
+   **Review quality**, which lists the backlog within their scope
+   ([review history and run actions](ADMIN_PANEL.md#review-history-and-run-actions)).
+   Without the console, find the feedback ID with `review-agent-memory export
+   --repo <org>/<repo> --row-limit <per-table-row-limit> --output
+   /opt/data/private-review/export.json` (table `review_quality_feedback`). The
+   export is private: do not give it to a coding agent or paste it into model
+   context, and delete it after triage. Then:
 
    ```console
    review-agent-memory triage-feedback <feedback-id> \

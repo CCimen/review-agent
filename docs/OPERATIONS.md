@@ -725,8 +725,11 @@ The report shows explicit signal counts, denominators, the current triage
 backlog (regardless of the activity window), coverage, and review-contract
 cohorts. It does not infer accuracy from missing feedback.
 
-Only an operator classifies a missed issue. Find the feedback row in an
-[export](#offline-operator-tools), then append a triage state:
+Only an operator classifies a missed issue. The console's **Review quality**
+page lists the backlog and records the classification
+([triage](./FEEDBACK_AND_DECISIONS.md#use-feedback-to-improve-the-reviewer)). Without the console,
+find the feedback row in an [export](#offline-operator-tools), then append a
+triage state:
 
 ```bash
 review-agent-memory triage-feedback <feedback-id> \

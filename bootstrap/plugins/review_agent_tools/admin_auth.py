@@ -207,14 +207,10 @@ class Account(BaseModel):
         return cls(
             id=user.id,
             email=user.email,
-            role=(
-                Role.OWNER
-                if user.is_platform_owner
-                else Role.ADMIN
-                if user.is_superuser
-                else Role.VIEWER
-                if user.is_global_viewer
-                else Role.MEMBER
+            role=Role.from_flags(
+                platform_owner=user.is_platform_owner,
+                superuser=user.is_superuser,
+                global_viewer=user.is_global_viewer,
             ),
             active=user.is_active,
             access_revision=user.access_revision,

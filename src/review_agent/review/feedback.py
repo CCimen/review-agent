@@ -32,7 +32,7 @@ class ReviewFeedbackError(ValueError):
     """Feedback could not be admitted or recorded."""
 
 
-def record_postgres_feedback(
+def record_feedback(
     runtime: PostgreSQLRuntime,
     *,
     event_id: str,

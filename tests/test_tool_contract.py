@@ -146,7 +146,7 @@ class ToolContractTests(unittest.TestCase):
                 patch.object(review_runs, "load_live_run_state", return_value=SimpleNamespace(phase="reviewing", parts=0)),
                 patch.object(deliver_tool, "review_run_snapshot", side_effect=failure),
                 patch.object(deliver_tool, "mark_run_failed") as mark_failed,
-                patch.object(deliver_tool.publish, "prepare_postgres_publication") as prepare,
+                patch.object(deliver_tool.publish, "prepare_review_publication") as prepare,
             ):
                 result = json.loads(deliver_tool.review_deliver.__wrapped__({"run_id": 41}))
             self.assertEqual(mark_failed.called, terminal)
@@ -1281,8 +1281,8 @@ class ToolContractTests(unittest.TestCase):
             (source_tools.pr_diff, {"run_id": 41}),
             (source_tools.pr_file, {"run_id": 41}),
             (related_code_tool.related_code, {"run_id": 41}),
-            (finding_tools.review_memory_context, {"run_id": 41}),
-            (finding_tools.review_memory_record, {"run_id": 41}),
+            (finding_tools.finding_history, {"run_id": 41}),
+            (finding_tools.record_review_findings, {"run_id": 41}),
             (deliver_tool.review_deliver, {"run_id": 41}),
         )
         for handler, args in handlers:
@@ -1331,7 +1331,7 @@ class ToolContractTests(unittest.TestCase):
             ),
         ):
             result = json.loads(
-                finding_tools.review_memory_record.__wrapped__(
+                finding_tools.record_review_findings.__wrapped__(
                     {"run_id": 41, "findings": []}
                 )
             )
@@ -1381,12 +1381,12 @@ class ToolContractTests(unittest.TestCase):
             ),
             patch.object(
                 review_runs,
-                "summarize_postgres_coverage",
+                "summarize_coverage",
                 return_value=coverage,
             ),
             patch.object(
                 deliver_tool.publish,
-                "prepare_postgres_publication",
+                "prepare_review_publication",
             ) as prepare,
         ):
             result = json.loads(
@@ -1471,7 +1471,7 @@ class ToolContractTests(unittest.TestCase):
             ),
             patch.object(
                 review_runs,
-                "summarize_postgres_coverage",
+                "summarize_coverage",
                 return_value=coverage,
             ) as summarize,
             patch.object(
@@ -1485,7 +1485,7 @@ class ToolContractTests(unittest.TestCase):
             ),
             patch.object(
                 deliver_tool.publish,
-                "prepare_postgres_publication",
+                "prepare_review_publication",
                 return_value=prepared,
             ) as prepare,
         ):

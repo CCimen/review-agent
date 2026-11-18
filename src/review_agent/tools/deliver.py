@@ -91,7 +91,7 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
         # already requested once; a later delivery must remain publishable. Each
         # part of a split review already read its own files before reporting.
         elif persisted.phase not in {"rendering", "publishing"}:
-            coverage = review_runs.summarize_postgres_coverage(
+            coverage = review_runs.summarize_coverage(
                 postgres_runtime(), ReviewRunId(run_id)
             )
             recoverable_paths = _recoverable_diff_gap(coverage)
@@ -123,7 +123,7 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
                     }
                 )
         configured = settings.ReviewAgentSettings.from_environment()
-        prepared = publish.prepare_postgres_publication(
+        prepared = publish.prepare_review_publication(
             postgres_runtime(),
             run_id=run_id,
             previous_verdicts=args.get("previous_verdicts"),

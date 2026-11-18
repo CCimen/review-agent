@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field, field_validator
 
 from .. import application as console_application
-from ..auth import AdminAuth
+from ..auth import ConsoleAuth
 from ...postgres.team_access import AccessRequest
 from ...domain.review import ReviewStatus
 from ...postgres import jobs, review_runs
@@ -142,7 +142,7 @@ def _response(value: console_run_actions.RunControls) -> RunControls:
     )
 
 
-def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
+def create_router(runtime: PostgreSQLRuntime, auth: ConsoleAuth) -> APIRouter:
     router = APIRouter(
         dependencies=[Depends(auth.current_user)],
         tags=["run controls"],
@@ -169,9 +169,9 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
             ))
         except review_runs.ReviewRunNotFound as exc:
             raise HTTPException(404, "Review run not found.") from exc
-        except console_run_actions.AdminRunActionStale as exc:
+        except console_run_actions.RunActionStale as exc:
             raise HTTPException(409, str(exc)) from exc
-        except (console_run_actions.AdminRunActionError, jobs.ReviewJobError) as exc:
+        except (console_run_actions.RunActionError, jobs.ReviewJobError) as exc:
             raise HTTPException(409, str(exc)) from exc
         return _response(result)
 

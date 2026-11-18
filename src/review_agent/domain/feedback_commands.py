@@ -9,7 +9,7 @@ from typing import Literal, cast
 
 from .review import ReviewPurpose
 from .review_validation import (
-    ReviewMemoryError,
+    ReviewValidationError,
     clean_multiline,
     clean_text,
     local_reference_number,
@@ -80,7 +80,7 @@ def review_command_purpose(body: str) -> ReviewPurpose:
 def _local_reference(value: str) -> str:
     reference = clean_text(value, field="local_reference", maximum=12).upper()
     if local_reference_number(reference) < 1:
-        raise ReviewMemoryError("local_reference must look like F1, F2, ...")
+        raise ReviewValidationError("local_reference must look like F1, F2, ...")
     return reference
 
 
@@ -91,21 +91,21 @@ def _reason(value: str) -> str:
         maximum=2000,
     )
     if contains_placeholder(reason):
-        raise ReviewMemoryError("replace placeholder text before submitting feedback")
+        raise ReviewValidationError("replace placeholder text before submitting feedback")
     return reason
 
 
 def _adr_id(value: str) -> str:
     adr_id = clean_text(value, field="ADR id", maximum=80)
     if not _ADR_RE.fullmatch(adr_id):
-        raise ReviewMemoryError("ADR id must look like ADR-123")
+        raise ReviewValidationError("ADR id must look like ADR-123")
     return adr_id
 
 
 def parse_review_feedback_command(body: str) -> FeedbackCommand | None:
     text = str(body or "").strip()
     if len(_TRIGGER_RE.findall(text)) > 1:
-        raise ReviewMemoryError("one feedback command per comment is supported")
+        raise ReviewValidationError("one feedback command per comment is supported")
 
     match = _COMMAND_RE.fullmatch(text)
     if not match:
@@ -125,15 +125,15 @@ def parse_review_feedback_command(body: str) -> FeedbackCommand | None:
         normalized_verb = verb.strip().lower().replace("_", "-")
         rest = rest.strip()
         if normalized_verb == "intentional":
-            raise ReviewMemoryError("documentation feedback supports false-positive, feedback scope, or feedback missed")
+            raise ReviewValidationError("documentation feedback supports false-positive, feedback scope, or feedback missed")
 
     if normalized_verb in {"accepted-risk", "accepted_risk"}:
-        raise ReviewMemoryError("accepted risk decisions require the governance CLI")
+        raise ReviewValidationError("accepted risk decisions require the governance CLI")
 
     if normalized_verb == "false-positive":
         reference, separator, reason = rest.partition(" ")
         if not separator:
-            raise ReviewMemoryError("reason is required")
+            raise ReviewValidationError("reason is required")
         return FindingFeedbackCommand(
             kind="finding",
             decision="false_positive",
@@ -144,10 +144,10 @@ def parse_review_feedback_command(body: str) -> FeedbackCommand | None:
     if normalized_verb == "intentional":
         reference, separator, tail = rest.partition(" ")
         if not separator:
-            raise ReviewMemoryError("intentional feedback requires an ADR id")
+            raise ReviewValidationError("intentional feedback requires an ADR id")
         raw_adr, separator, reason = tail.strip().partition(" ")
         if not separator:
-            raise ReviewMemoryError("intentional feedback requires an ADR id and reason")
+            raise ReviewValidationError("intentional feedback requires an ADR id and reason")
         return FindingFeedbackCommand(
             kind="finding",
             decision="intentional_by_design",
@@ -162,7 +162,7 @@ def parse_review_feedback_command(body: str) -> FeedbackCommand | None:
         if category == "scope":
             reference, reference_separator, scope_reason = reason.strip().partition(" ")
             if not separator or not reference_separator:
-                raise ReviewMemoryError("scope feedback requires a finding reference and reason")
+                raise ReviewValidationError("scope feedback requires a finding reference and reason")
             return ReviewQualityFeedbackCommand(
                 kind="review_quality",
                 category="scope_confusion",
@@ -170,9 +170,9 @@ def parse_review_feedback_command(body: str) -> FeedbackCommand | None:
                 reason=_reason(scope_reason),
             )
         if category != "missed":
-            raise ReviewMemoryError("unknown review feedback category")
+            raise ReviewValidationError("unknown review feedback category")
         if not separator:
-            raise ReviewMemoryError("reason is required")
+            raise ReviewValidationError("reason is required")
         if reason.startswith(":"):
             reason = reason[1:].strip()
         return ReviewQualityFeedbackCommand(
@@ -181,35 +181,35 @@ def parse_review_feedback_command(body: str) -> FeedbackCommand | None:
             reason=_reason(reason),
         )
 
-    raise ReviewMemoryError("unsupported review feedback command")
+    raise ReviewValidationError("unsupported review feedback command")
 
 
 def restore_review_feedback_command(value: object) -> FeedbackCommand:
     """Restore one previously normalized command without accepting new syntax."""
     if not isinstance(value, Mapping):
-        raise ReviewMemoryError("normalized feedback command must be an object")
+        raise ReviewValidationError("normalized feedback command must be an object")
     item = cast(Mapping[str, object], value)
     reason = item.get("reason")
     if not isinstance(reason, str):
-        raise ReviewMemoryError("normalized feedback reason must be text")
+        raise ReviewValidationError("normalized feedback reason must be text")
     if "decision" in item:
         expected = {"decision", "local_reference", "reason"}
         if "adr_id" in item:
             expected.add("adr_id")
         if set(item) != expected:
-            raise ReviewMemoryError("normalized finding feedback fields are invalid")
+            raise ReviewValidationError("normalized finding feedback fields are invalid")
         decision = item.get("decision")
         if decision not in {"false_positive", "intentional_by_design"}:
-            raise ReviewMemoryError("normalized feedback decision is invalid")
+            raise ReviewValidationError("normalized feedback decision is invalid")
         raw_reference = item.get("local_reference")
         if not isinstance(raw_reference, str):
-            raise ReviewMemoryError("normalized feedback reference must be text")
+            raise ReviewValidationError("normalized feedback reference must be text")
         raw_adr = item.get("adr_id", "")
         if not isinstance(raw_adr, str):
-            raise ReviewMemoryError("normalized feedback ADR id must be text")
+            raise ReviewValidationError("normalized feedback ADR id must be text")
         adr_id = _adr_id(raw_adr) if raw_adr else ""
         if (decision == "intentional_by_design") != bool(adr_id):
-            raise ReviewMemoryError("normalized intentional feedback requires an ADR id")
+            raise ReviewValidationError("normalized intentional feedback requires an ADR id")
         return FindingFeedbackCommand(
             kind="finding",
             decision=cast(DecisionFeedbackValue, decision),
@@ -221,16 +221,16 @@ def restore_review_feedback_command(value: object) -> FeedbackCommand:
     if "local_reference" in item:
         expected.add("local_reference")
     if set(item) != expected:
-        raise ReviewMemoryError("normalized review feedback fields are invalid")
+        raise ReviewValidationError("normalized review feedback fields are invalid")
     category = item.get("category")
     if category not in {"missed_issue", "scope_confusion"}:
-        raise ReviewMemoryError("normalized review feedback category is invalid")
+        raise ReviewValidationError("normalized review feedback category is invalid")
     raw_reference = item.get("local_reference", "")
     if not isinstance(raw_reference, str):
-        raise ReviewMemoryError("normalized feedback reference must be text")
+        raise ReviewValidationError("normalized feedback reference must be text")
     local_reference = _local_reference(raw_reference) if raw_reference else ""
     if (category == "scope_confusion") != bool(local_reference):
-        raise ReviewMemoryError("normalized scope feedback requires a finding reference")
+        raise ReviewValidationError("normalized scope feedback requires a finding reference")
     return ReviewQualityFeedbackCommand(
         kind="review_quality",
         category=cast(ReviewFeedbackCategory, category),

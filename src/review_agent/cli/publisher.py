@@ -28,8 +28,8 @@ from ..postgres.runtime import (
 )
 from ..postgres.telemetry import WorkerTelemetry
 from ..publication.publish import (
-    publish_postgres_publication,
-    publish_postgres_run_failure_status,
+    publish_publication,
+    publish_failure_status,
 )
 from ..settings import ReviewAgentSettings
 
@@ -206,7 +206,7 @@ class PublicationWorker:
                 lease_owner=self._lease_owner,
                 lease_generation=target.delivery_lease_generation,
             )
-            result = publish_postgres_run_failure_status(
+            result = publish_failure_status(
                 self._runtime, run_id=int(target.run_id), github=github,
                 lease_owner=self._lease_owner,
                 lease_generation=target.delivery_lease_generation,
@@ -272,7 +272,7 @@ class PublicationWorker:
             posted_github = self._github.for_posted_publication(
                 publication_id=int(publication.id)
             )
-            result = publish_postgres_publication(
+            result = publish_publication(
                 self._runtime,
                 publication_id=int(publication.id),
                 github=github,

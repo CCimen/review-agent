@@ -23,7 +23,7 @@ from review_agent.domain.feedback_commands import (
     parse_review_feedback_command,
     review_command_purpose,
 )  # noqa: E402
-from review_agent.domain.review_validation import ReviewMemoryError  # noqa: E402
+from review_agent.domain.review_validation import ReviewValidationError  # noqa: E402
 from review_agent.postgres.documentation_reviews import coverage_reasons  # noqa: E402
 from review_agent.domain.repository_decision_context import (  # noqa: E402
     not_configured,
@@ -292,7 +292,7 @@ class DocumentationFindingTests(unittest.TestCase):
                 "/review docs false-positive F2 because Existing guard applies."
             )
         )
-        with self.assertRaises(ReviewMemoryError):
+        with self.assertRaises(ReviewValidationError):
             parse_review_feedback_command(
                 "/review docs intentional F2 ADR-001 because We intended this."
             )

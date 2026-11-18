@@ -686,7 +686,7 @@ def review_findings(
 
 def decide_finding(
     runtime: PostgreSQLRuntime,
-    request: review_decisions.OperatorDecisionRequest,
+    request: review_decisions.DecisionRequest,
     *,
     access: AccessRequest,
 ) -> review_decisions.OperatorDecisionResult:

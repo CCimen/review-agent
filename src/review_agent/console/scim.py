@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .auth import AdminAuth
+from .auth import ConsoleAuth
 from .accounts import (
     ProvisioningConflict,
     ProvisionedAccountUpdate,
@@ -227,7 +227,7 @@ class SCIMUserList(BaseModel):
     Resources: list[SCIMUser]
 
 
-def create_router(auth: AdminAuth, settings: IdentitySettings) -> APIRouter:
+def create_router(auth: ConsoleAuth, settings: IdentitySettings) -> APIRouter:
     bearer = HTTPBearer(scheme_name="SCIMCredential", auto_error=False)
 
     def authenticate(

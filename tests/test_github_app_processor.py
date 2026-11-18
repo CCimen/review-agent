@@ -261,7 +261,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         acknowledgement_failure: bool = False,
         feedback_acknowledgement_protocol_failure: bool = False,
         capacity_retry_delay: timedelta = timedelta(0),
-    ) -> app_processor.GitHubAppProcessor:
+    ) -> app_processor.WebhookDeliveryProcessor:
         client = github or _GitHub()
         gateway_service = ReviewGitHubGateway(
             postgres=self.runtime,
@@ -279,13 +279,13 @@ class GitHubAppProcessorTests(unittest.TestCase):
             selected_gateway = _FeedbackAcknowledgementProtocolFailureGateway(
                 gateway_service
             )
-        return app_processor.GitHubAppProcessor(
+        return app_processor.WebhookDeliveryProcessor(
             postgres=self.runtime,
             gateway=cast(
                 ReviewGitHubGatewayClient,
                 selected_gateway,
             ),
-            config=app_processor.ProcessorConfig(
+            config=app_processor.WebhookDeliveryConfig(
                 profile="default-standard",
                 policy_revision="policy-v1",
                 job_priority=0,
@@ -488,8 +488,8 @@ class GitHubAppProcessorTests(unittest.TestCase):
         from review_agent.domain.documentation_review import DocumentationOutcome
         from review_agent.postgres import documentation_reviews
         from review_agent.publication.publish import (
-            prepare_postgres_documentation_publication,
-            publish_postgres_publication,
+            prepare_documentation_publication,
+            publish_publication,
         )
         from tests.test_postgres_documentation_reviews import scope
         from tests.test_postgres_publications import FakePostgresPublicationGitHub
@@ -505,8 +505,8 @@ class GitHubAppProcessorTests(unittest.TestCase):
             documentation_reviews.initialize(connection, run_id=request.run_id, comparison_sha="c" * 40)
             documentation_reviews.freeze_scope(connection, run_id=request.run_id, scope=replace(scope(), areas=(), documents=(), changed_files=()))
             documentation_reviews.finalize(connection, run_id=request.run_id, outcome=DocumentationOutcome.NOT_NEEDED, semantic_inference_used=False, coverage_complete=True)
-        prepared = prepare_postgres_documentation_publication(self.runtime, run_id=request.run_id, max_comment_bytes=60_000, review_job_id=job.id, review_lease_generation=job.lease_generation)
-        published = publish_postgres_publication(self.runtime, publication_id=prepared.publication_id, github=FakePostgresPublicationGitHub(self.runtime), max_comment_bytes=60_000)
+        prepared = prepare_documentation_publication(self.runtime, run_id=request.run_id, max_comment_bytes=60_000, review_job_id=job.id, review_lease_generation=job.lease_generation)
+        published = publish_publication(self.runtime, publication_id=prepared.publication_id, github=FakePostgresPublicationGitHub(self.runtime), max_comment_bytes=60_000)
         self.assertEqual(published.status, "posted")
         with self.runtime.transaction() as connection:
             check_id = connection.execute("SELECT external_id FROM review_agent.publication_parts WHERE publication_id = %s AND part_type = 'check_run'", (prepared.publication_id,)).fetchone()[0]
@@ -1175,7 +1175,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 app_processor.review_contract, "load_packaged_contract", return_value=self.contract
             ),
             patch.object(
-                app_processor, "admit_postgres_review_in_transaction",
+                app_processor, "admit_review_in_transaction",
                 side_effect=jobs.ReviewJobBusy("busy"),
             ),
         ):
@@ -1555,7 +1555,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
             ),
             patch.object(
                 app_processor,
-                "admit_postgres_review_in_transaction",
+                "admit_review_in_transaction",
                 side_effect=jobs.ReviewQueueFull("full"),
             ),
         ):

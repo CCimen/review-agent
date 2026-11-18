@@ -66,7 +66,7 @@ def write_private_file(destination: Path, content: str) -> None:
         raise
 
 
-class _MemoryCommandError(ValueError):
+class _RecordsCommandError(ValueError):
     """One local command failed a stable operator contract."""
 
     def __init__(self, code: str, *, exit_code: int = os.EX_DATAERR) -> None:
@@ -76,7 +76,7 @@ class _MemoryCommandError(ValueError):
 
 
 _EXPECTED_COMMAND_ERRORS = (
-    input_checks.OperatorInputError,
+    input_checks.InputError,
     FeedbackDomainError,
     FindingDomainError,
     postgres_findings.FingerprintNotFound,
@@ -237,13 +237,13 @@ def _validate_high_cost_limits(args: argparse.Namespace) -> None:
     )
     if uses_page_limit:
         if args.limit > settings.operator_page_max_items:
-            raise _MemoryCommandError(
+            raise _RecordsCommandError(
                 "invalid_command_input",
                 exit_code=os.EX_USAGE,
             )
         return
     if args.command == "export" and args.row_limit > settings.operator_export_max_rows:
-        raise _MemoryCommandError(
+        raise _RecordsCommandError(
             "invalid_command_input",
             exit_code=os.EX_USAGE,
         )
@@ -270,7 +270,7 @@ def _json_error(
 
 
 def _failure_exit(exc: Exception) -> int:
-    if isinstance(exc, _MemoryCommandError):
+    if isinstance(exc, _RecordsCommandError):
         _json_error(code=exc.code, retryable=False)
         return exc.exit_code
     if isinstance(exc, SettingsError):
@@ -316,7 +316,7 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
     elif args.command == "decide":
         result = review_decisions.decide_finding(
             runtime,
-            review_decisions.OperatorDecisionRequest(
+            review_decisions.DecisionRequest(
                 repository=args.repo, fingerprint=args.fingerprint,
                 decision=args.decision, reason=args.reason, actor=args.actor,
                 occurrence_id=args.occurrence_id, pr_number=args.pr,

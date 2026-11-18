@@ -16,7 +16,7 @@ from ..review import feedback as review_feedback
 from ..domain.feedback import FeedbackStatus
 from ..domain.review import JsonObject, JsonValue, ReviewPurpose
 from ..domain.feedback_commands import restore_review_feedback_command
-from ..domain.review_validation import ReviewMemoryError
+from ..domain.review_validation import ReviewValidationError
 from ..postgres import (
     decisions as postgres_decisions,
     feedback as postgres_feedback,
@@ -29,8 +29,8 @@ from ..postgres import (
 )
 from ..postgres.runtime import PostgreSQLRuntime
 from ..review.runs import (
-    PostgresRunRequest,
-    admit_postgres_review_in_transaction,
+    RunRequest,
+    admit_review_in_transaction,
 )
 from .gateway import (
     GitHubGatewayError,
@@ -56,7 +56,7 @@ _IGNORED_REASONS = frozenset(
 
 
 @dataclass(frozen=True, slots=True)
-class ProcessorConfig:
+class WebhookDeliveryConfig:
     profile: str
     policy_revision: str
     job_priority: int
@@ -182,7 +182,7 @@ def _payload(
     return _object(delivery.normalized_payload, "normalized_payload")
 
 
-class GitHubAppProcessor:
+class WebhookDeliveryProcessor:
     """Consume one durable App delivery without introducing another queue."""
 
     def __init__(
@@ -190,7 +190,7 @@ class GitHubAppProcessor:
         *,
         postgres: PostgreSQLRuntime,
         gateway: ReviewGitHubGatewayClient,
-        config: ProcessorConfig,
+        config: WebhookDeliveryConfig,
     ) -> None:
         self._postgres = postgres
         self._gateway = gateway
@@ -482,9 +482,9 @@ class GitHubAppProcessor:
                 if authorized.purpose is ReviewPurpose.DOCUMENTATION:
                     documentation_authority = github_app.authorize_documentation_review(connection, authorized.provider_repository_id,
                         profile_key=self._config.profile, automatic=authorized.trigger == "automatic")
-                admitted = admit_postgres_review_in_transaction(
+                admitted = admit_review_in_transaction(
                     connection,
-                    PostgresRunRequest(
+                    RunRequest(
                         provider="github",
                         provider_repository_id=authorized.provider_repository_id,
                         repository=authorized.repository,
@@ -578,7 +578,7 @@ class GitHubAppProcessor:
         else:
             try:
                 command = restore_review_feedback_command(payload.get("command"))
-                result = review_feedback.record_postgres_feedback(
+                result = review_feedback.record_feedback(
                     self._postgres,
                     event_id=f"github:issue-comment:{authorized.comment_id}",
                     repository=authorized.repository,
@@ -595,7 +595,7 @@ class GitHubAppProcessor:
                         f"{authorized.pr_number}#issuecomment-{authorized.comment_id}"
                     ),
                 )
-            except (ReviewMemoryError, review_feedback.ReviewFeedbackError) as exc:
+            except (ReviewValidationError, review_feedback.ReviewFeedbackError) as exc:
                 raise _Reject("invalid_normalized_payload") from exc
             except (
                 postgres_decisions.DecisionStoreError,

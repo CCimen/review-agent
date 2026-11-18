@@ -319,7 +319,7 @@ class ReviewPartToolTests(unittest.TestCase):
                 side_effect=AssertionError("a part session must not record findings"),
             ) if part else nullcontext(),
         ):
-            return json.loads(finding_tools.review_memory_record.__wrapped__(
+            return json.loads(finding_tools.record_review_findings.__wrapped__(
                 {"run_id": 41, "findings": findings, **arguments}, review_part=part,
             ))
 
@@ -391,10 +391,10 @@ class ReviewPartToolTests(unittest.TestCase):
             ),
             patch.object(deliver_tool, "review_run_snapshot", return_value=PULL),
             patch.object(review_parts, "unread_reports", return_value=unread),
-            patch.object(review_runs, "summarize_postgres_coverage") as coverage,
+            patch.object(review_runs, "summarize_coverage") as coverage,
             patch.object(deliver_tool.settings.ReviewAgentSettings, "from_environment"),
             patch.object(
-                deliver_tool.publish, "prepare_postgres_publication",
+                deliver_tool.publish, "prepare_review_publication",
                 return_value=SimpleNamespace(
                     publication_id=5, findings_count=1, suggestions_count=0,
                     resolved_count=0, ignored_previous_verdicts=(),

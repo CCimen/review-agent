@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .. import application as console_application
 from ...operations import readiness
-from ..auth import AdminAuth
+from ..auth import ConsoleAuth
 from .teams import ChangeReason, TeamId
 from ...domain.feedback import resolve_github_repository
 from ...domain.documentation_operating_policy import DocumentationMode
@@ -58,7 +58,7 @@ class ReviewRequesterGrant(BaseModel):
     login: str = Field(min_length=1, max_length=39, pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
 
 
-def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
+def create_router(runtime: PostgreSQLRuntime, auth: ConsoleAuth) -> APIRouter:
     router = APIRouter(tags=["repository requests"])
 
     def requesters(

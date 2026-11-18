@@ -11,7 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from .. import application as console_application
-from ..auth import AdminAuth
+from ..auth import ConsoleAuth
 from .teams import ChangeReason
 from ...postgres import (
     history as postgres_history,
@@ -48,7 +48,7 @@ class IntegrationInput(ChangeReason):
     expires_at: datetime
 
 
-def create_management_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
+def create_management_router(runtime: PostgreSQLRuntime, auth: ConsoleAuth) -> APIRouter:
     router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
     def list_integrations(

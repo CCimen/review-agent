@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from ..auth import AdminAuth
+from ..auth import ConsoleAuth
 from ...hermes.control import (
     HermesControlClient,
     HermesControlError,
@@ -33,7 +33,7 @@ class RuntimePage(BaseModel):
     runtime: HermesRuntimeStatus | None
 
 
-def create_router(auth: AdminAuth, client: HermesControlClient | None) -> APIRouter:
+def create_router(auth: ConsoleAuth, client: HermesControlClient | None) -> APIRouter:
     """Create the fixed Hermes provider-control routes."""
     capability = ProviderCapability(
         configured=client is not None,

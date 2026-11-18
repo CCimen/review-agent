@@ -17,7 +17,7 @@ from .reporting import FindingReport
 from .team_access import AccessScope, maintainer_predicate, repository_source
 
 
-class AdminQualityError(ValueError):
+class QualityFeedbackError(ValueError):
     """Admin quality reporting requires a valid transaction and stored state."""
 
 
@@ -106,7 +106,7 @@ class _FeedbackRow:
 
 def _require_transaction(connection: psycopg.Connection[TupleRow]) -> None:
     if connection.info.transaction_status != TransactionStatus.INTRANS:
-        raise AdminQualityError(
+        raise QualityFeedbackError(
             "admin quality reporting requires an active transaction"
         )
 
@@ -184,7 +184,7 @@ def feedback_backlog(
                 else None
             )
         except ValueError as exc:
-            raise AdminQualityError("stored feedback triage is invalid") from exc
+            raise QualityFeedbackError("stored feedback triage is invalid") from exc
         items.append(
             QualityFeedbackItem(
                 id=row.id,

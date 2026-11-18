@@ -524,7 +524,7 @@ def _repository_change(args: argparse.Namespace) -> int:
         return os.EX_TEMPFAIL
     except (
         github_app.GitHubAppStateError,
-        input_checks.OperatorInputError,
+        input_checks.InputError,
         registry.RegistryError,
         psycopg.Error,
         ValueError,
@@ -649,7 +649,7 @@ def _database_retention_command(args: argparse.Namespace) -> int:
     except (PostgreSQLRuntimeError, psycopg.OperationalError):
         _json_error(code="database_unavailable", retryable=True)
         return os.EX_TEMPFAIL
-    except (input_checks.OperatorInputError, ValueError):
+    except (input_checks.InputError, ValueError):
         _json_error(code="invalid_retention_request", retryable=False)
         return os.EX_USAGE
     except psycopg.Error:
@@ -736,7 +736,7 @@ def _job_command(args: argparse.Namespace) -> int:
         return os.EX_TEMPFAIL
     except (
         jobs.ReviewJobError,
-        input_checks.OperatorInputError,
+        input_checks.InputError,
         psycopg.Error,
         ValueError,
     ):
@@ -774,7 +774,7 @@ def _sync_installation(args: argparse.Namespace) -> int:
         app_auth.GitHubAppTokenPermanent,
         app_inventory.GitHubAppInventoryPermanent,
         github_app.GitHubAppStateError,
-        input_checks.OperatorInputError,
+        input_checks.InputError,
         registry.RegistryError,
         psycopg.Error,
         ValueError,
@@ -825,7 +825,7 @@ def _onboard_repository(args: argparse.Namespace) -> int:
         app_auth.GitHubAppTokenPermanent,
         app_inventory.GitHubAppInventoryPermanent,
         github_app.GitHubAppStateError,
-        input_checks.OperatorInputError,
+        input_checks.InputError,
         registry.RegistryError,
         psycopg.Error,
         ValueError,
@@ -877,7 +877,7 @@ def _approve_installation(args: argparse.Namespace) -> int:
         app_auth.GitHubAppTokenPermanent,
         app_inventory.GitHubAppInventoryPermanent,
         github_app.GitHubAppStateError,
-        input_checks.OperatorInputError,
+        input_checks.InputError,
         psycopg.Error,
         ValueError,
     ):

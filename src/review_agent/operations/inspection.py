@@ -407,7 +407,7 @@ def _repository(value: str | None) -> str | None:
 def _audit_text(value: str, *, field: str, maximum: int) -> str:
     normalized = " ".join(value.strip().split())
     if not normalized or len(normalized) > maximum:
-        raise input_checks.OperatorInputError(f"{field} must be 1 to {maximum} characters")
+        raise input_checks.InputError(f"{field} must be 1 to {maximum} characters")
     return normalized
 
 
@@ -471,7 +471,7 @@ def finding_stats(
 ) -> postgres_reporting.FindingStats:
     normalized_repository = _repository(repository)
     if isinstance(expiring_within_days, bool) or expiring_within_days < 0:
-        raise input_checks.OperatorInputError("expiring_within_days must be zero or greater")
+        raise input_checks.InputError("expiring_within_days must be zero or greater")
     moment = input_checks.now(now)
     with runtime.transaction() as connection:
         return postgres_reporting.finding_stats(
@@ -626,7 +626,7 @@ def mark_stalled_runs(
 ) -> StaleRunsResult:
     normalized_repository = _repository(repository)
     if pr_number is not None and normalized_repository is None:
-        raise input_checks.OperatorInputError("pr_number requires repository scope")
+        raise input_checks.InputError("pr_number requires repository scope")
     normalized_pr = (
         input_checks.positive(pr_number, field="pr_number") if pr_number is not None else None
     )
@@ -660,7 +660,7 @@ def list_publications(
 ) -> tuple[postgres_reporting.PublicationReport, ...]:
     normalized_repository = _repository(repository)
     if pr_number is not None and normalized_repository is None:
-        raise input_checks.OperatorInputError("pr_number requires repository scope")
+        raise input_checks.InputError("pr_number requires repository scope")
     normalized_pr = (
         input_checks.positive(pr_number, field="pr_number") if pr_number is not None else None
     )

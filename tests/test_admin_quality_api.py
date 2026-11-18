@@ -209,7 +209,7 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
         self.assertEqual(exact.finding.title, "Safe mode defaults to disabled")
         decision = review_decisions.decide_finding(
             self.runtime,
-            review_decisions.OperatorDecisionRequest(
+            review_decisions.DecisionRequest(
                 repository=self.helper.repository,
                 fingerprint=first.items[0].fingerprint,
                 occurrence_id=int(first.items[0].occurrence_id),
@@ -286,7 +286,7 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
         for index in range(5):
             stored = review_decisions.decide_finding(
                 self.runtime,
-                review_decisions.OperatorDecisionRequest(
+                review_decisions.DecisionRequest(
                     repository=self.helper.repository,
                     fingerprint=fingerprint,
                     occurrence_id=occurrence_id,

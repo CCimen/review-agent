@@ -685,7 +685,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         *,
         request_key: str = "github:issue-comment:publication-1",
         findings: tuple[FindingInput, ...] | None = None,
-        changed_files: tuple[review_runs.PostgresChangedFile, ...]
+        changed_files: tuple[review_runs.RunChangedFile, ...]
         | None = None,
         pr_number: int = 41,
         purpose: ReviewPurpose = ReviewPurpose.CODE,
@@ -695,7 +695,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         inputs = findings if findings is not None else (self.finding(),)
         if changed_files is None:
             changed_files = tuple(
-                review_runs.PostgresChangedFile(
+                review_runs.RunChangedFile(
                     path=path, change_status="modified"
                 )
                 for path in sorted(
@@ -705,7 +705,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         paths = [item.path for item in changed_files]
         result = support.start_postgres_review(
             self.runtime,
-            review_runs.PostgresRunRequest(
+            review_runs.RunRequest(
                 provider="github",
                 provider_repository_id=981,
                 repository="team/service",
@@ -745,13 +745,13 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 documentation_reviews.store_assessment(connection, run_id=result.run.id, assessment=receipt)
                 batch = finding_store.record_findings(connection, run_id=result.run.id, expected_head_sha="a" * 40, definitions=definitions)
         else:
-            batch = review_findings.record_postgres_findings(
+            batch = review_findings.record_run_findings(
                 self.runtime,
                 run_id=result.run.id,
                 head_sha="a" * 40,
                 findings=inputs,
                 changed_files=tuple(
-                    review_findings.ChangedFile(
+                    review_findings.ChangedFileContext(
                         path=path,
                         context_hash="c" * 40,
                         context_hash_source="blob",
@@ -819,7 +819,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             request_key="github:issue-comment:reconcile-prior",
             findings=(inputs["F18"], inputs["F20"], nearby),
         )
-        first_plan = publication_publish.prepare_postgres_publication(
+        first_plan = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(first_run),
             previous_verdicts=[],
@@ -827,7 +827,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             max_comment_bytes=60_000,
         )
         github = FakePostgresPublicationGitHub(self.runtime)
-        publication_publish.publish_postgres_publication(
+        publication_publish.publish_publication(
             self.runtime,
             publication_id=first_plan.publication_id,
             github=github,
@@ -844,7 +844,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ),
         )
         with self.assertRaisesRegex(PublicationPlanningError, "same claim"):
-            publication_publish.prepare_postgres_publication(
+            publication_publish.prepare_review_publication(
                 self.runtime,
                 run_id=int(run_id),
                 previous_verdicts=[],
@@ -853,7 +853,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             )
         canonical = first.items[0]
         aliases = current.items[1:3]
-        prepared = publication_publish.prepare_postgres_publication(
+        prepared = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(run_id),
             previous_verdicts=[],
@@ -898,7 +898,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 ).fetchone(),
                 (0,),
             )
-        publication_publish.publish_postgres_publication(
+        publication_publish.publish_publication(
             self.runtime,
             publication_id=prepared.publication_id,
             github=github,
@@ -916,7 +916,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                     (target.finding_id, target.local_reference),
                     (canonical.finding_id, canonical.local_reference),
                 )
-        quality = review_feedback.record_postgres_feedback(
+        quality = review_feedback.record_feedback(
             self.runtime,
             event_id="reconciled-quality-feedback",
             repository="team/service",
@@ -955,7 +955,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             {item.local_reference for item in history},
             {item.local_reference for item in first.items},
         )
-        repeated_plan = publication_publish.prepare_postgres_publication(
+        repeated_plan = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(next_run),
             previous_verdicts=[
@@ -970,7 +970,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             max_comment_bytes=60_000,
         )
         self.assertEqual(repeated_plan.findings_count, 1)
-        publication_publish.publish_postgres_publication(
+        publication_publish.publish_publication(
             self.runtime,
             publication_id=repeated_plan.publication_id,
             github=github,
@@ -980,7 +980,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             request_key="github:issue-comment:reconcile-resolved",
             findings=(),
         )
-        resolved_plan = publication_publish.prepare_postgres_publication(
+        resolved_plan = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(resolved_run),
             previous_verdicts=[
@@ -994,7 +994,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             max_comment_bytes=60_000,
         )
         self.assertEqual(resolved_plan.findings_count, 0)
-        publication_publish.publish_postgres_publication(
+        publication_publish.publish_publication(
             self.runtime,
             publication_id=resolved_plan.publication_id,
             github=github,
@@ -1005,7 +1005,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             findings=(inputs["F18"], inputs["F21"], inputs["F22"]),
         )
         self.assertEqual(reappeared.items[0].finding_id, canonical.finding_id)
-        reappeared_plan = publication_publish.prepare_postgres_publication(
+        reappeared_plan = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(reappeared_run),
             previous_verdicts=[],
@@ -1062,7 +1062,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         def publish(
             run_id: postgres_review_runs.ReviewRunId, relationships: object = None
         ) -> int:
-            prepared = publication_publish.prepare_postgres_publication(
+            prepared = publication_publish.prepare_review_publication(
                 self.runtime,
                 run_id=int(run_id),
                 previous_verdicts=[],
@@ -1070,7 +1070,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 feedback_enabled=True,
                 max_comment_bytes=60_000,
             )
-            result = publication_publish.publish_postgres_publication(
+            result = publication_publish.publish_publication(
                 self.runtime,
                 publication_id=prepared.publication_id,
                 github=github,
@@ -1088,7 +1088,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             first.items, key=lambda item: int(item.local_reference[1:])
         )
         with self.runtime.transaction() as connection:
-            original = decisions.append_operator_decision(
+            original = decisions.append_decision(
                 connection,
                 finding_id=alias.finding_id,
                 occurrence_id=alias.occurrence_id,
@@ -1169,7 +1169,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             current_alias = next(
                 item for item in current.items if item.finding_id == alias.finding_id
             )
-            decisions.append_operator_decision(
+            decisions.append_decision(
                 connection,
                 finding_id=alias.finding_id,
                 occurrence_id=current_alias.occurrence_id,
@@ -1223,7 +1223,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(
             PublicationPlanningError, "does not belong to this PR"
         ):
-            publication_publish.prepare_postgres_publication(
+            publication_publish.prepare_review_publication(
                 self.runtime,
                 run_id=int(run_id),
                 previous_verdicts=[],
@@ -1236,7 +1236,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 feedback_enabled=True,
                 max_comment_bytes=60_000,
             )
-        prepared = publication_publish.prepare_postgres_publication(
+        prepared = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(run_id),
             previous_verdicts=[],
@@ -1250,7 +1250,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             operation="create_issue_comment",
             retryable=False,
         )
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime,
             publication_id=prepared.publication_id,
             github=github,
@@ -1295,7 +1295,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ),
         )
         first_run, first = self.start_recorded_run(findings=inputs)
-        prepared = publication_publish.prepare_postgres_publication(
+        prepared = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(first_run),
             previous_verdicts=[],
@@ -1310,7 +1310,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             max_comment_bytes=60_000,
         )
         github = FakePostgresPublicationGitHub(self.runtime)
-        publication_publish.publish_postgres_publication(
+        publication_publish.publish_publication(
             self.runtime,
             publication_id=prepared.publication_id,
             github=github,
@@ -1327,7 +1327,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(
             PublicationPlanningError, "record the rechecked canonical finding F1"
         ):
-            publication_publish.prepare_postgres_publication(
+            publication_publish.prepare_review_publication(
                 self.runtime,
                 run_id=int(run_id),
                 previous_verdicts=[],
@@ -1351,7 +1351,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             subject,
             expected_head_sha="a" * 40,
         )
-        recorded = review_findings.record_postgres_findings(
+        recorded = review_findings.record_run_findings(
             self.runtime,
             run_id=run_id,
             head_sha="a" * 40,
@@ -1365,7 +1365,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 ),
             ),
             changed_files=(
-                review_findings.ChangedFile(
+                review_findings.ChangedFileContext(
                     path=canonical.path,
                     context_hash="c" * 40,
                     context_hash_source="blob",
@@ -1376,7 +1376,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             recorded.items[0].finding_id, first.items[canonical_index].finding_id
         )
         review_runs.advance_live_phase(self.runtime, subject, "rendering")
-        retry = publication_publish.prepare_postgres_publication(
+        retry = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(run_id),
             previous_verdicts=[],
@@ -1384,7 +1384,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             max_comment_bytes=60_000,
         )
         self.assertEqual(retry.findings_count, 1)
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime,
             publication_id=retry.publication_id,
             github=github,
@@ -1407,7 +1407,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 "evidence": "Both observations identify the same guard.",
             }
         ]
-        prepared = publication_publish.prepare_postgres_publication(
+        prepared = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(run_id),
             previous_verdicts=[],
@@ -1433,7 +1433,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                     request_key="github:issue-comment:newer-group",
                     findings=inputs,
                 )
-                newer = publication_publish.prepare_postgres_publication(
+                newer = publication_publish.prepare_review_publication(
                     self.runtime,
                     run_id=int(newer_run),
                     previous_verdicts=[],
@@ -1441,7 +1441,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                     feedback_enabled=True,
                     max_comment_bytes=60_000,
                 )
-                result = publication_publish.publish_postgres_publication(
+                result = publication_publish.publish_publication(
                     self.runtime,
                     publication_id=newer.publication_id,
                     github=github,
@@ -1454,7 +1454,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with patch.object(
             github, "create_issue_comment", side_effect=publish_newer_during_write
         ):
-            result = publication_publish.publish_postgres_publication(
+            result = publication_publish.publish_publication(
                 self.runtime,
                 publication_id=prepared.publication_id,
                 github=github,
@@ -1497,7 +1497,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             for finding, disposition in zip(
                 batch.items, ("false_positive", "reopen"), strict=True
             ):
-                decisions.append_operator_decision(
+                decisions.append_decision(
                     connection,
                     finding_id=finding.finding_id,
                     occurrence_id=finding.occurrence_id,
@@ -1511,7 +1511,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(
             PublicationPlanningError, "conflicting human decisions"
         ):
-            publication_publish.prepare_postgres_publication(
+            publication_publish.prepare_review_publication(
                 self.runtime,
                 run_id=int(run_id),
                 previous_verdicts=[],
@@ -1551,7 +1551,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 ),
             )
         )
-        prepared = publication_publish.prepare_postgres_publication(
+        prepared = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(run_id),
             previous_verdicts=[],
@@ -1566,7 +1566,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             max_comment_bytes=60_000,
         )
         with self.runtime.transaction() as connection:
-            decisions.append_operator_decision(
+            decisions.append_decision(
                 connection,
                 finding_id=batch.items[0].finding_id,
                 occurrence_id=batch.items[0].occurrence_id,
@@ -1578,7 +1578,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 ),
             )
         github = FakePostgresPublicationGitHub(self.runtime)
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime,
             publication_id=prepared.publication_id,
             github=github,
@@ -1608,7 +1608,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 ),
             )
         )
-        prepared = publication_publish.prepare_postgres_publication(
+        prepared = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(run_id),
             previous_verdicts=[],
@@ -1630,7 +1630,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         ) -> IssueComment:
             comment = create_comment(repository, issue_number, body)
             with self.runtime.transaction() as connection:
-                decisions.append_operator_decision(
+                decisions.append_decision(
                     connection,
                     finding_id=batch.items[0].finding_id,
                     occurrence_id=batch.items[0].occurrence_id,
@@ -1646,7 +1646,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with patch.object(
             github, "create_issue_comment", side_effect=decide_during_write
         ):
-            result = publication_publish.publish_postgres_publication(
+            result = publication_publish.publish_publication(
                 self.runtime,
                 publication_id=prepared.publication_id,
                 github=github,
@@ -1839,14 +1839,14 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             request_key="github:issue-comment:application-preparation"
         )
 
-        first = publication_publish.prepare_postgres_publication(
+        first = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(run_id),
             previous_verdicts=None,
             feedback_enabled=True,
             max_comment_bytes=60_000,
         )
-        repeated = publication_publish.prepare_postgres_publication(
+        repeated = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(run_id),
             previous_verdicts=None,
@@ -1872,7 +1872,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         run_id, _ = self.start_recorded_run(
             findings=(),
             changed_files=tuple(
-                review_runs.PostgresChangedFile(
+                review_runs.RunChangedFile(
                     path=path,
                     change_status="removed" if path == paths[-1] else "modified",
                 )
@@ -1894,7 +1894,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 ),
             )
 
-        prepared = publication_publish.prepare_postgres_publication(
+        prepared = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(run_id),
             previous_verdicts=None,
@@ -1926,7 +1926,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         run_id, _ = self.start_recorded_run(
             findings=(),
             changed_files=tuple(
-                review_runs.PostgresChangedFile(
+                review_runs.RunChangedFile(
                     path=path, change_status="modified"
                 )
                 for path in paths
@@ -1939,7 +1939,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             state=DiffState.UNAVAILABLE,
             unavailable_reason="patch_unavailable",
         )
-        prepared = publication_publish.prepare_postgres_publication(
+        prepared = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(run_id),
             previous_verdicts=None,
@@ -2152,7 +2152,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github = FakePostgresPublicationGitHub(self.runtime)
         github.before_target_read = take_over
         with self.assertRaises(publications.PublicationLeaseLost):
-            publication_publish.publish_postgres_publication(
+            publication_publish.publish_publication(
                 self.runtime,
                 publication_id=int(prepared.id),
                 github=github,
@@ -2222,7 +2222,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 connection, run_id=first_run, plan=self.plan(first_batch)
             )
         direct_github = FakePostgresPublicationGitHub(self.runtime)
-        publication_publish.publish_postgres_publication(
+        publication_publish.publish_publication(
             self.runtime,
             publication_id=int(first.id),
             github=direct_github,
@@ -2249,7 +2249,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             "_render_postgres_supersession",
             return_value=None,
         ):
-            publication_publish.publish_postgres_publication(
+            publication_publish.publish_publication(
                 self.runtime,
                 publication_id=int(second.id),
                 github=direct_github,
@@ -2364,7 +2364,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github.before_target_read = exhaust_pool
         with held_connections:
             with self.assertRaises(PostgreSQLUnavailable):
-                publication_publish.publish_postgres_publication(
+                publication_publish.publish_publication(
                     self.runtime,
                     publication_id=int(prepared.id),
                     github=github,
@@ -2629,7 +2629,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             return created
 
         with patch.object(github, "create_issue_comment", side_effect=create_then_fail):
-            result = publication_publish.publish_postgres_publication(
+            result = publication_publish.publish_publication(
                 self.runtime, publication_id=int(prepared.id), github=github,
                 max_comment_bytes=60_000,
             )
@@ -2658,7 +2658,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             raise GitHubPublicationError("github_http_500_create_issue_comment", status=500, retryable=True)
 
         with patch.object(github, "create_issue_comment", side_effect=fail_with_spoof):
-            result = publication_publish.publish_postgres_publication(
+            result = publication_publish.publish_publication(
                 self.runtime, publication_id=int(prepared.id), github=github,
                 max_comment_bytes=60_000,
             )
@@ -2682,7 +2682,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             return created
 
         with patch.object(github, "create_issue_comment", side_effect=create_then_move_head):
-            result = publication_publish.publish_postgres_publication(
+            result = publication_publish.publish_publication(
                 self.runtime, publication_id=int(prepared.id), github=github,
                 max_comment_bytes=60_000,
             )
@@ -2705,7 +2705,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github.kill_after_create = True
 
         with self.assertRaises(ProcessDeath):
-            publication_publish.publish_postgres_publication(
+            publication_publish.publish_publication(
                 self.runtime,
                 publication_id=int(prepared.id),
                 github=github,
@@ -2730,7 +2730,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 (prepared.id,),
             )
 
-        recovered = publication_publish.publish_postgres_publication(
+        recovered = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -2749,7 +2749,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(github.comments[0].body, exact_body)
 
         github.fail_on_call = True
-        direct = publication_publish.publish_postgres_publication(
+        direct = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -2772,7 +2772,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github = FakePostgresPublicationGitHub(self.runtime)
         github.fail_on_call = True
 
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -2793,13 +2793,13 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github.create_error = GitHubPublicationError(
             "github_http_429", retryable=True, retry_at=retry_at,
         )
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime, publication_id=int(prepared.id), github=github, max_comment_bytes=60_000,
         )
         self.assertEqual(result.status, "publish_failed")
         self.assertEqual(github.list_issue_comments_calls, 1)
         restarted_github = FakePostgresPublicationGitHub(self.runtime)
-        parked = publication_publish.publish_postgres_publication(
+        parked = publication_publish.publish_publication(
             self.runtime, publication_id=int(prepared.id), github=restarted_github,
             max_comment_bytes=60_000,
         )
@@ -2820,7 +2820,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 "UPDATE review_agent.publications SET delivery_available_at = statement_timestamp() "
                 "WHERE id = %s", (prepared.id,),
             )
-        recovered = publication_publish.publish_postgres_publication(
+        recovered = publication_publish.publish_publication(
             self.runtime, publication_id=int(prepared.id), github=restarted_github,
             max_comment_bytes=60_000,
         )
@@ -2870,7 +2870,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github = FakePostgresPublicationGitHub(self.runtime)
         github.fail_on_create_call = 2
 
-        failed = publication_publish.publish_postgres_publication(
+        failed = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -2879,7 +2879,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         )
         with self.runtime.transaction() as connection:
             failed_run = postgres_review_runs.get_run(connection, run_id)
-        retried = publication_publish.publish_postgres_publication(
+        retried = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -2915,7 +2915,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             retryable=False,
         )
 
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -2968,7 +2968,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             prepared = publications.prepare_publication(connection, run_id=run_id, plan=self.documentation_plan(self.plan(batch)))
         github = FakePostgresPublicationGitHub(self.runtime)
-        publication_publish.publish_postgres_publication(self.runtime, publication_id=int(prepared.id), github=github, max_comment_bytes=60_000)
+        publication_publish.publish_publication(self.runtime, publication_id=int(prepared.id), github=github, max_comment_bytes=60_000)
         second, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION, request_key="docs-followup", findings=())
         with self.runtime.transaction() as connection:
             previous = documentation_reviews.previous_findings(connection, run_id=second)
@@ -2995,7 +2995,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             saved = publications.prepare_publication(connection, run_id=second, plan=resolved.plan)
         self.assertEqual(saved.plan.findings[0].source_finding_occurrence_id, prior.occurrence_id)
-        publication_publish.publish_postgres_publication(self.runtime, publication_id=int(saved.id), github=github, max_comment_bytes=60_000)
+        publication_publish.publish_publication(self.runtime, publication_id=int(saved.id), github=github, max_comment_bytes=60_000)
         # The first round reached only the check, so its closure stays in the check too.
         self.assertEqual(github.comments, [])
         self.assertIn("Final rationale sentence survives.", resolved.plan.rendered_markdown)
@@ -3014,7 +3014,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             documentation_reviews.finalize(connection, run_id=run_id,
                 outcome=DocumentationOutcome.INCOMPLETE, semantic_inference_used=False,
                 incomplete_reasons=("Provider timeout prevented the remaining document reads.",))
-        prepared = publication_publish.prepare_postgres_documentation_publication(
+        prepared = publication_publish.prepare_documentation_publication(
             self.runtime, run_id=int(run_id), max_comment_bytes=60_000)
         with self.runtime.transaction() as connection:
             stored = publications.get_publication(connection, prepared.publication_id)
@@ -3023,7 +3023,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertIn("Provider timeout", stored.parts[0].delivery.summary)
         self.assertIn("Semantic assessment: not used", stored.plan.rendered_markdown)
         github = FakePostgresPublicationGitHub(self.runtime)
-        result = publication_publish.publish_postgres_publication(self.runtime,
+        result = publication_publish.publish_publication(self.runtime,
             publication_id=prepared.publication_id, github=github, max_comment_bytes=60_000)
         self.assertEqual(result.status, "posted")
         self.assertEqual(github.comments, [])
@@ -3080,7 +3080,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             stored = publications.prepare_publication(connection, run_id=run_id, plan=planned.plan)
         github = FakePostgresPublicationGitHub(self.runtime)
-        posted = publication_publish.publish_postgres_publication(
+        posted = publication_publish.publish_publication(
             self.runtime, publication_id=int(stored.id), github=github, max_comment_bytes=60_000)
         self.assertEqual(posted.status, "posted")
         self.assertEqual(len(github.comments), 1)
@@ -3116,7 +3116,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             max_comment_bytes=max_comment_bytes)
         with self.runtime.transaction() as connection:
             stored = publications.prepare_publication(connection, run_id=run_id, plan=planned.plan)
-        posted = publication_publish.publish_postgres_publication(
+        posted = publication_publish.publish_publication(
             self.runtime, publication_id=int(stored.id), github=github, max_comment_bytes=max_comment_bytes)
         self.assertEqual(posted.status, "posted")
         return [part.part_type for part in planned.plan.parts]
@@ -3246,14 +3246,14 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github = FakePostgresPublicationGitHub(self.runtime)
         github.kill_after_check_create = True
         with self.assertRaises(ProcessDeath):
-            publication_publish.publish_postgres_publication(self.runtime,
+            publication_publish.publish_publication(self.runtime,
                 publication_id=int(prepared.id), github=github, max_comment_bytes=60_000)
         self.assertEqual(len(github.checks), 1)
         self.assertEqual(github.create_calls, 2)
         github.kill_after_check_create = False
         with self.runtime.transaction() as connection:
             connection.execute("UPDATE review_agent.publications SET delivery_lease_expires_at = statement_timestamp() - interval '1 second' WHERE id = %s", (prepared.id,))
-        result = publication_publish.publish_postgres_publication(self.runtime,
+        result = publication_publish.publish_publication(self.runtime,
             publication_id=int(prepared.id), github=github, max_comment_bytes=60_000, recover_posting=True)
         self.assertEqual(result.status, "posted")
         self.assertEqual(len(github.checks), 1)
@@ -3267,7 +3267,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 plan=self.documentation_plan(self.plan(batch)))
         github = FakePostgresPublicationGitHub(self.runtime)
         github.incomplete_check_scan = True
-        result = publication_publish.publish_postgres_publication(self.runtime,
+        result = publication_publish.publish_publication(self.runtime,
             publication_id=int(prepared.id), github=github, max_comment_bytes=60_000)
         self.assertEqual(result.status, "publish_failed")
         self.assertFalse(getattr(github, "checks", []))
@@ -3280,7 +3280,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 plan=self.documentation_plan(self.plan(batch)))
         github = FakePostgresPublicationGitHub(self.runtime)
         github.move_head_after_check = True
-        result = publication_publish.publish_postgres_publication(self.runtime,
+        result = publication_publish.publish_publication(self.runtime,
             publication_id=int(prepared.id), github=github, max_comment_bytes=60_000)
         self.assertEqual(result.status, "stale")
         self.assertEqual(github.checks[0].conclusion, "cancelled")
@@ -3298,7 +3298,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 plan = self.documentation_plan(plan)
             with self.runtime.transaction() as connection:
                 prepared = publications.prepare_publication(connection, run_id=run_id, plan=plan)
-            result = publication_publish.publish_postgres_publication(
+            result = publication_publish.publish_publication(
                 self.runtime, publication_id=int(prepared.id), github=github,
                 max_comment_bytes=60_000,
             )
@@ -3356,12 +3356,12 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(quality.completed_reviews, 1)
         self.assertEqual(quality.published_findings, 1)
         from review_agent.review.feedback import (
-            record_postgres_feedback,
+            record_feedback,
         )
         from review_agent.domain.feedback_commands import FindingFeedbackCommand
         from review_agent.domain.feedback import FeedbackStatus
         for reference, expected in (("F1", FeedbackStatus.NOT_CURRENT), ("F2", FeedbackStatus.RECORDED)):
-            decision = record_postgres_feedback(
+            decision = record_feedback(
                 self.runtime, event_id=f"docs-feedback:{reference}", repository="team/service", pr_number=41,
                 command=FindingFeedbackCommand(kind="finding", local_reference=reference, decision="false_positive", reason="The documented behavior remains correct."),
                 actor_user_id=77, authorization_version="sha256:" + "a" * 64,
@@ -3386,7 +3386,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 plan=self.plan(first_batch, detailed_history=True),
             )
         github = FakePostgresPublicationGitHub(self.runtime)
-        first_result = publication_publish.publish_postgres_publication(
+        first_result = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(first.id),
             github=github,
@@ -3403,7 +3403,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 run_id=second_run,
                 plan=self.plan(second_batch, key_character="e"),
             )
-        second_result = publication_publish.publish_postgres_publication(
+        second_result = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(second.id),
             github=github,
@@ -3453,7 +3453,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 connection, run_id=first_run, plan=self.plan(first_batch)
             )
         github = FakePostgresPublicationGitHub(self.runtime)
-        publication_publish.publish_postgres_publication(
+        publication_publish.publish_publication(
             self.runtime,
             publication_id=int(first.id),
             github=github,
@@ -3469,7 +3469,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 run_id=second_run,
                 plan=self.plan(second_batch, key_character="f"),
             )
-        publication_publish.publish_postgres_publication(
+        publication_publish.publish_publication(
             self.runtime,
             publication_id=int(second.id),
             github=github,
@@ -3501,7 +3501,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 run_id=third_run,
                 plan=self.plan(third_batch, key_character="7"),
             )
-        third_result = publication_publish.publish_postgres_publication(
+        third_result = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(third.id),
             github=github,
@@ -3509,7 +3509,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         )
         self.assertTrue(third_result.supersession_rendered)
         self.assertEqual(third_result.superseded_publication_id, int(second.id))
-        drained = publication_publish.publish_postgres_publication(
+        drained = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(third.id),
             github=github,
@@ -3540,7 +3540,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 connection, run_id=first_run, plan=self.plan(first_batch)
             )
         github = FakePostgresPublicationGitHub(self.runtime)
-        publication_publish.publish_postgres_publication(
+        publication_publish.publish_publication(
             self.runtime,
             publication_id=int(first.id),
             github=github,
@@ -3558,7 +3558,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         supersession_github = FakePostgresPublicationGitHub(self.runtime)
         supersession_github.fail_on_list_call = 1
 
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(second.id),
             github=github,
@@ -3579,7 +3579,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github = FakePostgresPublicationGitHub(self.runtime)
         github.head_sha = "e" * 40
 
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -3601,12 +3601,12 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             )
         github = FakePostgresPublicationGitHub(self.runtime)
 
-        first = publication_publish.publish_postgres_run_failure_status(
+        first = publication_publish.publish_failure_status(
             self.runtime,
             run_id=int(failed_run),
             github=github,
         )
-        repeated = publication_publish.publish_postgres_run_failure_status(
+        repeated = publication_publish.publish_failure_status(
             self.runtime,
             run_id=int(failed_run),
             github=github,
@@ -3631,7 +3631,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 run_id=posted_run,
                 plan=self.plan(posted_batch, key_character="9"),
             )
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -3654,12 +3654,12 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 retry_run,
                 failure_code="review_deliver_error",
             )
-        retry_status = publication_publish.publish_postgres_run_failure_status(
+        retry_status = publication_publish.publish_failure_status(
             self.runtime,
             run_id=int(retry_run),
             github=github,
         )
-        direct = publication_publish.publish_postgres_publication(
+        direct = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -3682,7 +3682,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             postgres_review_runs.fail_run(connection, run_id, failure_code="job_retry_exhausted")
 
-        result = publication_publish.publish_postgres_run_failure_status(
+        result = publication_publish.publish_failure_status(
             self.runtime, run_id=int(run_id), github=github,
         )
 
@@ -3706,7 +3706,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             )
         github.kill_after_create = True
         with self.assertRaises(ProcessDeath):
-            publication_publish.publish_postgres_run_failure_status(
+            publication_publish.publish_failure_status(
                 self.runtime, run_id=int(run_id), github=github,
                 lease_owner="dead-worker",
                 lease_generation=claim.target.delivery_lease_generation,
@@ -3750,7 +3750,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 )
             github.kill_after_create = True
             with self.assertRaises(ProcessDeath):
-                publication_publish.publish_postgres_run_failure_status(
+                publication_publish.publish_failure_status(
                     self.runtime, run_id=int(run_id), github=github,
                     lease_owner="dead-worker",
                     lease_generation=claim.target.delivery_lease_generation,
@@ -3785,7 +3785,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             prepared = publications.prepare_publication(
                 connection, run_id=code_run, plan=self.plan(code_batch, key_character="8"),
             )
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime, publication_id=int(prepared.id), github=github, max_comment_bytes=60_000,
         )
         self.assertEqual(result.status, "posted")
@@ -3821,7 +3821,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github.kill_after_create = True
 
         with self.assertRaises(ProcessDeath):
-            publication_publish.publish_postgres_run_failure_status(
+            publication_publish.publish_failure_status(
                 self.runtime,
                 run_id=int(run_id),
                 github=github,
@@ -3880,7 +3880,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github = FakePostgresPublicationGitHub(self.runtime)
         github.kill_after_create = True
         with self.assertRaises(ProcessDeath):
-            publication_publish.publish_postgres_run_failure_status(
+            publication_publish.publish_failure_status(
                 self.runtime,
                 run_id=int(run_id),
                 github=github,
@@ -3903,7 +3903,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github.fail_on_list_call = github.list_issue_comments_calls + 1
 
         with self.assertRaises(GitHubPublicationError):
-            publication_publish.publish_postgres_run_failure_status(
+            publication_publish.publish_failure_status(
                 self.runtime,
                 run_id=int(run_id),
                 github=github,
@@ -3983,7 +3983,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github = FakePostgresPublicationGitHub(self.runtime)
         github.kill_after_create = True
         with self.assertRaises(ProcessDeath):
-            publication_publish.publish_postgres_run_failure_status(
+            publication_publish.publish_failure_status(
                 self.runtime,
                 run_id=int(failed_run),
                 github=github,
@@ -4000,7 +4000,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 connection, run_id=newer_run, plan=self.plan(batch)
             )
         github.kill_after_create = False
-        publication_publish.publish_postgres_publication(
+        publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -4072,7 +4072,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             )
         github = FakePostgresPublicationGitHub(self.runtime)
 
-        publication_publish.publish_postgres_publication(
+        publication_publish.publish_publication(
             self.runtime, publication_id=int(prepared.id), github=github,
             max_comment_bytes=60_000,
         )
@@ -4142,7 +4142,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             prepared = publications.prepare_publication(
                 connection, run_id=run_id, plan=plan
             )
-        repeated = publication_publish.prepare_postgres_publication(
+        repeated = publication_publish.prepare_review_publication(
             self.runtime,
             run_id=int(run_id),
             previous_verdicts=None,
@@ -4151,7 +4151,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         )
         github = FakePostgresPublicationGitHub(self.runtime)
 
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -4220,7 +4220,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             review_comment(comment_id=781, review_id=78, body=second_body, line=8),
         ]
 
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -4248,7 +4248,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         github = FakePostgresPublicationGitHub(self.runtime)
         github.fail_on_review_create = True
 
-        result = publication_publish.publish_postgres_publication(
+        result = publication_publish.publish_publication(
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
@@ -4307,7 +4307,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
 
         result = support.start_postgres_review(
             self.runtime,
-            review_runs.PostgresRunRequest(
+            review_runs.RunRequest(
                 provider="github",
                 provider_repository_id=981,
                 repository="team/service",
@@ -4325,14 +4325,14 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.runtime,
             run_id=result.run.id,
             files=(
-                review_runs.PostgresChangedFile(
+                review_runs.RunChangedFile(
                     path="backend/changed.py", change_status="modified"
                 ),
             ),
             changed_files_reported=1,
             registration_complete=True,
         )
-        current_batch = review_findings.record_postgres_findings(
+        current_batch = review_findings.record_run_findings(
             self.runtime,
             run_id=result.run.id,
             head_sha="e" * 40,
@@ -4344,7 +4344,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 ),
             ),
             changed_files=(
-                review_findings.ChangedFile(
+                review_findings.ChangedFileContext(
                     path="backend/changed.py",
                     context_hash="f" * 40,
                     context_hash_source="blob",

@@ -165,7 +165,7 @@ def stage_part(
     *,
     head_sha: str,
     findings: list[JsonObject],
-    changed_files: Sequence[review_findings.ChangedFile],
+    changed_files: Sequence[review_findings.ChangedFileContext],
     raw_notes: Any,
 ) -> str:
     """Store a part session's candidates for the final session instead of recording them."""

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from ...operations import inspection, readiness
 from ...domain import input_checks
-from ..auth import AdminAuth
+from ..auth import ConsoleAuth
 from ...github import app_auth, app_inventory
 from ...postgres import github_app, registry
 from ...postgres.team_access import AccessRequest
@@ -177,7 +177,7 @@ def _permission_issues(permissions: dict[str, str]) -> list[str]:
     return issues
 
 
-def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
+def create_router(runtime: PostgreSQLRuntime, auth: ConsoleAuth) -> APIRouter:
     """Create the access router using the deployment's configured App identity."""
     try:
         readiness.github_app_authenticator(os.environ)
@@ -380,7 +380,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                     app_inventory.GitHubAppInventoryRetryable,
                     app_inventory.GitHubAppInventoryPermanent,
                     github_app.GitHubAppStateError,
-                    input_checks.OperatorInputError,
+                    input_checks.InputError,
                     registry.RegistryError,
                     PostgreSQLRuntimeError,
                 ),
@@ -420,7 +420,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                     app_inventory.GitHubAppInventoryRetryable,
                     app_inventory.GitHubAppInventoryPermanent,
                     github_app.GitHubAppStateError,
-                    input_checks.OperatorInputError,
+                    input_checks.InputError,
                     PostgreSQLRuntimeError,
                 ),
             ):
@@ -449,7 +449,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                 exc,
                 (
                     github_app.GitHubAppStateError,
-                    input_checks.OperatorInputError,
+                    input_checks.InputError,
                     registry.RegistryError,
                     PostgreSQLRuntimeError,
                 ),
@@ -478,7 +478,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                 exc,
                 (
                     github_app.GitHubAppStateError,
-                    input_checks.OperatorInputError,
+                    input_checks.InputError,
                     registry.RegistryError,
                     PostgreSQLRuntimeError,
                 ),
@@ -509,7 +509,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
             app_inventory.GitHubAppInventoryRetryable,
             app_inventory.GitHubAppInventoryPermanent,
             github_app.GitHubAppStateError,
-            input_checks.OperatorInputError,
+            input_checks.InputError,
             registry.RegistryError,
             PostgreSQLRuntimeError,
         ) as exc:

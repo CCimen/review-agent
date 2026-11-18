@@ -365,11 +365,11 @@ class ReviewWorker:
                 terminal_documentation = result.frozen
                 if terminal_documentation:
                     from ..publication.publish import (
-                        prepare_postgres_documentation_publication,
+                        prepare_documentation_publication,
                     )
 
                     configured = settings.ReviewAgentSettings.from_environment()
-                    prepare_postgres_documentation_publication(
+                    prepare_documentation_publication(
                         self._runtime, run_id=int(claimed.job.review_run_id),
                         max_comment_bytes=configured.publish_max_bytes,
                         delivery_max_attempts=configured.publication_max_attempts,

@@ -75,8 +75,8 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         self.addCleanup(self.runtime.close)
 
     @staticmethod
-    def request() -> review_runs.PostgresRunRequest:
-        return review_runs.PostgresRunRequest(
+    def request() -> review_runs.RunRequest:
+        return review_runs.RunRequest(
             provider="github",
             provider_repository_id=920,
             repository="team/coverage",
@@ -103,8 +103,8 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         path: str,
         *,
         change_status: str = "modified",
-    ) -> review_runs.PostgresChangedFile:
-        return review_runs.PostgresChangedFile(
+    ) -> review_runs.RunChangedFile:
+        return review_runs.RunChangedFile(
             path=path,
             change_status=change_status,
             domain=FileDomain.BACKEND,
@@ -145,7 +145,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                 changed_files_reported=2,
                 registration_complete=False,
             )
-        after_conflict = review_runs.summarize_postgres_coverage(
+        after_conflict = review_runs.summarize_coverage(
             self.runtime, run_id
         )
         self.assertEqual(after_conflict.changed_files_registered, 1)
@@ -216,7 +216,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             )
             self.assertEqual(first["diff"], diff)
             self.assertEqual(client.get_review_pull.call_count, 2)
-            coverage = review_runs.summarize_postgres_coverage(
+            coverage = review_runs.summarize_coverage(
                 self.runtime, run_id
             )
             self.assertEqual(coverage.state, CoverageState.COMPLETE)
@@ -273,13 +273,13 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         ):
             # A session that read only diffs records from collecting_diff.
             recorded = json.loads(
-                finding_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
+                finding_tools.record_review_findings.__wrapped__({"run_id": run_id, "findings": []})
             )
             with self.runtime.transaction() as connection:
                 reviewing = postgres_review_runs.get_run(connection, run_id)
             pull["head"] = {"sha": "c" * 40}
             pushed = json.loads(
-                finding_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
+                finding_tools.record_review_findings.__wrapped__({"run_id": run_id, "findings": []})
             )
         self.assertEqual(recorded["recorded"], [])
         self.assertEqual(reviewing.phase, ReviewPhase.REVIEWING)
@@ -313,7 +313,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             patch.object(review_tool_runtime, "postgres_runtime", return_value=self.runtime),
         ):
             recorded = json.loads(
-                finding_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
+                finding_tools.record_review_findings.__wrapped__({"run_id": run_id, "findings": []})
             )
             # Later calls in the same turn stop the same way instead of erroring.
             delivered = json.loads(deliver_tool.review_deliver.__wrapped__({"run_id": run_id}))
@@ -392,7 +392,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
 
     def test_empty_inventory_and_fail_closed_guards_are_explicit(self) -> None:
         run_id = self.start_run()
-        unknown = review_runs.summarize_postgres_coverage(
+        unknown = review_runs.summarize_coverage(
             self.runtime, run_id
         )
         self.assertEqual(unknown.state, CoverageState.UNKNOWN)
@@ -405,7 +405,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                 changed_files_reported=2,
                 registration_complete=True,
             )
-        rolled_back = review_runs.summarize_postgres_coverage(
+        rolled_back = review_runs.summarize_coverage(
             self.runtime, run_id
         )
         self.assertEqual(rolled_back.state, CoverageState.UNKNOWN)
@@ -419,7 +419,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             registration_complete=True,
         )
         self.assertTrue(empty.registration_complete)
-        complete = review_runs.summarize_postgres_coverage(
+        complete = review_runs.summarize_coverage(
             self.runtime, run_id
         )
         self.assertEqual(complete.state, CoverageState.COMPLETE)
@@ -446,7 +446,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             ),
         )
 
-        source_only = review_runs.summarize_postgres_coverage(
+        source_only = review_runs.summarize_coverage(
             self.runtime, run_id
         )
         self.assertEqual(source_only.state, CoverageState.INCOMPLETE)
@@ -460,7 +460,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             paths=("src/a.py",),
             state=DiffState.TRUNCATED,
         )
-        truncated = review_runs.summarize_postgres_coverage(
+        truncated = review_runs.summarize_coverage(
             self.runtime, run_id
         )
         self.assertEqual(truncated.state, CoverageState.INCOMPLETE)
@@ -472,7 +472,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             paths=("src/a.py",),
             state=DiffState.COMPLETE,
         )
-        complete = review_runs.summarize_postgres_coverage(
+        complete = review_runs.summarize_coverage(
             self.runtime, run_id
         )
         self.assertEqual(complete.state, CoverageState.COMPLETE)
@@ -552,7 +552,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             self.addCleanup(self.runtime.close)
             self.runtime.open()
         self.assertEqual("".join(returned), text)
-        summary = review_runs.summarize_postgres_coverage(
+        summary = review_runs.summarize_coverage(
             self.runtime, run_id
         )
         self.assertEqual(summary.state, CoverageState.COMPLETE)
@@ -634,7 +634,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             futures = [pool.submit(record, start) for start in (0, 50)]
             for future in futures:
                 future.result(timeout=5)
-        summary = review_runs.summarize_postgres_coverage(
+        summary = review_runs.summarize_coverage(
             self.runtime, run_id
         )
         self.assertEqual(summary.state, CoverageState.COMPLETE)
@@ -804,7 +804,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             results = list(executor.map(record, range(4)))
 
         self.assertEqual(sum(result.inserted for result in results), 1)
-        summary = review_runs.summarize_postgres_coverage(
+        summary = review_runs.summarize_coverage(
             self.runtime, run_id
         )
         self.assertEqual(summary.context_ranges_read, 1)

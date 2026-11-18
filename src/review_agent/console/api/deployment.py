@@ -10,7 +10,7 @@ from urllib import error, parse, request
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from ..auth import AdminAuth
+from ..auth import ConsoleAuth
 
 
 class DeploymentContainer(BaseModel):
@@ -129,7 +129,7 @@ class DokployDeployment:
         )
 
 
-def create_router(auth: AdminAuth) -> APIRouter:
+def create_router(auth: ConsoleAuth) -> APIRouter:
     router = APIRouter(dependencies=[Depends(auth.current_owner)])
     values = tuple(
         os.environ.get(name, "").strip()

@@ -37,7 +37,7 @@ from ..review.tool_runtime import (
 
 
 @worker_lease_fence()
-def review_memory_context(args: dict[str, Any], **context: Any) -> str:
+def finding_history(args: dict[str, Any], **context: Any) -> str:
     try:
         source = gateway_source_session(args, context)
         repository, pr_number, _ = pull_request_identity(source)
@@ -71,7 +71,7 @@ def review_memory_context(args: dict[str, Any], **context: Any) -> str:
 
 
 @worker_lease_fence()
-def review_memory_record(args: dict[str, Any], **context: Any) -> str:
+def record_review_findings(args: dict[str, Any], **context: Any) -> str:
     try:
         source = gateway_source_session(args, context)
         repository, number, initial_pull = pull_request_identity(source)
@@ -124,7 +124,7 @@ def review_memory_record(args: dict[str, Any], **context: Any) -> str:
                 )
 
         changed_file_records = tuple(
-            review_findings.ChangedFile(
+            review_findings.ChangedFileContext(
                 path=path,
                 context_hash=str(item.get("context_hash", "")),
                 context_hash_source=str(item.get("context_hash_source", "")),

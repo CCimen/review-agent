@@ -248,8 +248,8 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
         repository: str = "team/reviewer",
         request_key: str = "github:issue-comment:1001",
         head_sha: str = "a" * 40,
-    ) -> review_runs.PostgresRunRequest:
-        return review_runs.PostgresRunRequest(
+    ) -> review_runs.RunRequest:
+        return review_runs.RunRequest(
             provider="github",
             provider_repository_id=provider_repository_id,
             repository=repository,
@@ -284,10 +284,10 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
 
     def test_start_is_idempotent_and_cross_scope_key_conflict_rolls_back(self) -> None:
         def admit(
-            request: review_runs.PostgresRunRequest,
+            request: review_runs.RunRequest,
         ) -> postgres_review_runs.RunStart:
             with self.runtime.transaction() as connection:
-                return review_runs.admit_postgres_review_in_transaction(
+                return review_runs.admit_review_in_transaction(
                     connection,
                     request,
                     priority=0,

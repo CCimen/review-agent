@@ -290,8 +290,8 @@ class PostgreSQLJobTests(unittest.TestCase):
     @staticmethod
     def admission_request(
         *, provider_id: int, pr_number: int, request_key: str, head: str
-    ) -> review_runs.PostgresRunRequest:
-        return review_runs.PostgresRunRequest(
+    ) -> review_runs.RunRequest:
+        return review_runs.RunRequest(
             provider="github",
             provider_repository_id=provider_id,
             repository=f"team/service-{provider_id}",
@@ -1315,7 +1315,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             start.wait(timeout=5)
             try:
                 with self.runtime.transaction() as connection:
-                    return review_runs.admit_postgres_review_in_transaction(
+                    return review_runs.admit_review_in_transaction(
                         connection,
                         self.admission_request(
                             provider_id=1100 + index,
@@ -1564,7 +1564,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             self.runtime,
             run_id=run.run.id,
             files=tuple(
-                review_runs.PostgresChangedFile(path=path, change_status="modified")
+                review_runs.RunChangedFile(path=path, change_status="modified")
                 for part in self.PART_FILES
                 for path in part
             ),

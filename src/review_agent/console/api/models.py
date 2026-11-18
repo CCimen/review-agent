@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Path, Query
 from pydantic import Field, BaseModel, ConfigDict, model_validator
 
 from ...hermes import control_endpoints as hermes_control_endpoints
-from ..auth import AdminAuth
+from ..auth import ConsoleAuth
 from ..model_connections import (
     ConnectionRuntime,
     ModelConnectionsApplication,
@@ -109,7 +109,7 @@ class TeamModelUpdate(ChangeReason):
 
 def create_router(
     runtime: PostgreSQLRuntime,
-    auth: AdminAuth,
+    auth: ConsoleAuth,
     controls: Mapping[str, hermes_control_endpoints.ManagedControl],
 ) -> APIRouter:
     application = ModelConnectionsApplication(runtime, controls)

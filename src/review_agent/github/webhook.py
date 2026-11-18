@@ -16,7 +16,7 @@ from ..domain.feedback_commands import (
     parse_review_feedback_command,
     review_command_purpose,
 )
-from ..domain.review_validation import ReviewMemoryError
+from ..domain.review_validation import ReviewValidationError
 
 
 class GitHubWebhookError(ValueError):
@@ -314,7 +314,7 @@ def _normalize_issue_comment(root: Mapping[str, object]) -> NormalizedWebhook:
     else:
         try:
             command = parse_review_feedback_command(body)
-        except ReviewMemoryError:
+        except ReviewValidationError:
             command_kind = CommandKind.INVALID
             normalized["reason"] = "invalid_command"
         else:

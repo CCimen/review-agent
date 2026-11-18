@@ -127,7 +127,7 @@ def _source_path(value: object) -> str:
         raise GitHubGatewayProtocolError("path must be text")
     try:
         return review_validation.normalize_path(value)
-    except review_validation.ReviewMemoryError as exc:
+    except review_validation.ReviewValidationError as exc:
         raise GitHubGatewayProtocolError(str(exc)) from exc
 
 

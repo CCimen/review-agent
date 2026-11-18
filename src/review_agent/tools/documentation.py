@@ -159,7 +159,7 @@ def docs_file(args: dict[str, Any], **context: Any) -> str:
 def docs_deliver(args: dict[str, Any], **context: Any) -> str:
     from ..documentation.findings import finalize_documentation_assessment
     from ..publication.publish import (
-        prepare_postgres_documentation_publication,
+        prepare_documentation_publication,
     )
 
     try:
@@ -175,7 +175,7 @@ def docs_deliver(args: dict[str, Any], **context: Any) -> str:
                 job_id=source.lease.job_id, lease_generation=source.lease.lease_generation,
             )
         configured = settings.ReviewAgentSettings.from_environment()
-        prepared = prepare_postgres_documentation_publication(
+        prepared = prepare_documentation_publication(
             postgres_runtime(), run_id=source.run_id,
             max_comment_bytes=configured.publish_max_bytes,
             delivery_max_attempts=configured.publication_max_attempts,

@@ -87,7 +87,7 @@ class ReviewRunTerminal(Exception):
 
 
 @dataclass(frozen=True, slots=True)
-class PostgresRunRequest:
+class RunRequest:
     provider: str
     provider_repository_id: int
     repository: str
@@ -104,7 +104,7 @@ class PostgresRunRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class PostgresChangedFile:
+class RunChangedFile:
     path: str
     change_status: str
     previous_path: str | None = None
@@ -338,9 +338,9 @@ def mark_stale_runs_failed_in_transaction(
     )
 
 
-def admit_postgres_review_in_transaction(
+def admit_review_in_transaction(
     connection: psycopg.Connection[TupleRow],
-    request: PostgresRunRequest,
+    request: RunRequest,
     *,
     priority: int,
     max_attempts: int,
@@ -387,7 +387,7 @@ def admit_postgres_review_in_transaction(
 
 
 def ensure_review_scope(
-    connection: psycopg.Connection[TupleRow], request: PostgresRunRequest
+    connection: psycopg.Connection[TupleRow], request: RunRequest
 ) -> tuple[PullRequestId, ReviewSubjectId]:
     """Resolve and persist the repository, pull request, and exact subject."""
     repository_definition = postgres_registry.resolve_repository(
@@ -418,7 +418,7 @@ def ensure_review_scope(
 
 
 def _resolve_changed_file_registration(
-    files: Sequence[PostgresChangedFile],
+    files: Sequence[RunChangedFile],
     changed_files_reported: int,
 ) -> tuple[tuple[ChangedFileDefinition, ...], int]:
     resolved = tuple(
@@ -442,7 +442,7 @@ def register_live_changed_files(
     changed_files_reported: int,
 ) -> postgres_coverage.FileIndexSummary:
     resolved_files = tuple(
-        PostgresChangedFile(
+        RunChangedFile(
             path=str(item.get("path", "")),
             change_status=str(item.get("status", "")),
             previous_path=(
@@ -474,7 +474,7 @@ def register_live_changed_files(
         )
 
 
-def summarize_postgres_coverage(
+def summarize_coverage(
     runtime: PostgreSQLRuntime, run_id: ReviewRunId
 ) -> postgres_coverage.CoverageSummary:
     """Read the normalized coverage summary in one short transaction."""
@@ -624,7 +624,7 @@ def load_live_snapshot(
     subject: RunSubject,
     *,
     phase: RunPhase,
-    pull_loader: Callable[[], PullSnapshot[PullPayload]],
+    pull_loader: Callable[[], RunPullSnapshot[PullPayload]],
     expected_head_sha: str | None = None,
 ) -> SnapshotResult[PullPayload]:
     """Validate one provider snapshot without holding a connection during I/O."""
@@ -667,7 +667,7 @@ def load_live_changed_file_page(
     runtime: PostgreSQLRuntime,
     subject: RunSubject,
     *,
-    pull_loader: Callable[[], PullSnapshot[PullPayload]],
+    pull_loader: Callable[[], RunPullSnapshot[PullPayload]],
     limit: int,
     cursor: str = "",
     domain: str = "",
@@ -703,7 +703,7 @@ def load_live_file_context(
     subject: RunSubject,
     *,
     path: str,
-    pull_loader: Callable[[], PullSnapshot[PullPayload]],
+    pull_loader: Callable[[], RunPullSnapshot[PullPayload]],
 ) -> tuple[SnapshotResult[PullPayload], postgres_coverage.RunFileLookup]:
     snapshot = load_live_snapshot(
         runtime,
@@ -902,7 +902,7 @@ def resolve_review_phase(value: RunPhase) -> ReviewPhase:
 
 
 @dataclass(frozen=True, slots=True)
-class PullSnapshot(Generic[PullPayload]):
+class RunPullSnapshot(Generic[PullPayload]):
     payload: PullPayload
     base_sha: str
     head_sha: str

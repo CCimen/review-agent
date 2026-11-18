@@ -213,7 +213,7 @@ class AdminRunActionTests(unittest.TestCase):
 
     def test_stale_generation_rejects_without_mutation_or_audit(self) -> None:
         current = self.queued_job(suffix=3)
-        with self.assertRaises(console_run_actions.AdminRunActionStale):
+        with self.assertRaises(console_run_actions.RunActionStale):
             with self.runtime.transaction() as connection:
                 console_run_actions.apply_action(
                     connection,
@@ -293,7 +293,7 @@ class AdminRunActionTests(unittest.TestCase):
                 connection, run_id=queued.review_run_id
             )
             waiting_main = jobs.get_job(connection, main.id)
-            with self.assertRaises(console_run_actions.AdminRunActionError):
+            with self.assertRaises(console_run_actions.RunActionError):
                 console_run_actions.apply_action(
                     connection,
                     run_id=queued.review_run_id,

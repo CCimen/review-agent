@@ -43,7 +43,7 @@ from .api import (
 )
 from . import application as console_application, scim as console_scim, oidc as console_oidc
 from ..hermes import control_endpoints as hermes_control_endpoints
-from .auth import AdminAuth
+from .auth import ConsoleAuth
 from .email import email_cipher
 from .identity_config import IdentitySettings
 from ..build_info import BuildInfo, read_build_info
@@ -82,7 +82,7 @@ def create_app(
     public_url: str,
     static_dir: Path,
 ) -> FastAPI:
-    auth = AdminAuth(
+    auth = ConsoleAuth(
         runtime.database_url,
         public_url,
         email_secret=email_cipher(os.environ.get("REVIEW_AGENT_EMAIL_SECRET_KEY", "")),

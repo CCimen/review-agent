@@ -87,7 +87,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                     stop_event=threading.Event(), source_client=Mock())
                 with (
                     patch.object(documentation_preflight, "run_preflight", return_value=Mock(frozen=frozen)) as preflight,
-                    patch.object(publication_publish, "prepare_postgres_documentation_publication") as publish,
+                    patch.object(publication_publish, "prepare_documentation_publication") as publish,
                     patch.object(jobs, "get_job", return_value=replace(claimed.job, status=jobs.ReviewJobStatus.SUCCEEDED)),
                 ):
                     worker._execute(claimed)

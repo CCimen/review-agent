@@ -558,8 +558,6 @@ def publish_postgres_publication(
         PublicationPartType,
         PublicationStatus,
         SuggestionReviewDelivery,
-        extract_publication_key,
-        publication_marker,
     )
     from ..postgres import publications as postgres_publications
     from ..postgres import review_runs as postgres_review_runs
@@ -711,27 +709,6 @@ def publish_postgres_publication(
             pull=pull,
         )
 
-    def recovered_issue_comments(
-        comments: Sequence[IssueComment],
-    ) -> dict[int, list[IssueComment]]:
-        found: dict[int, list[IssueComment]] = {}
-        for comment in comments:
-            if (
-                comment.author_login.casefold() != author_login.casefold()
-                or extract_publication_key(comment.body)
-                != publication.plan.publication_key
-            ):
-                continue
-            token = f"{publication_marker(publication.plan.publication_key)} part="
-            token_index = comment.body.rfind(token)
-            if token_index < 0:
-                continue
-            raw_number = comment.body[token_index + len(token) :].split("/", 1)[0]
-            if not raw_number.isdigit() or int(raw_number) < 1:
-                continue
-            found.setdefault(int(raw_number), []).append(comment)
-        return found
-
     def terminalize_stale(failure_code: str) -> PostgresPublicationResult:
         if check_external_id is not None:
             prove_provider_write()
@@ -805,8 +782,12 @@ def publish_postgres_publication(
                         max_pages=_COMMENT_RECOVERY_SCAN_PAGES,
                         newest_first=True,
                     )
-                    # `setdefault` in recovery keeps this newest match.
-                    issue_comments = recovered_issue_comments(listed)
+                    # Newest first, so the first match per part is the newest.
+                    issue_comments = _issue_comments_by_part(
+                        listed,
+                        author_login=author_login,
+                        publication_key=publication.plan.publication_key,
+                    )
                 candidates = issue_comments.get(part.part_number, [])
                 existing = next(
                     (
@@ -849,10 +830,14 @@ def publish_postgres_publication(
                             raise
                         # A failed response can follow a successful POST. Reconcile
                         # even on the last attempt, without issuing another write.
-                        issue_comments = recovered_issue_comments(github.list_issue_comments(
-                            publication.repository, publication.pr_number,
-                            max_pages=_COMMENT_RECOVERY_SCAN_PAGES, newest_first=True,
-                        ))
+                        issue_comments = _issue_comments_by_part(
+                            github.list_issue_comments(
+                                publication.repository, publication.pr_number,
+                                max_pages=_COMMENT_RECOVERY_SCAN_PAGES, newest_first=True,
+                            ),
+                            author_login=author_login,
+                            publication_key=publication.plan.publication_key,
+                        )
                         confirmed = next((
                             comment for comment in issue_comments.get(part.part_number, [])
                             if comment.body == part.delivery.body
@@ -889,43 +874,12 @@ def publish_postgres_publication(
                         publication.pr_number,
                         max_pages=_COMMENT_RECOVERY_SCAN_PAGES,
                     )
-                expected_signatures = Counter(
-                    (
-                        comment.body,
-                        comment.path,
-                        comment.line,
-                        comment.side,
-                        comment.start_line,
-                        comment.start_side,
-                    )
-                    for comment in expected
-                )
-                comments_by_review: dict[int, list[PullRequestReviewComment]] = {}
-                for comment in review_comments:
-                    if (
-                        comment.author_login.casefold() == author_login.casefold()
-                        and comment.commit_id.lower() == publication.head_sha.lower()
-                        and extract_publication_key(comment.body)
-                        == publication.plan.publication_key
-                    ):
-                        comments_by_review.setdefault(comment.review_id, []).append(
-                            comment
-                        )
-                exact_review_ids = sorted(
-                    review_id
-                    for review_id, comments in comments_by_review.items()
-                    if Counter(
-                        (
-                            comment.body,
-                            comment.path,
-                            comment.line,
-                            comment.side,
-                            comment.start_line,
-                            comment.start_side,
-                        )
-                        for comment in comments
-                    )
-                    == expected_signatures
+                exact_review_ids = _reviews_with_exact_suggestions(
+                    review_comments,
+                    expected,
+                    author_login=author_login,
+                    head_sha=publication.head_sha,
+                    publication_key=publication.plan.publication_key,
                 )
                 if exact_review_ids:
                     external_id = exact_review_ids[-1]
@@ -1035,6 +989,81 @@ def publish_postgres_publication(
         supersession_failure_code=(
             supersession.failure_code if supersession is not None else None
         ),
+    )
+
+
+def _issue_comments_by_part(
+    comments: Sequence[IssueComment], *, author_login: str, publication_key: str
+) -> dict[int, list[IssueComment]]:
+    """The publisher's own comments for one publication, by part number.
+
+    A comment belongs to the publication when the publisher wrote it and its
+    closing marker carries the publication key; the part number is read from
+    that marker. Comments keep their input order within a part.
+    """
+    from ..domain.publication import extract_publication_key, publication_marker
+
+    token = f"{publication_marker(publication_key)} part="
+    found: dict[int, list[IssueComment]] = {}
+    for comment in comments:
+        if (
+            comment.author_login.casefold() != author_login.casefold()
+            or extract_publication_key(comment.body) != publication_key
+        ):
+            continue
+        token_index = comment.body.rfind(token)
+        if token_index < 0:
+            continue
+        raw_number = comment.body[token_index + len(token) :].split("/", 1)[0]
+        if not raw_number.isdigit() or int(raw_number) < 1:
+            continue
+        found.setdefault(int(raw_number), []).append(comment)
+    return found
+
+
+def _inline_comment_signature(
+    comment: InlineReviewComment | PullRequestReviewComment,
+) -> tuple[object, ...]:
+    return (
+        comment.body,
+        comment.path,
+        comment.line,
+        comment.side,
+        comment.start_line,
+        comment.start_side,
+    )
+
+
+def _reviews_with_exact_suggestions(
+    review_comments: Sequence[PullRequestReviewComment],
+    expected: Sequence[InlineReviewComment],
+    *,
+    author_login: str,
+    head_sha: str,
+    publication_key: str,
+) -> list[int]:
+    """Ids of the publisher's reviews that hold exactly the expected suggestions.
+
+    A review matches when its inline comments for this publication and head
+    commit are the same multiset as ``expected``: one comment more, fewer or
+    different does not match. Ids are returned in ascending order.
+    """
+    from ..domain.publication import extract_publication_key
+
+    wanted = Counter(_inline_comment_signature(comment) for comment in expected)
+    comments_by_review: dict[int, list[PullRequestReviewComment]] = {}
+    for comment in review_comments:
+        if (
+            comment.author_login.casefold() == author_login.casefold()
+            and comment.commit_id.lower() == head_sha.lower()
+            and extract_publication_key(comment.body) == publication_key
+        ):
+            comments_by_review.setdefault(comment.review_id, []).append(comment)
+    return sorted(
+        review_id
+        for review_id, comments in comments_by_review.items()
+        if Counter(_inline_comment_signature(comment) for comment in comments)
+        == wanted
     )
 
 

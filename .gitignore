@@ -10,10 +10,10 @@ website/node_modules/
 install/node_modules/
 website/.docusaurus/
 website/build/
-admin/node_modules/
-admin/dist/
-admin/dist-preview/
-admin/*.tsbuildinfo
+console/node_modules/
+console/dist/
+console/dist-preview/
+console/*.tsbuildinfo
 src/review_agent/_build.json
 /build/
 /dist/

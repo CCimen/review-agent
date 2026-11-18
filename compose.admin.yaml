@@ -4,7 +4,7 @@ services:
     image: ${REVIEW_AGENT_ADMIN_IMAGE:-review-agent-admin:local}
     build:
       context: .
-      dockerfile: admin/Dockerfile
+      dockerfile: console/Dockerfile
     restart: unless-stopped
     environment:
       REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_RUNTIME_DATABASE_URL:?set REVIEW_AGENT_RUNTIME_DATABASE_URL}"

@@ -100,7 +100,6 @@ class DeploymentSettingsTests(unittest.TestCase):
     def test_queue_freezes_route_but_artifact_drift_remains_rejected(self) -> None:
         installed = review_contract.load_packaged_contract(
             "default-standard",
-            Path(__file__).resolve().parents[1] / "bootstrap",
             environment={
                 "HERMES_IMAGE": "hermes@sha256:" + "a" * 64,
                 "REVIEW_AGENT_MODEL": "installed-model",

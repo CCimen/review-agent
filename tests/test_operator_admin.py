@@ -214,7 +214,6 @@ class OperatorSetupTests(unittest.TestCase):
                     "REVIEW_AGENT_HERMES_IMAGE": PINNED_HERMES_IMAGE,
                     "REVIEW_AGENT_PROFILE": "default-standard",
                 },
-                bootstrap_source=ROOT / "bootstrap",
             )
 
         database_check = next(
@@ -262,7 +261,6 @@ class OperatorSetupTests(unittest.TestCase):
                 "REVIEW_AGENT_HERMES_IMAGE": "latest",
                 "REVIEW_AGENT_PROFILE": "not valid",
             },
-            bootstrap_source=ROOT / "bootstrap",
         )
 
         self.assertFalse(report.ready)

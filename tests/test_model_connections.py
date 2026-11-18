@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from uuid import UUID
 import unittest
 from unittest.mock import Mock, patch
@@ -59,7 +58,6 @@ class ModelConnectionTests(unittest.TestCase):
         self.addCleanup(environment.stop)
         contract = review_contract.load_packaged_contract(
             "default-standard",
-            Path(__file__).resolve().parents[1] / "bootstrap",
             environment={
                 "HERMES_IMAGE": "hermes@sha256:" + "a" * 64,
                 "REVIEW_AGENT_MODEL": "test-review-model",

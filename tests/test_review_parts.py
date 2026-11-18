@@ -17,7 +17,7 @@ class ReviewPartPlanTests(unittest.TestCase):
         # Part sizing assumes Hermes compacts at window x threshold: no output
         # reservation, per-model threshold, or absolute cap moves that point.
         config = yaml.safe_load(
-            (PACKAGE_ROOT.parent / "bootstrap" / "config.yaml").read_text(encoding="utf-8")
+            (PACKAGE_ROOT.parent / "hermes" / "config.yaml").read_text(encoding="utf-8")
         )
         self.assertEqual(set(config["compression"]), {"threshold", "codex_gpt55_autoraise"})
         self.assertNotIn("max_tokens", config["model"])

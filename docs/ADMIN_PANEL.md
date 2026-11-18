@@ -600,8 +600,8 @@ curl --fail-with-body --get \
 
 The console uses the same authenticated API it documents. Open **API reference**
 in the console, or `/api/docs`, for Swagger UI under the current session; the
-schema is at `/api/openapi.json`. The frontend contract is `admin/openapi.json`
-and the generated `admin/src/api.generated.ts`.
+schema is at `/api/openapi.json`. The frontend contract is `console/openapi.json`
+and the generated `console/src/api.generated.ts`.
 
 | Endpoint | Access | Data |
 | --- | --- | --- |

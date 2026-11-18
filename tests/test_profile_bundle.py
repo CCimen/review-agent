@@ -9,12 +9,13 @@ import shutil
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROFILE_SOURCE = ROOT / "bootstrap" / "profiles" / "default-standard"
+PROFILE_SOURCE = ROOT / "profiles" / "default-standard"
 PLUGIN_SOURCE = ROOT / "src" / "review_agent"
 HERMES_IMAGE = "nousresearch/hermes-agent:test@sha256:" + "1" * 64
 # Every deployment names its review model; tests use a neutral one.
@@ -23,10 +24,10 @@ TEST_MODEL = "test-review-model"
 
 def load_installer():
     spec = importlib.util.spec_from_file_location(
-        "review_agent_profile_installer", ROOT / "bootstrap" / "install.py"
+        "review_agent_profile_installer", ROOT / "hermes" / "install.py"
     )
     if spec is None or spec.loader is None:
-        raise AssertionError("could not load bootstrap installer")
+        raise AssertionError("could not load the profile installer")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -60,7 +61,7 @@ class ProfileBundleTests(unittest.TestCase):
 
         with mock.patch.dict(os.environ, conflicting, clear=True):
             config, _ = self.install.review_contract.render_managed_config(
-                self.install.SOURCE / "config.yaml",
+                self.install.review_contract.locate_behavior_inputs().config,
                 environment=supplied,
             )
 
@@ -85,6 +86,7 @@ class ProfileBundleTests(unittest.TestCase):
         profile_environment: str | None = "default-standard",
         deployment_environment: dict[str, str] | None = None,
     ) -> int:
+        located = self.install.review_contract.locate_behavior_inputs()
         with (
             mock.patch.dict(
                 os.environ,
@@ -102,14 +104,16 @@ class ProfileBundleTests(unittest.TestCase):
             ),
             mock.patch.object(self.install, "HERMES_HOME", hermes_home),
             mock.patch.object(
-                self.install,
-                "PROFILES_SOURCE",
-                profiles_source or self.install.PROFILES_SOURCE,
+                self.install.review_contract,
+                "locate_behavior_inputs",
+                return_value=replace(
+                    located, profiles=profiles_source or located.profiles
+                ),
             ),
             mock.patch.object(
                 sys,
                 "argv",
-                [str(ROOT / "bootstrap" / "install.py"), *arguments],
+                [str(ROOT / "hermes" / "install.py"), *arguments],
             ),
         ):
             result = self.install.main()
@@ -164,7 +168,7 @@ class ProfileBundleTests(unittest.TestCase):
             installed_config_bytes = (hermes_home / "config.yaml").read_bytes()
             _, expected_config_bytes = (
                 self.install.review_contract.render_managed_config(
-                    self.install.SOURCE / "config.yaml",
+                    self.install.review_contract.locate_behavior_inputs().config,
                     environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE, "REVIEW_AGENT_MODEL": TEST_MODEL},
                 )
             )
@@ -261,7 +265,6 @@ class ProfileBundleTests(unittest.TestCase):
                 packaged_contract = (
                     self.install.review_contract.load_packaged_contract(
                         "default-standard",
-                        self.install.SOURCE,
                         environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE, "REVIEW_AGENT_MODEL": TEST_MODEL},
                     )
                 )
@@ -280,16 +283,19 @@ class ProfileBundleTests(unittest.TestCase):
                 checkout = contract.locate_behavior_inputs()
                 with mock.patch.object(contract, "source_checkout", return_value=None):
                     in_image = contract.locate_behavior_inputs()
+            named = contract.locate_behavior_inputs(image)
 
+        # A checkout keeps the managed config and the profiles apart.
         self.assertEqual(
             contract.BehaviorInputs(
-                config=ROOT / "bootstrap" / "config.yaml",
-                profiles=ROOT / "bootstrap" / "profiles",
+                config=ROOT / "hermes" / "config.yaml",
+                profiles=ROOT / "profiles",
                 package=PLUGIN_SOURCE,
             ),
             checkout,
         )
-        # An installed package takes config and profiles from the image.
+        # An installed package takes config and profiles from the image, and
+        # so does a caller that names one directory holding both.
         self.assertEqual(
             contract.BehaviorInputs(
                 config=image / "config.yaml",
@@ -298,6 +304,7 @@ class ProfileBundleTests(unittest.TestCase):
             ),
             in_image,
         )
+        self.assertEqual(in_image, named)
 
     def test_missing_inputs_name_the_location_that_applies(self) -> None:
         contract = self.install.review_contract
@@ -316,7 +323,7 @@ class ProfileBundleTests(unittest.TestCase):
                 contract.locate_behavior_inputs()
 
         self.assertIn(str(root / "image"), str(installed.exception))
-        self.assertIn(str(root / "bootstrap"), str(checkout.exception))
+        self.assertIn(str(root / "hermes"), str(checkout.exception))
 
     def test_model_overrides_are_rendered_into_one_review_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -334,7 +341,6 @@ class ProfileBundleTests(unittest.TestCase):
                 self.assertEqual(0, installed)
                 packaged = self.install.review_contract.load_packaged_contract(
                     "default-standard",
-                    self.install.SOURCE,
                     environment={
                         "REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE,
                         **overrides,
@@ -365,7 +371,6 @@ class ProfileBundleTests(unittest.TestCase):
                 )
                 packaged = self.install.review_contract.load_packaged_contract(
                     "default-standard",
-                    self.install.SOURCE,
                     environment={
                         "REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE,
                         **overrides,
@@ -523,37 +528,70 @@ class ProfileBundleTests(unittest.TestCase):
                 json.dumps(manifest), encoding="utf-8"
             )
 
-            with mock.patch.object(self.install, "PROFILES_SOURCE", profiles):
-                with self.assertRaisesRegex(
-                    self.install.ProfileError,
-                    "may define only schema_version and skills",
-                ):
-                    self.install.load_profile(
-                        "unsafe-profile", required_skills=()
-                    )
-                with self.assertRaisesRegex(
-                    self.install.ProfileError, "lower-case words"
-                ):
-                    self.install.load_profile(
-                        "../unsafe-profile", required_skills=()
-                    )
-                with self.assertRaisesRegex(
-                    self.install.ProfileError, "unknown review profile"
-                ):
-                    self.install.load_profile(
-                        "missing-profile", required_skills=()
-                    )
-
-                (custom / "profile.json").write_text(
-                    json.dumps({"schema_version": 1, "skills": ["review-agent-docs"]}),
-                    encoding="utf-8",
+            with self.assertRaisesRegex(
+                self.install.ProfileError,
+                "may define only schema_version and skills",
+            ):
+                self.install.load_profile(
+                    "unsafe-profile", profiles=profiles, required_skills=()
                 )
-                with self.assertRaisesRegex(
-                    self.install.ProfileError, "missing required review skill"
+            with self.assertRaisesRegex(
+                self.install.ProfileError, "lower-case words"
+            ):
+                self.install.load_profile(
+                    "../unsafe-profile", profiles=profiles, required_skills=()
+                )
+            with self.assertRaisesRegex(
+                self.install.ProfileError, "unknown review profile"
+            ):
+                self.install.load_profile(
+                    "missing-profile", profiles=profiles, required_skills=()
+                )
+
+            (custom / "profile.json").write_text(
+                json.dumps({"schema_version": 1, "skills": ["review-agent-docs"]}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                self.install.ProfileError, "missing required review skill"
+            ):
+                self.install.load_profile(
+                    "unsafe-profile",
+                    profiles=profiles,
+                    required_skills=("review-agent-pr",),
+                )
+
+    def test_installer_reports_missing_inputs_as_a_usage_error(self) -> None:
+        contract = self.install.review_contract
+        for arguments, code in ((["--help"], 0), ([], 2)):
+            with tempfile.TemporaryDirectory() as temp:
+                checkout = Path(temp) / "checkout"
+                checkout.mkdir()
+                home = Path(temp) / "hermes-home"
+                stderr = io.StringIO()
+                # The checkout has no hermes/config.yaml from the start, and the
+                # home is disposable: a failure here must not write anywhere.
+                with (
+                    mock.patch.dict(
+                        os.environ,
+                        {"HERMES_HOME": str(home), "REVIEW_AGENT_MODEL": TEST_MODEL},
+                        clear=True,
+                    ),
+                    mock.patch.object(
+                        contract, "source_checkout", return_value=checkout
+                    ),
+                    mock.patch.object(sys, "argv", ["install.py", *arguments]),
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(stderr),
+                    self.assertRaises(SystemExit) as stopped,
                 ):
-                    self.install.load_profile(
-                        "unsafe-profile", required_skills=("review-agent-pr",)
-                    )
+                    load_installer().main()
+                self.assertEqual(code, stopped.exception.code)
+                self.assertFalse(home.exists())
+        self.assertIn(
+            f"managed reviewer config.yaml is not in {checkout / 'hermes'}",
+            stderr.getvalue(),
+        )
 
     def test_installer_rejects_missing_review_skill_before_writing_home(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

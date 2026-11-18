@@ -39,8 +39,8 @@ skips the backup and restore check:
 Admin frontend work also requires Node.js 24 and `sh ./scripts/check_admin.sh`.
 The script checks the committed OpenAPI schema and generated TypeScript types,
 then builds the frontend. After an intentional API change, regenerate them with
-`python3 scripts/generate_admin_openapi.py > admin/openapi.json` and
-`npm --prefix admin run generate`. Authentication tests use the disposable
+`python3 scripts/generate_admin_openapi.py > console/openapi.json` and
+`npm --prefix console run generate`. Authentication tests use the disposable
 PostgreSQL environment in `check_postgres_schema.sh`.
 
 Repository rulesets should require the stable `CI / required` check. That check
@@ -68,8 +68,8 @@ uvicorn review_agent.console.app:app_from_environment --factory --port 8090
 In a second terminal:
 
 ```bash
-npm --prefix admin ci
-npm --prefix admin run dev
+npm --prefix console ci
+npm --prefix console run dev
 ```
 
 Open `http://127.0.0.1:5173` and sign in with the account you created. Vite
@@ -83,8 +83,9 @@ with `docker rm --force review-agent-dev-db`.
 | Path | What it is |
 | --- | --- |
 | `src/review_agent/` | The application: one Python package, `review_agent`, loaded by Hermes as a plugin and by every service |
-| `bootstrap/` | What the image installs into Hermes: installer, managed configuration, reviewer profiles |
-| `admin/` | The admin console frontend (React); its API lives in the package's `console/` |
+| `hermes/` | What the image installs into Hermes: installer, managed configuration, and the patches the image applies to the Hermes source |
+| `profiles/` | Reviewer profiles: one directory per profile key |
+| `console/` | The admin console frontend (React); its API lives in the package's `console/` |
 | `tests/` | Unit tests and the PostgreSQL contract tests; `tests/support.py` seeds review runs for them |
 | `scripts/` | Checks that CI runs, and release tooling |
 | `examples/`, `install/`, `skills/` | The Helm chart, example configuration, the install plan schema, and the install skill |

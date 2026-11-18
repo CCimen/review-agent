@@ -20,7 +20,7 @@ def main() -> None:
         PostgresDatabaseUrl("postgresql://localhost/schema_only")
     )
     app = create_app(
-        runtime, public_url="https://admin.example.test", static_dir=ROOT / "admin/dist"
+        runtime, public_url="https://admin.example.test", static_dir=ROOT / "console/dist"
     )
     print(json.dumps(app.openapi(), indent=2))
 

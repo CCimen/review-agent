@@ -103,9 +103,9 @@ while read -r command; do
 done <"$WORK/commands"
 printf '%s\n' "Commands: $COMMANDS installed, each parser answers --help"
 
-install "$WHEEL[admin]"
+install "$WHEEL[console]"
 "$PYTHON" -c "import review_agent.console.app"
-printf '%s\n' "Console API imports with the admin group"
+printf '%s\n' "Console API imports with the console group"
 install "$WHEEL[hermes]"
 "$PYTHON" -c "import review_agent.hermes.runtime_api"
 printf '%s\n' "Hermes runtime API imports with the hermes group"

@@ -362,24 +362,25 @@ def source_checkout() -> Path | None:
 def locate_behavior_inputs(bootstrap: Path | None = None) -> BehaviorInputs:
     """Find the managed config and profiles for the engine that is running.
 
-    ``bootstrap`` holds ``config.yaml`` and ``profiles/``. Without it, a package
-    running from a checkout uses that checkout's ``bootstrap/``, whatever else
-    the machine holds, and an installed package uses the image's bootstrap
-    directory.
+    ``bootstrap`` holds ``config.yaml`` and ``profiles/``, as the image's
+    bootstrap directory does. Without it, a package running from a checkout
+    uses that checkout's ``hermes/config.yaml`` and ``profiles/``, whatever
+    else the machine holds, and an installed package uses the image's
+    bootstrap directory.
     """
     package = Path(__file__).resolve().parents[1]
-    if bootstrap is None:
-        checkout = source_checkout()
-        bootstrap = checkout / "bootstrap" if checkout is not None else _IMAGE_BOOTSTRAP
-        if not (bootstrap / "config.yaml").is_file():
-            raise ReviewContractError(
-                f"managed reviewer config.yaml is not in {bootstrap}"
-            )
-    return BehaviorInputs(
-        config=bootstrap / "config.yaml",
-        profiles=bootstrap / "profiles",
-        package=package,
-    )
+    checkout = source_checkout() if bootstrap is None else None
+    if checkout is not None:
+        config = checkout / "hermes" / "config.yaml"
+        profiles = checkout / "profiles"
+    else:
+        config = (bootstrap or _IMAGE_BOOTSTRAP) / "config.yaml"
+        profiles = config.parent / "profiles"
+    if bootstrap is None and not config.is_file():
+        raise ReviewContractError(
+            f"managed reviewer config.yaml is not in {config.parent}"
+        )
+    return BehaviorInputs(config=config, profiles=profiles, package=package)
 
 
 def _packaged_files(

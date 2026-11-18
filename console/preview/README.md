@@ -9,12 +9,12 @@ Clearing filters keeps the selected team workspace.
 From the repository root:
 
 ```sh
-npm --prefix admin ci
-npm --prefix admin run build:preview
-npm --prefix admin run serve:preview
+npm --prefix console ci
+npm --prefix console run build:preview
+npm --prefix console run serve:preview
 ```
 
-Open <http://127.0.0.1:8092>. For development, use `npm --prefix admin run dev:preview`.
+Open <http://127.0.0.1:8092>. For development, use `npm --prefix console run dev:preview`.
 The separate Vite configuration has no backend proxy. The production build does
 not include this entry, and the admin image excludes preview sources and outputs.
 The production console uses the same upstream Neutral theme.
@@ -41,7 +41,7 @@ production route and is excluded from the admin image context. The full
 lockfile remains the build inventory.
 
 Astryx relies on modern CSS anchor positioning for selectors and other popovers.
-See the installed CLI's `npm --prefix admin run astryx -- docs browser-support`
+See the installed CLI's `npm --prefix console run astryx -- docs browser-support`
 for its current browser tiers. Use the documented modern-browser baseline for the console.
 
 `scripts/check_admin.sh` validates both builds with strict TypeScript and runs

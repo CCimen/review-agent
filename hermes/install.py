@@ -25,8 +25,6 @@ try:
 except ImportError as exc:  # Hermes ships PyYAML; fail clearly on unexpected images.
     raise SystemExit("PyYAML is required in the Hermes image") from exc
 
-INPUTS = review_contract.locate_behavior_inputs(SOURCE)
-PROFILES_SOURCE = INPUTS.profiles
 DEFAULT_PROFILE = "default-standard"
 REQUIRED_PROFILE_SKILLS = ("review-agent-pr", "review-agent-docs")
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", "/opt/data")).resolve()
@@ -60,16 +58,16 @@ def _object_mapping(value: object, *, label: str) -> dict[str, object]:
 
 
 def load_profile(
-    key: str, *, required_skills: tuple[str, ...]
+    key: str, *, profiles: Path, required_skills: tuple[str, ...]
 ) -> DeploymentProfile:
     """Load one trusted profile bundle without merging runtime configuration."""
     resolved_key = _profile_key(key, label="profile")
-    source = PROFILES_SOURCE / resolved_key
+    source = profiles / resolved_key
     manifest_path = source / "profile.json"
     if not manifest_path.is_file():
         available = ", ".join(
             path.name
-            for path in sorted(PROFILES_SOURCE.iterdir())
+            for path in sorted(profiles.iterdir())
             if path.is_dir() and (path / "profile.json").is_file()
         )
         suffix = f" Available profiles: {available}." if available else ""
@@ -179,7 +177,7 @@ def main() -> int:
     parser.add_argument(
         "--profile",
         help=(
-            "Trusted bundle key under bootstrap/profiles. Defaults to "
+            "Trusted bundle key under profiles. Defaults to "
             "REVIEW_AGENT_PROFILE, the installed receipt, or default-standard."
         ),
     )
@@ -188,8 +186,9 @@ def main() -> int:
     contract_environment = review_contract.deployment_environment(environment)
 
     try:
+        inputs = review_contract.locate_behavior_inputs()
         managed, managed_bytes = review_contract.render_managed_config(
-            INPUTS.config,
+            inputs.config,
             environment=contract_environment,
         )
         installed_profile, previous_skills = installed_profile_receipt()
@@ -198,6 +197,7 @@ def main() -> int:
             or environment.get("REVIEW_AGENT_PROFILE")
             or installed_profile
             or DEFAULT_PROFILE,
+            profiles=inputs.profiles,
             required_skills=REQUIRED_PROFILE_SKILLS,
         )
     except (ProfileError, review_contract.ReviewContractError) as exc:
@@ -241,7 +241,7 @@ def main() -> int:
         HERMES_HOME / review_contract.PROFILE_MANIFEST_NAME,
     )
     copy_managed_tree(
-        INPUTS.package,
+        inputs.package,
         HERMES_HOME / review_contract.PLUGIN_DIRECTORY,
     )
 

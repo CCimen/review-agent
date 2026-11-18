@@ -1,8 +1,8 @@
 FROM node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS frontend
 WORKDIR /build
-COPY admin/package.json admin/package-lock.json ./
+COPY console/package.json console/package-lock.json ./
 RUN npm ci
-COPY admin/ ./
+COPY console/ ./
 COPY examples/repository-context/.review-agent/documentation.toml /examples/repository-context/.review-agent/documentation.toml
 RUN npm run build \
     && npm sbom --sbom-format=cyclonedx --package-lock-only > frontend.cyclonedx.json \

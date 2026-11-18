@@ -48,7 +48,7 @@ acceptance criteria, validation, and recovery or rollback where applicable.
 ## Astryx console UI
 
 - Preserve the approved Astryx Neutral design in light and dark modes. Use the
-  preview in `admin/preview/` as the visual reference and `admin/DESIGN.md` for
+  preview in `console/preview/` as the visual reference and `console/DESIGN.md` for
   product behavior. Prioritize coherent proportions, spacing, and typography;
   keep the default theme unless the user requests a change.
 - Use the connected `xds` MCP: `search` to find suitable components and patterns,
@@ -60,7 +60,7 @@ acceptance criteria, validation, and recovery or rollback where applicable.
   content and behavior. Import the upstream Neutral built theme and CSS from
   `@astryxdesign/theme-neutral`; do not maintain a copied theme or palette.
 - If MCP is unavailable, use the existing CLI alias:
-  `npm --prefix admin run astryx -- component <Name>` and the relevant `docs`
+  `npm --prefix console run astryx -- component <Name>` and the relevant `docs`
   or `template` command. Do not rerun initialization over project instructions.
 - Use Astryx components and their public props for layout, typography, colors,
   tables, forms, and states throughout the console. Remove legacy visual CSS
@@ -78,13 +78,13 @@ acceptance criteria, validation, and recovery or rollback where applicable.
   it once per machine with
   `claude mcp add --scope user --transport http xds https://astryx.atmeta.com/mcp`;
   Cursor, Windsurf, and Claude Desktop take the same URL in their own MCP config.
-- The CLI is the offline fallback. `admin/package.json` defines the `astryx`
+- The CLI is the offline fallback. `console/package.json` defines the `astryx`
   script so agents do not guess the binary path. Add `--dense` for token-efficient
   output when pasting into a chat, and run
-  `npm --prefix admin run astryx -- doctor` when the setup looks wrong.
-- Generated agent docs live in the `ASTRYX` block of `admin/CLAUDE.md` and
-  `admin/preview/AGENTS.md`. Refresh them with
-  `npm --prefix admin run astryx -- upgrade --apply` after any Astryx
+  `npm --prefix console run astryx -- doctor` when the setup looks wrong.
+- Generated agent docs live in the `ASTRYX` block of `console/CLAUDE.md` and
+  `console/preview/AGENTS.md`. Refresh them with
+  `npm --prefix console run astryx -- upgrade --apply` after any Astryx
   dependency bump; do not hand-edit the block.
 
 ## Repository invariants

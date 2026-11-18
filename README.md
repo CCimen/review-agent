@@ -129,8 +129,9 @@ src/review_agent/                       the application package; start reading h
   publication/  operations/             publishing a finished review; operator use cases
   tools/  console/                      the tools the review model calls; the admin console backend
   cli/                                  one module per installed command, with its loop or server
-bootstrap/                              installer, managed configuration, reviewer profiles
-admin/                                  admin console frontend
+hermes/                                 what the image installs into Hermes: installer, managed configuration, patches
+profiles/                               reviewer profiles
+console/                                admin console frontend
 tests/  scripts/                        tests, CI checks and release tooling
 docs/  website/  examples/              documentation, its site, deployment templates
 ```

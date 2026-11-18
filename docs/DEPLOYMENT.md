@@ -564,6 +564,25 @@ metadata moved from `/app/bootstrap/plugins/review_agent_tools/_build.json` to
 `_build.json` in the installed package
 (`/opt/admin-venv/lib/python3.14/site-packages/review_agent/`).
 
+Three repository directories moved as well: `admin/` is now `console/`,
+`bootstrap/profiles/` is `profiles/`, and the rest of `bootstrap/` (the
+installer, the managed `config.yaml` and the Hermes patches) is `hermes/`.
+Nothing a deployment names changed with them. Every path inside the images
+(`/opt/review-agent-bootstrap/` with `install.sh`, `config.yaml` and
+`profiles/`, and `/app/admin/dist` in the console image), the image name
+`review-agent-admin`, the service `review-admin` and the file
+`compose.admin.yaml` are as before. Building from source is what changed: a
+custom profile now goes in `profiles/<key>/`, and the console image builds from
+`console/Dockerfile`. This release's `compose.admin.yaml` names that file; a
+direct build, from the repository root, is
+`docker build -f console/Dockerfile -t review-agent-admin:local .`. The
+package's optional dependency group for the console API is `console`; it was
+`admin` on `main` and in no release.
+
+An existing checkout keeps what it built in the old directory. After pulling,
+`admin/node_modules/`, `admin/dist/`, `admin/dist-preview/` and
+`admin/tsconfig.tsbuildinfo` are no longer ignored by git; delete them.
+
 Logger names follow the module path. In every service except `hermes-review`
 the prefix `review_agent_tools.` is now `review_agent.`: for example,
 `review_agent_tools.worker` became `review_agent.cli.worker`. What a command

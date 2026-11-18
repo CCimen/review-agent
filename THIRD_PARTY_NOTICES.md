@@ -13,7 +13,7 @@ Hermes Agent is licensed under the MIT License. See the
 
 The default review profile adapts guidance from the Ponytail skill by Dietrich
 Gebert, release v4.7.0, under the MIT License. See
-`bootstrap/profiles/default-standard/skills/review-agent-pr/THIRD_PARTY.md` for
+`profiles/default-standard/skills/review-agent-pr/THIRD_PARTY.md` for
 the source and licence.
 
 ## Cloudflare security-audit
@@ -21,7 +21,7 @@ the source and licence.
 The PR review procedure adapts the source-review guidance of Cloudflare's
 security-audit skill at commit `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8`, under
 the MIT License. See
-`bootstrap/profiles/default-standard/skills/review-agent-pr/THIRD_PARTY.md` for
+`profiles/default-standard/skills/review-agent-pr/THIRD_PARTY.md` for
 the source, licence, and integration boundaries.
 
 ## Code Review Graph

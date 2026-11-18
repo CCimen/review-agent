@@ -99,7 +99,7 @@ Inside the package:
 | --- | --- |
 | `__init__.py` | The Hermes plugin entry: `register()` wires the model tools |
 | `settings.py`, `deployment_settings.py`, `capacity.py`, `https.py`, `build_info.py` | Shared by several packages: environment settings, operator policy defaults, per-response budgets and page limits, same-origin HTTPS redirect handling, image build metadata |
-| `domain/` | Pure rules and value types with no I/O: review subject, finding, publication, feedback commands, diff, suggestions, failure codes, model execution limits |
+| `domain/` | Pure rules and value types with no I/O: review subject, finding, publication, feedback commands, diff, suggestions, failure codes, model execution limits, model-connection account values |
 | `postgres/` | PostgreSQL stores, one module per table family. `runtime.py` owns the pool, `telemetry.py` records process presence, and `migrations/` holds the runner and the SQL |
 | `github/` | Everything that talks to GitHub: App credentials, the read client, webhook verification, the private gateway that holds the App key and its client, delivery processing, publication delivery |
 | `hermes/` | Everything specific to the Hermes runtime: chat and control clients, runtime API, model accounts, quota, context window, the provider gateway |

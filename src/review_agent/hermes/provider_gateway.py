@@ -18,7 +18,7 @@ from .control import (
     HermesControlError,
     HermesRuntimeClient,
 )
-from .accounts import ModelProvider
+from ..domain.model_connections import ModelProvider
 
 _SESSION_ROUTE = re.compile(
     r"/api/providers/oauth/(?:openai-codex/poll/|sessions/)([A-Za-z0-9_-]{22,80})"

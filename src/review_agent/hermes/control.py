@@ -12,13 +12,12 @@ from typing import Literal, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from ..review import contract as review_contract
-from .accounts import (
+from ..domain.model_connections import (
     AccountAvailability,
-    ManagedRuntimeStatus,
     ModelProvider,
     RuntimeAccount,
 )
+from ..review import contract as review_contract
 from .quota import (
     AccountQuota,
     ManagedQuota,
@@ -220,6 +219,14 @@ def _runtime_identity(payload: dict[str, object]) -> tuple[str, UUID]:
         return runtime_key, UUID(str(payload.get("instance_id")))
     except ValueError as exc:
         raise HermesControlError("Managed runtime identity is invalid") from exc
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedRuntimeStatus:
+    runtime_key: str
+    instance_id: UUID
+    contract: review_contract.ReviewContract
+    accounts: tuple[RuntimeAccount, ...]
 
 
 def _managed_status(payload: dict[str, object]) -> ManagedRuntimeStatus:

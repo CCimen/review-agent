@@ -10,14 +10,12 @@ from typing import Literal, Protocol, cast
 from uuid import UUID
 
 from ..domain import model_execution
-from .accounts import (
+from ..domain.model_connections import (
     AccountAvailability,
     ModelProvider,
     RuntimeAccount,
-    account_identity,
-    codex_account_claims,
-    read_accounts,
 )
+from .accounts import account_identity, codex_account_claims, read_accounts
 
 
 logger = logging.getLogger(__name__)

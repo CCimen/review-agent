@@ -16,7 +16,8 @@ import psycopg
 from . import window as hermes_window
 from ..review import contract as review_contract, tool_runtime as review_tool_runtime
 from .control import MANAGED_REVIEW_PATH
-from .accounts import AccountAvailability, ModelProvider, read_accounts
+from ..domain.model_connections import AccountAvailability, ModelProvider
+from .accounts import read_accounts
 from .quota import ObservedQuota, QuotaCache, execution_quota
 from ..postgres import jobs
 from ..postgres.runtime import PostgreSQLRuntimeError

@@ -1,46 +1,18 @@
 """Redacted account identity projected inside the owning Hermes process."""
 
-from dataclasses import dataclass
-from enum import StrEnum
 import hashlib
 from importlib import import_module
 import json
 from pathlib import Path
 from typing import Protocol, cast
-from uuid import UUID
 
 import jwt
 
-from ..review.contract import ReviewContract
-
-
-class ModelProvider(StrEnum):
-    CODEX = "openai-codex"
-    ANTHROPIC = "anthropic"
-
-
-class AccountAvailability(StrEnum):
-    AVAILABLE = "available"
-    DISCONNECTED = "disconnected"
-    MULTIPLE_ACCOUNTS = "multiple_accounts"
-    IDENTITY_UNAVAILABLE = "identity_unavailable"
-    ISOLATION_REQUIRED = "isolation_required"
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeAccount:
-    provider: ModelProvider
-    availability: AccountAvailability
-    account_count: int
-    identity_sha256: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ManagedRuntimeStatus:
-    runtime_key: str
-    instance_id: UUID
-    contract: ReviewContract
-    accounts: tuple[RuntimeAccount, ...]
+from ..domain.model_connections import (
+    AccountAvailability,
+    ModelProvider,
+    RuntimeAccount,
+)
 
 
 class _Credential(Protocol):

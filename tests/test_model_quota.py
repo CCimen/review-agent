@@ -10,12 +10,12 @@ from unittest.mock import Mock, patch
 import jwt
 
 from review_agent.hermes import quota as hermes_quota
-from review_agent.hermes.accounts import (
+from review_agent.domain.model_connections import (
     AccountAvailability,
     ModelProvider,
     RuntimeAccount,
-    account_identity,
 )
+from review_agent.hermes.accounts import account_identity
 
 
 class ModelQuotaAccountTests(unittest.TestCase):

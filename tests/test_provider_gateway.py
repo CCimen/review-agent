@@ -10,9 +10,15 @@ from unittest.mock import Mock
 from urllib import error, request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from review_agent.domain.model_connections import (  # noqa: E402
+    AccountAvailability,
+    ModelProvider,
+    RuntimeAccount,
+)
 from review_agent.hermes.control import (  # noqa: E402
     HermesControlClient,
     LoginSession,
+    ManagedRuntimeStatus,
     ProviderStatus,
     Cancellation,
     HermesRuntimeClient,
@@ -20,7 +26,7 @@ from review_agent.hermes.control import (  # noqa: E402
     RuntimeCheck,
 )
 from review_agent.hermes.provider_gateway import ProviderGateway  # noqa: E402
-from review_agent.hermes.accounts import ModelProvider  # noqa: E402
+from review_agent.review import contract as review_contract  # noqa: E402
 from review_agent.hermes.quota import (  # noqa: E402
     AccountQuota,
     ManagedQuota,
@@ -110,6 +116,81 @@ class ProviderGatewayTests(unittest.TestCase):
         self.assertEqual(status.version, "0.21.0")
         self.assertTrue(status.chat_available)
         self.runtime.status.assert_called_once_with()
+
+    def test_managed_account_status_keeps_its_wire_names_across_the_boundary(
+        self,
+    ) -> None:
+        contract = review_contract.load_packaged_contract(
+            "default-standard",
+            environment={
+                "HERMES_IMAGE": "hermes@sha256:" + "a" * 64,
+                "REVIEW_AGENT_MODEL": "test-review-model",
+            },
+        )
+        observed = ManagedRuntimeStatus(
+            "payments",
+            UUID(int=12),
+            contract,
+            (
+                RuntimeAccount(
+                    ModelProvider.CODEX, AccountAvailability.AVAILABLE, 1, "a" * 64
+                ),
+                RuntimeAccount(
+                    ModelProvider.ANTHROPIC, AccountAvailability.DISCONNECTED, 0, None
+                ),
+            ),
+        )
+        self.runtime.managed_status.return_value = observed
+        with request.urlopen(
+            request.Request(
+                self.origin + "/api/managed-runtime",
+                headers={"X-Hermes-Session-Token": "local-test-token"},
+            ),
+            timeout=2,
+        ) as response:
+            wire = json.loads(response.read())
+        self.assertEqual(
+            set(wire["contract"]),
+            {
+                "engine_bundle_sha256",
+                "hermes_image",
+                "managed_config_sha256",
+                "model",
+                "model_provider",
+                "plugin_result_max_chars",
+                "profile",
+                "profile_bundle_sha256",
+                "reasoning_effort",
+                "sha256",
+            },
+        )
+        self.assertEqual(
+            wire,
+            {
+                "runtime_key": "payments",
+                "instance_id": "00000000-0000-0000-0000-00000000000c",
+                "contract": contract.to_json(),
+                "accounts": [
+                    {
+                        "provider": "openai-codex",
+                        "availability": "available",
+                        "account_count": 1,
+                        "identity_sha256": "a" * 64,
+                    },
+                    {
+                        "provider": "anthropic",
+                        "availability": "disconnected",
+                        "account_count": 0,
+                        "identity_sha256": None,
+                    },
+                ],
+            },
+        )
+        decoded = HermesControlClient(self.origin, "local-test-token").managed_status()
+        self.assertEqual(decoded, observed)
+        # The stores compare these by identity, so plain strings would not do.
+        self.assertIs(decoded.accounts[0].provider, ModelProvider.CODEX)
+        self.assertIs(decoded.accounts[0].availability, AccountAvailability.AVAILABLE)
 
     def test_rejects_missing_authorization_arbitrary_routes_and_bodies(self) -> None:
         calls = (

@@ -213,7 +213,10 @@ Format rules:
   and `?` within a path segment and `**` as a whole segment.
 - Listed documents must exist, and a document cannot be both listed and ignored.
   The validator also rejects unknown fields, duplicates, paths that escape the
-  repository, unsupported glob syntax, and symlinks.
+  repository, and unsupported glob syntax. It rejects a listed document whose
+  path is itself a symlink, is not a regular file, or resolves outside the
+  repository; a symlinked directory earlier in the path passes when it resolves
+  inside the repository.
 - `ignore_changes` applies only to changes no area maps; an area mapping wins.
   `ignore_documents` says why a document need not match the current version; it
   does not exempt policy files or other checks.

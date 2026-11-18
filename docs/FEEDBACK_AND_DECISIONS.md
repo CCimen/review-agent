@@ -21,8 +21,10 @@ first. Security findings and every Medium or higher finding stay expanded. Low
 (P3) maintainability improvements are collapsed under **Code quality and
 readability**, and when a review also has High or Medium findings, its other
 Low findings are collapsed under **Low-priority findings**. Every finding keeps
-its F reference, explanation, feedback commands, and entry in the copyable fix
-brief. See the [example review](../examples/comments/example-review.md).
+its F reference, explanation, and entry in the copyable fix brief. The copyable
+feedback commands appear once, at the end of the review, and only when the
+operator has enabled them (`REVIEW_AGENT_FEEDBACK_ENABLED`, off by default).
+See the [example review](../examples/comments/example-review.md).
 
 Publication limits:
 

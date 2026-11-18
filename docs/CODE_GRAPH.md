@@ -39,20 +39,26 @@ symbols that the reviewer can query to narrow the target.
 
 ## See whether reviews use it
 
-Every query writes one INFO line from the reviewer process, logger
-`hermes_plugins.review_agent_tools.tools.related_code`:
+A query that the graph service answers writes one INFO line from the reviewer
+process, logger `hermes_plugins.review_agent_tools.tools.related_code`:
 
 ```text
 Code graph query run_id=412 pattern=callers_of status=ready results=3
 ```
 
-`status` is what the reviewer was told (`ready`, `building`, `queued`, `busy`,
+`status` is the service's answer (`ready`, `building`, `queued`, `busy`,
 `disabled`, `embeddings_unavailable` or `unavailable`) and `results` the number of
 locations returned. The query target is written by the model and is not
-logged. Counting these lines per `run_id` in the `hermes-review` logs shows how
-often reviews ask the graph and how often it answers; a deployment where the
-line rarely appears, or mostly reports zero results, gains little from the
-service.
+logged. When the service cannot be reached, its answer is invalid or for
+another commit, or the result is larger than a tool result may be, the line is
+`Code graph query run_id=412 status=unavailable results=0`, without `pattern`.
+
+These lines do not count every attempt. Nothing is written when `hermes-review`
+has no graph URL because the overlay is not loaded (the tool answers
+`disabled`), when the tool rejects the pattern or target, when the review has
+ended or lost its worker lease, or when reading the pull request through the
+GitHub gateway fails. Counting the lines per `run_id` in the `hermes-review`
+logs shows how many queries reached the service and what it answered.
 
 ## Enable the graph
 
@@ -70,6 +76,14 @@ volume. Normal review services do not depend on its health or startup.
    REVIEW_AGENT_CODE_GRAPH_CACHE_BYTES=10737418240
    ```
 
+   `review-github-gateway` reads the first two values when it starts. Once any
+   settings revision has been saved in the admin console, even one saved to
+   change another setting, the gateway takes both from that revision and
+   ignores the two variables
+   ([environment defaults and admin controls](ADMIN_PANEL.md#environment-defaults-and-admin-controls)).
+   From then on, change **Include repository code relationships** and **Code
+   graph embeddings** in **Settings** and restart `review-github-gateway`.
+
    This applies to every repository authorized by the GitHub App and enabled
    for Review Agent, including repositories enabled later. Repository
    disablement, installation revocation, profile, and worker-lease checks still
@@ -79,7 +93,9 @@ volume. Normal review services do not depend on its health or startup.
    and add `REVIEW_AGENT_OPENAI_API_KEY` in Dokploy's Environment settings (or
    the deployment's private `.env` file). The overlay passes the key only to the
    GitHub gateway. Keep the value out of tracked files, chat, and logs. Leave it
-   empty with `none`.
+   empty with `none`. With `openai`, symbol metadata is sent to OpenAI whenever
+   a graph is prepared, not only when a semantic query runs
+   ([Freshness and reuse](#freshness-and-reuse)).
 
 3. Include the overlay when applying your normal deployment procedure:
 
@@ -104,7 +120,8 @@ volume. Normal review services do not depend on its health or startup.
    Save that template in the raw Compose editor, preserving the deployment's
    existing ingress, mounts, networks, and volumes. Environment references remain
    references; supply their values through Dokploy Environment. Later on/off
-   changes need only the environment switch and normal service recreation.
+   changes need no new template: change the setting that applies (step 1) and
+   start `review-github-gateway` again.
 
 4. Request an authorized `/review` on an enabled repository. Its begin response
    starts preparation in the background. The first review can finish before the
@@ -131,9 +148,14 @@ With OpenAI enabled, each code symbol receives its own 1,536-dimension vector.
 The embedding text holds the symbol name, signature, parent context, and short
 docstring (not the body), cut to 2,048 characters, so a body-only edit needs no
 new embedding. CRG keeps unchanged vectors and removes orphaned ones; changing
-the embedding configuration or losing the cache requires fresh vectors. Only
-semantic queries call the embedding API; vectors are stored and searched
-locally.
+the embedding configuration or losing the cache requires fresh vectors.
+
+The embedding API is called on two occasions, both through the GitHub gateway.
+Preparing a graph sends the embedding text of every symbol that has no current
+vector: all of them the first time a repository is indexed, new and changed
+ones afterwards. This happens whether or not a review later asks a semantic
+query. Each `semantic` query sends its query text. The other patterns send
+nothing, and vectors are stored and searched locally.
 
 The structural graph is saved before embeddings start, and each embedding batch
 is committed as it completes. If the review ends, authorization is revoked, or
@@ -183,8 +205,31 @@ the pull requests the reviewer can review.
 
 ## Disable the graph
 
-Set `REVIEW_AGENT_CODE_GRAPH_ENABLED=false` and recreate the affected services
-through the normal deployment procedure. Removing the overlay also stops the
-graph service. Keep the cache volume if reuse is useful. It contains derived
+`review-github-gateway` reads the setting only when it starts, so turn it off
+where the gateway reads it:
+
+- If a settings revision has been saved in the admin console, clear **Include
+  repository code relationships** in **Settings**, save, and restart
+  `review-github-gateway`. The saved revision overrides
+  `REVIEW_AGENT_CODE_GRAPH_ENABLED`, so changing only the variable leaves the
+  graph on.
+- Otherwise set `REVIEW_AGENT_CODE_GRAPH_ENABLED=false` and recreate
+  `review-github-gateway` so the container receives the new value.
+
+From then on the gateway tells the graph service that the graph is disabled and
+refuses its archive and embedding requests. Queries answer `disabled`, and no
+source is downloaded and no metadata is sent to OpenAI.
+
+The `review-code-graph` container keeps running until it is stopped. Leaving
+the overlay out of a later `docker compose up` does not stop a container that
+already exists unless the command includes `--remove-orphans`. To retire the
+service, stop it with the overlay still named:
+
+```bash
+docker compose -f compose.yaml -f compose.code-graph.yaml stop review-code-graph
+```
+
+Then deploy without the overlay, which also removes the graph URL from
+`hermes-review`. Keep the cache volume if reuse is useful. It contains derived
 repository metadata and vectors; removing it does not remove reviews, findings,
 or feedback.

@@ -1751,7 +1751,10 @@ Format rules:
   and `?` within a path segment and `**` as a whole segment.
 - Listed documents must exist, and a document cannot be both listed and ignored.
   The validator also rejects unknown fields, duplicates, paths that escape the
-  repository, unsupported glob syntax, and symlinks.
+  repository, and unsupported glob syntax. It rejects a listed document whose
+  path is itself a symlink, is not a regular file, or resolves outside the
+  repository; a symlinked directory earlier in the path passes when it resolves
+  inside the repository.
 - `ignore_changes` applies only to changes no area maps; an area mapping wins.
   `ignore_documents` says why a document need not match the current version; it
   does not exempt policy files or other checks.
@@ -1858,8 +1861,11 @@ automatic reviews for a team.
    installation's owner may need to accept the new permission. No console
    setting can grant GitHub access.
 3. An owner switches documentation review on in the admin console under
-   **Settings**. It is off by default, and the console is the only place to turn
-   it on. A team maintainer then sets the team default in **Teams →
+   **Settings**. It is off by default. The supplied Compose files do not pass
+   `REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED`, so there the console is the only
+   place to turn it on. A deployment that sets the variable on its services has
+   it read only until the first settings revision is saved; after that only the
+   saved value applies. A team maintainer then sets the team default in **Teams →
    Documentation**, or a repository override in **Repositories →
    Documentation**.
 4. Add `.review-agent/documentation.toml` through a normal pull request. Adapt
@@ -1899,9 +1905,12 @@ pull request before it runs. An explicit `/review docs` skips the wait.
 Switching to Automatic does not review existing open pull requests.
 
 A deterministic scope check runs before any model call. Missing or invalid
-configuration, unavailable inputs, and changes covered entirely by explicit
-exclusions get their result without a model call. Unmapped changes are
-assessed: an unknown path is not evidence that documentation is unaffected.
+configuration, an unavailable comparison base, and changes covered entirely by
+explicit exclusions get their result without a model call. An incomplete list
+of changed files does not end the review by itself: with valid configuration
+and a comparison base it is still assessed, and the report lists the gap as a
+limitation. Unmapped changes are assessed: an unknown path is not evidence
+that documentation is unaffected.
 
 ## Understand the result
 
@@ -1926,7 +1935,10 @@ posted as a pull request comment when the open findings change: the first time
 changes are recommended, and when a later review resolves a finding, finds a new
 one, changes a severity, or can no longer check one. A review that finds the
 same open findings updates only the check. A report too large for the check is
-always posted as linked comments.
+posted as linked comments. The exception is a report with one block that
+exceeds GitHub's comment limit by itself: no comment is posted, the check is
+neutral and states the delivery limitation, and the complete report and
+findings are kept in the review history.
 
 When a pull request edits `.review-agent/documentation.toml`, the report says
 it used the target branch's rules. When unmapped paths leave a review
@@ -1967,7 +1979,8 @@ untrusted evidence: it cannot change tools, publication, scope completeness, or
 authorization. When a mapped document is renamed, update its path in the same
 pull request; the base rules still govern that pull request's review. The
 [Review Agent starter](https://github.com/CCimen/review-agent/blob/main/examples/documentation-review/review-agent.toml)
-shows the mappings this project uses for itself.
+shows mappings proposed for this project's own repository; they are not active
+there until the file is copied to `.review-agent/documentation.toml`.
 
 ## Inspect configuration and usage in the console
 
@@ -2033,20 +2046,26 @@ symbols that the reviewer can query to narrow the target.
 
 ## See whether reviews use it
 
-Every query writes one INFO line from the reviewer process, logger
-`hermes_plugins.review_agent_tools.tools.related_code`:
+A query that the graph service answers writes one INFO line from the reviewer
+process, logger `hermes_plugins.review_agent_tools.tools.related_code`:
 
 ```text
 Code graph query run_id=412 pattern=callers_of status=ready results=3
 ```
 
-`status` is what the reviewer was told (`ready`, `building`, `queued`, `busy`,
+`status` is the service's answer (`ready`, `building`, `queued`, `busy`,
 `disabled`, `embeddings_unavailable` or `unavailable`) and `results` the number of
 locations returned. The query target is written by the model and is not
-logged. Counting these lines per `run_id` in the `hermes-review` logs shows how
-often reviews ask the graph and how often it answers; a deployment where the
-line rarely appears, or mostly reports zero results, gains little from the
-service.
+logged. When the service cannot be reached, its answer is invalid or for
+another commit, or the result is larger than a tool result may be, the line is
+`Code graph query run_id=412 status=unavailable results=0`, without `pattern`.
+
+These lines do not count every attempt. Nothing is written when `hermes-review`
+has no graph URL because the overlay is not loaded (the tool answers
+`disabled`), when the tool rejects the pattern or target, when the review has
+ended or lost its worker lease, or when reading the pull request through the
+GitHub gateway fails. Counting the lines per `run_id` in the `hermes-review`
+logs shows how many queries reached the service and what it answered.
 
 ## Enable the graph
 
@@ -2064,6 +2083,14 @@ volume. Normal review services do not depend on its health or startup.
    REVIEW_AGENT_CODE_GRAPH_CACHE_BYTES=10737418240
    ```
 
+   `review-github-gateway` reads the first two values when it starts. Once any
+   settings revision has been saved in the admin console, even one saved to
+   change another setting, the gateway takes both from that revision and
+   ignores the two variables
+   ([environment defaults and admin controls](ADMIN_PANEL.md#environment-defaults-and-admin-controls)).
+   From then on, change **Include repository code relationships** and **Code
+   graph embeddings** in **Settings** and restart `review-github-gateway`.
+
    This applies to every repository authorized by the GitHub App and enabled
    for Review Agent, including repositories enabled later. Repository
    disablement, installation revocation, profile, and worker-lease checks still
@@ -2073,7 +2100,9 @@ volume. Normal review services do not depend on its health or startup.
    and add `REVIEW_AGENT_OPENAI_API_KEY` in Dokploy's Environment settings (or
    the deployment's private `.env` file). The overlay passes the key only to the
    GitHub gateway. Keep the value out of tracked files, chat, and logs. Leave it
-   empty with `none`.
+   empty with `none`. With `openai`, symbol metadata is sent to OpenAI whenever
+   a graph is prepared, not only when a semantic query runs
+   ([Freshness and reuse](#freshness-and-reuse)).
 
 3. Include the overlay when applying your normal deployment procedure:
 
@@ -2098,7 +2127,8 @@ volume. Normal review services do not depend on its health or startup.
    Save that template in the raw Compose editor, preserving the deployment's
    existing ingress, mounts, networks, and volumes. Environment references remain
    references; supply their values through Dokploy Environment. Later on/off
-   changes need only the environment switch and normal service recreation.
+   changes need no new template: change the setting that applies (step 1) and
+   start `review-github-gateway` again.
 
 4. Request an authorized `/review` on an enabled repository. Its begin response
    starts preparation in the background. The first review can finish before the
@@ -2125,9 +2155,14 @@ With OpenAI enabled, each code symbol receives its own 1,536-dimension vector.
 The embedding text holds the symbol name, signature, parent context, and short
 docstring (not the body), cut to 2,048 characters, so a body-only edit needs no
 new embedding. CRG keeps unchanged vectors and removes orphaned ones; changing
-the embedding configuration or losing the cache requires fresh vectors. Only
-semantic queries call the embedding API; vectors are stored and searched
-locally.
+the embedding configuration or losing the cache requires fresh vectors.
+
+The embedding API is called on two occasions, both through the GitHub gateway.
+Preparing a graph sends the embedding text of every symbol that has no current
+vector: all of them the first time a repository is indexed, new and changed
+ones afterwards. This happens whether or not a review later asks a semantic
+query. Each `semantic` query sends its query text. The other patterns send
+nothing, and vectors are stored and searched locally.
 
 The structural graph is saved before embeddings start, and each embedding batch
 is committed as it completes. If the review ends, authorization is revoked, or
@@ -2177,9 +2212,32 @@ the pull requests the reviewer can review.
 
 ## Disable the graph
 
-Set `REVIEW_AGENT_CODE_GRAPH_ENABLED=false` and recreate the affected services
-through the normal deployment procedure. Removing the overlay also stops the
-graph service. Keep the cache volume if reuse is useful. It contains derived
+`review-github-gateway` reads the setting only when it starts, so turn it off
+where the gateway reads it:
+
+- If a settings revision has been saved in the admin console, clear **Include
+  repository code relationships** in **Settings**, save, and restart
+  `review-github-gateway`. The saved revision overrides
+  `REVIEW_AGENT_CODE_GRAPH_ENABLED`, so changing only the variable leaves the
+  graph on.
+- Otherwise set `REVIEW_AGENT_CODE_GRAPH_ENABLED=false` and recreate
+  `review-github-gateway` so the container receives the new value.
+
+From then on the gateway tells the graph service that the graph is disabled and
+refuses its archive and embedding requests. Queries answer `disabled`, and no
+source is downloaded and no metadata is sent to OpenAI.
+
+The `review-code-graph` container keeps running until it is stopped. Leaving
+the overlay out of a later `docker compose up` does not stop a container that
+already exists unless the command includes `--remove-orphans`. To retire the
+service, stop it with the overlay still named:
+
+```bash
+docker compose -f compose.yaml -f compose.code-graph.yaml stop review-code-graph
+```
+
+Then deploy without the overlay, which also removes the graph URL from
+`hermes-review`. Keep the cache volume if reuse is useful. It contains derived
 repository metadata and vectors; removing it does not remove reviews, findings,
 or feedback.
 
@@ -2555,7 +2613,7 @@ revision saved before a control existed keeps the environment default for it.
 | Admission | `REVIEW_AGENT_ACTIVE_JOB_LIMIT`, `REVIEW_AGENT_GITHUB_APP_CAPACITY_RETRY_SECONDS`, `REVIEW_AGENT_GITHUB_APP_ADMISSION_MAX_AGE_SECONDS`, `REVIEW_AGENT_JOB_MAX_ATTEMPTS`, `REVIEW_AGENT_JOB_PRIORITY` |
 | Review worker | `REVIEW_AGENT_WORKER_CONCURRENCY`, `REVIEW_AGENT_JOB_LEASE_SECONDS`, `REVIEW_AGENT_JOB_HEARTBEAT_SECONDS`, `REVIEW_AGENT_HERMES_TIMEOUT_SECONDS`, `REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS`, `REVIEW_AGENT_JOB_RETRY_SECONDS`, `REVIEW_AGENT_JOB_POLL_SECONDS`, `REVIEW_AGENT_JOB_RECOVERY_SECONDS`, `REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE` |
 | Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES`, `REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS`, `REVIEW_AGENT_PUBLICATION_LEASE_SECONDS`, `REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS`, `REVIEW_AGENT_PUBLICATION_RETRY_SECONDS`, `REVIEW_AGENT_PUBLICATION_POLL_SECONDS` |
-| Features | `REVIEW_AGENT_FEEDBACK_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS`, documentation review (Settings only) |
+| Features | `REVIEW_AGENT_FEEDBACK_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS`, documentation review (Settings only in the supplied Compose files, which do not pass `REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED`; a service given that variable reads it only until the first save) |
 | Request bounds | `REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES` (at most 2,097,152), `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS`, `REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS`, `REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS` |
 
 Code graph options also need the graph overlay, and OpenAI embeddings the
@@ -2577,8 +2635,11 @@ itself reads these deployment-only values:
 | `REVIEW_AGENT_HERMES_CONTROL_TOKEN` | Provider control, from `compose.providers.yaml` ([managed model connections](#managed-model-connections)). |
 | `REVIEW_AGENT_CONNECTIONS_FILE` | Catalog of additional model runtimes ([provision another connection](#provision-another-connection)). |
 
-Every variable, its default and the service that reads it are listed in the
-[configuration reference](OPERATIONS.md#configuration-reference).
+Every variable the Compose files interpolate, its default and the service that
+reads it are listed in the
+[configuration reference](OPERATIONS.md#configuration-reference). The variables
+of an additional model runtime are under
+[Provision another connection](#provision-another-connection).
 
 ## Managed model connections
 
@@ -4169,8 +4230,10 @@ first. Security findings and every Medium or higher finding stay expanded. Low
 (P3) maintainability improvements are collapsed under **Code quality and
 readability**, and when a review also has High or Medium findings, its other
 Low findings are collapsed under **Low-priority findings**. Every finding keeps
-its F reference, explanation, feedback commands, and entry in the copyable fix
-brief. See the [example review](../examples/comments/example-review.md).
+its F reference, explanation, and entry in the copyable fix brief. The copyable
+feedback commands appear once, at the end of the review, and only when the
+operator has enabled them (`REVIEW_AGENT_FEEDBACK_ENABLED`, off by default).
+See the [example review](../examples/comments/example-review.md).
 
 Publication limits:
 
@@ -4619,14 +4682,23 @@ failure modes.
 Title: Example review
 Canonical URL: https://ccimen.github.io/review-agent/docs/example-review
 Status: current
-Last verified: 2026-10-13
+Last verified: 2026-11-18
 
 # Example review
 
-> **Current** — This sanitized example shows the current deterministic review
-> shape.
+> **Current** — This sanitized example is what the publication planner
+> (`build_publication` in `src/review_agent/publication/planner.py`) produces
+> for one configuration: the first review of a pull request, one Medium finding
+> that carries an optional patch, complete diff coverage, no repository
+> decision index, and feedback instructions enabled
+> (`REVIEW_AGENT_FEEDBACK_ENABLED=true`). Feedback instructions are off by
+> default; without them the comment has no **Give feedback on this review**
+> section.
 
-## AI code & security review
+The plan has two parts: the pull request comment, and a separate pull request
+review that carries the patch. The comment is:
+
+## AI code & security review · Review 1
 
 **Reviewed commit:** [`a1b2c3d4e5f6`](https://github.com/example-org/example-repository/commit/a1b2c3d4e5f678901234567890abcdef12345678)
 
@@ -4646,39 +4718,22 @@ Additional source context was read from 1 changed file and 1 supporting file.
 ### F1 · Medium (P2): Retry delay uses milliseconds as seconds
 [`src/jobs/retry.py:87`](https://github.com/example-org/example-repository/blob/a1b2c3d4e5f678901234567890abcdef12345678/src/jobs/retry.py#L87) · correctness
 
-The new retry setting is named and documented in milliseconds, but the changed
-scheduler call passes it directly to an API that waits in seconds. A configured
-5,000 ms delay therefore becomes 5,000 seconds instead of 5 seconds.
+The new retry setting is named and documented in milliseconds, but the changed scheduler call passes it directly to an API that waits in seconds. A configured 5,000 ms delay therefore becomes 5,000 seconds instead of 5 seconds.
 
-**Impact:** transient failures can leave jobs stalled for more than an hour,
-delaying user-visible processing and recovery.
+**Impact:** Transient failures can leave jobs stalled for more than an hour, delaying user-visible processing and recovery.
 
-**Smallest safe fix:** convert the millisecond value to seconds at the scheduler
-boundary and add a focused test that proves 5,000 ms schedules a 5-second delay.
-
-> [!TIP]
-> **1 optional GitHub suggestion ready to apply · 0 findings need coordinated implementation**
->
-> Open [Files changed](https://github.com/example-org/example-repository/pull/123/files) to inspect
-> each patch in context. Apply a patch individually, or batch only the selected
-> atomic patches into one commit. Run CI, push any remaining fixes, then post
-> `/review` as a new top-level PR comment. Applying a patch does not resolve its
-> finding; the fresh review re-checks the code.
+**Smallest safe fix:** Convert the millisecond value to seconds at the scheduler boundary and add a focused test that proves 5,000 ms schedules a 5-second delay.
 
 ---
 
-**Next:** Address the current findings. Push the fixes, then post `/review` as a
-new top-level PR comment. The next review keeps the F references and reports what
-resolved, remains, returned, or is new. To hand off implementation, copy the
-coding-agent brief below.
+**Next:** Address the current findings. Push the fixes, then post `/review` as a new top-level PR comment. The next review keeps the F references and reports what resolved, remains, returned, or is new. To hand off implementation, copy the coding-agent brief below.
 
 <details>
 <summary><strong>Copyable fix brief for a coding agent</strong></summary>
 
 ```text
 Task:
-Fix every current finding on the latest PR head with the smallest safe,
-behavior-tested change.
+Fix every current finding on the latest PR head with the smallest safe, behavior-tested change.
 
 Review basis:
 example-org/example-repository PR #123 at commit a1b2c3d.
@@ -4696,17 +4751,14 @@ Findings:
 
 F1 - Medium (P2) - correctness
 Location: src/jobs/retry.py:87
-Fix path: Candidate for an optional atomic GitHub suggestion; otherwise use this brief.
+Fix path: Coordinated implementation required; use this brief.
 Problem: Retry delay uses milliseconds as seconds
-Observed behavior: The changed scheduler call passes a millisecond setting to an
-API that interprets the value as seconds.
-Impact: Failed jobs can wait 1,000 times longer than configured.
-Smallest safe fix: Convert milliseconds to seconds at the scheduler boundary and
-add a focused delay-unit regression test.
+Observed behavior: The new retry setting is named and documented in milliseconds, but the changed scheduler call passes it directly to an API that waits in seconds. A configured 5,000 ms delay therefore becomes 5,000 seconds instead of 5 seconds.
+Impact: Transient failures can leave jobs stalled for more than an hour, delaying user-visible processing and recovery.
+Smallest safe fix: Convert the millisecond value to seconds at the scheduler boundary and add a focused test that proves 5,000 ms schedules a 5-second delay.
 
 Constraints:
-- Reuse the canonical owner or an existing project abstraction; do not create a
-  parallel path.
+- Reuse the canonical owner or an existing project abstraction; do not create a parallel path.
 - Avoid unrelated refactoring.
 - Flag scope drift and restore to base only with developer approval.
 - Do not weaken validation, authorization, data isolation, or error handling.
@@ -4731,13 +4783,10 @@ must post /review as a new top-level PR comment for a fresh review.
 <details>
 <summary>Give feedback on this review</summary>
 
-Post one command as a new top-level PR comment. Replace every angle-bracket
-placeholder, including `<F-reference>`, with the relevant finding reference and
-reason. The bot reacts 👍 when feedback is recorded.
+Post one command as a new top-level PR comment. Replace every angle-bracket placeholder, including `<F-reference>`, with the relevant finding reference and reason. The bot reacts 👍 when feedback is recorded.
 
-It does not need to be a reply to the bot comment. Do not edit an old feedback
-command after posting it. Scope feedback records review-quality feedback; it
-does not mark the finding incorrect.
+It does not need to be a reply to the bot comment. Do not edit an old feedback command after posting it.
+Scope feedback records review-quality feedback; it does not mark the finding incorrect.
 
 **The finding is incorrect**
 
@@ -4768,5 +4817,41 @@ does not mark the finding incorrect.
 <!--
 review-agent:
 head=a1b2c3d4e5f678901234567890abcdef12345678
-F1=a1b2c3d4e5f6
+coverage_state=complete
+changed_paths=2
+diff_exposed=2
+context_paths_read=2
+context_ranges_read=2
+changed_paths_with_source_reads=1
+supporting_context_paths_read=1
+changed_files_reported=2
+changed_file_registration_complete=True
+unavailable=0
+diff_truncated=0
+diff_unseen=0
+coverage_hash=e8bcca429adc7030955d0b30bb1b3e8c63e35347458c5195f97bb827bd6601c8
+decision_status=not_configured
+decision_snapshot_hash=sha256:60c91ef59e78f0e2e7e2ac76bb63e930ffadaf17f07a1cb1e594a579dec9ac84
+F1=443196e3a355d0d12738bdd60a20f024a7de72f4323b843e47a330c562902f13
 -->
+
+<!-- review-agent:canonical publication=sha256:a130e99192aa57b43dadb1e0541285072d461c7b11e3da34454efab98b70b7b1 -->
+
+<!-- review-agent:canonical publication=sha256:a130e99192aa57b43dadb1e0541285072d461c7b11e3da34454efab98b70b7b1 part=1/1 -->
+
+The second part is a pull request review with the body
+`Optional atomic patches from this review.` and one inline comment on line
+87 of `src/jobs/retry.py`. The comment above does not mention the patch, and
+its fix brief lists the finding as coordinated implementation: the planner does
+not announce a suggestion before GitHub has accepted the review that carries
+it. The inline comment is:
+
+````markdown
+**F1 · Optional atomic patch**
+
+```suggestion
+    scheduler.enqueue_in(retry_delay_ms / 1000, job)
+```
+
+<!-- review-agent:canonical publication=sha256:a130e99192aa57b43dadb1e0541285072d461c7b11e3da34454efab98b70b7b1 -->
+````

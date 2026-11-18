@@ -112,7 +112,8 @@ and `REVIEW_AGENT_REASONING_EFFORT`. `REVIEW_AGENT_MODEL` is required and has no
 default. Two providers are supported. The default, `openai-codex`, uses a
 ChatGPT device-code login through Hermes and needs no API key; `anthropic` uses
 Hermes' [Anthropic route](https://hermes-agent.nousresearch.com/docs/integrations/providers). `.env.example` lists the required values, and
-[Operations](docs/OPERATIONS.md#configuration-reference) lists every variable.
+[Operations](docs/OPERATIONS.md#configuration-reference) lists every variable
+the Compose files read.
 
 ## Development
 
@@ -144,7 +145,9 @@ inside the application and which way its imports point.
 ./scripts/check_bundle.sh
 ```
 
-runs the Python checks and tests that CI runs. See
+is the fast local bundle, which includes Ruff, Pyright and the unit tests. CI
+runs it and also checks the installed package, the admin frontend, the
+PostgreSQL contract, the images and dependency vulnerabilities. See
 [CONTRIBUTING.md](CONTRIBUTING.md), and [RELEASING.md](RELEASING.md) for how
 images are built, scanned, and published.
 

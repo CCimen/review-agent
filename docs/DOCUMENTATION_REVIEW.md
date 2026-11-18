@@ -30,8 +30,11 @@ automatic reviews for a team.
    installation's owner may need to accept the new permission. No console
    setting can grant GitHub access.
 3. An owner switches documentation review on in the admin console under
-   **Settings**. It is off by default, and the console is the only place to turn
-   it on. A team maintainer then sets the team default in **Teams →
+   **Settings**. It is off by default. The supplied Compose files do not pass
+   `REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED`, so there the console is the only
+   place to turn it on. A deployment that sets the variable on its services has
+   it read only until the first settings revision is saved; after that only the
+   saved value applies. A team maintainer then sets the team default in **Teams →
    Documentation**, or a repository override in **Repositories →
    Documentation**.
 4. Add `.review-agent/documentation.toml` through a normal pull request. Adapt
@@ -71,9 +74,12 @@ pull request before it runs. An explicit `/review docs` skips the wait.
 Switching to Automatic does not review existing open pull requests.
 
 A deterministic scope check runs before any model call. Missing or invalid
-configuration, unavailable inputs, and changes covered entirely by explicit
-exclusions get their result without a model call. Unmapped changes are
-assessed: an unknown path is not evidence that documentation is unaffected.
+configuration, an unavailable comparison base, and changes covered entirely by
+explicit exclusions get their result without a model call. An incomplete list
+of changed files does not end the review by itself: with valid configuration
+and a comparison base it is still assessed, and the report lists the gap as a
+limitation. Unmapped changes are assessed: an unknown path is not evidence
+that documentation is unaffected.
 
 ## Understand the result
 
@@ -98,7 +104,10 @@ posted as a pull request comment when the open findings change: the first time
 changes are recommended, and when a later review resolves a finding, finds a new
 one, changes a severity, or can no longer check one. A review that finds the
 same open findings updates only the check. A report too large for the check is
-always posted as linked comments.
+posted as linked comments. The exception is a report with one block that
+exceeds GitHub's comment limit by itself: no comment is posted, the check is
+neutral and states the delivery limitation, and the complete report and
+findings are kept in the review history.
 
 When a pull request edits `.review-agent/documentation.toml`, the report says
 it used the target branch's rules. When unmapped paths leave a review
@@ -139,7 +148,8 @@ untrusted evidence: it cannot change tools, publication, scope completeness, or
 authorization. When a mapped document is renamed, update its path in the same
 pull request; the base rules still govern that pull request's review. The
 [Review Agent starter](https://github.com/CCimen/review-agent/blob/main/examples/documentation-review/review-agent.toml)
-shows the mappings this project uses for itself.
+shows mappings proposed for this project's own repository; they are not active
+there until the file is copied to `.review-agent/documentation.toml`.
 
 ## Inspect configuration and usage in the console
 

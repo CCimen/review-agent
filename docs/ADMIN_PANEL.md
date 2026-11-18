@@ -372,7 +372,7 @@ revision saved before a control existed keeps the environment default for it.
 | Admission | `REVIEW_AGENT_ACTIVE_JOB_LIMIT`, `REVIEW_AGENT_GITHUB_APP_CAPACITY_RETRY_SECONDS`, `REVIEW_AGENT_GITHUB_APP_ADMISSION_MAX_AGE_SECONDS`, `REVIEW_AGENT_JOB_MAX_ATTEMPTS`, `REVIEW_AGENT_JOB_PRIORITY` |
 | Review worker | `REVIEW_AGENT_WORKER_CONCURRENCY`, `REVIEW_AGENT_JOB_LEASE_SECONDS`, `REVIEW_AGENT_JOB_HEARTBEAT_SECONDS`, `REVIEW_AGENT_HERMES_TIMEOUT_SECONDS`, `REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS`, `REVIEW_AGENT_JOB_RETRY_SECONDS`, `REVIEW_AGENT_JOB_POLL_SECONDS`, `REVIEW_AGENT_JOB_RECOVERY_SECONDS`, `REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE` |
 | Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES`, `REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS`, `REVIEW_AGENT_PUBLICATION_LEASE_SECONDS`, `REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS`, `REVIEW_AGENT_PUBLICATION_RETRY_SECONDS`, `REVIEW_AGENT_PUBLICATION_POLL_SECONDS` |
-| Features | `REVIEW_AGENT_FEEDBACK_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS`, documentation review (Settings only) |
+| Features | `REVIEW_AGENT_FEEDBACK_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_ENABLED`, `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS`, documentation review (Settings only in the supplied Compose files, which do not pass `REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED`; a service given that variable reads it only until the first save) |
 | Request bounds | `REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES` (at most 2,097,152), `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS`, `REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS`, `REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS` |
 
 Code graph options also need the graph overlay, and OpenAI embeddings the
@@ -394,8 +394,11 @@ itself reads these deployment-only values:
 | `REVIEW_AGENT_HERMES_CONTROL_TOKEN` | Provider control, from `compose.providers.yaml` ([managed model connections](#managed-model-connections)). |
 | `REVIEW_AGENT_CONNECTIONS_FILE` | Catalog of additional model runtimes ([provision another connection](#provision-another-connection)). |
 
-Every variable, its default and the service that reads it are listed in the
-[configuration reference](OPERATIONS.md#configuration-reference).
+Every variable the Compose files interpolate, its default and the service that
+reads it are listed in the
+[configuration reference](OPERATIONS.md#configuration-reference). The variables
+of an additional model runtime are under
+[Provision another connection](#provision-another-connection).
 
 ## Managed model connections
 

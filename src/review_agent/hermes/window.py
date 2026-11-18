@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from importlib import import_module
 import os
-import threading
 from typing import Protocol, cast
 
 from ..domain import model_execution
@@ -140,30 +139,3 @@ def resolve(provider: str, model: str) -> model_execution.ModelWindow:
     return model_execution.ModelWindow(
         context_tokens, result_chars, turn_chars, compaction_tokens
     )
-
-
-# One window per admitted execution, so every tool call of a session uses the
-# value resolved once at admission. Admission registers it after commit; the
-# execution's recorded completion removes it.
-_executions: dict[tuple[int, int], model_execution.ModelWindow] = {}
-_executions_lock = threading.Lock()
-
-
-def register_execution(
-    job_id: int, lease_generation: int, window: model_execution.ModelWindow
-) -> None:
-    with _executions_lock:
-        _executions[(job_id, lease_generation)] = window
-
-
-def release_execution(job_id: int, lease_generation: int) -> None:
-    with _executions_lock:
-        _executions.pop((job_id, lease_generation), None)
-
-
-def execution_window(job_id: int, lease_generation: int) -> model_execution.ModelWindow:
-    with _executions_lock:
-        window = _executions.get((job_id, lease_generation))
-    if window is None:
-        raise ModelWindowError("this review execution was not admitted by this runtime")
-    return window

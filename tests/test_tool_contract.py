@@ -108,8 +108,8 @@ class ToolContractTests(unittest.TestCase):
         cache_patch.start()
         self.addCleanup(cache_patch.stop)
         # The execution admitted for the lease these tests' sessions carry.
-        hermes_window.register_execution(7, 3, WINDOW)
-        self.addCleanup(hermes_window.release_execution, 7, 3)
+        review_tool_runtime.register_execution_window(7, 3, WINDOW)
+        self.addCleanup(review_tool_runtime.release_execution_window, 7, 3)
 
     def test_begin_keeps_transient_initialization_failure_retryable(self) -> None:
         retry_at = datetime(2026, 10, 7, 18, 0, tzinfo=timezone.utc)

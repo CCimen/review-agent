@@ -194,6 +194,17 @@ installed = sorted(
     if name == "review_agent" or name.startswith("review_agent.")
 )
 assert not installed, installed
+
+# Admission and the model tools share one execution-window registry: a window
+# registered through the runtime API is the one the tool fence reads.
+runtime_api = sys.modules[package + ".hermes.runtime_api"]
+source_tools = sys.modules[package + ".tools.source"]
+fence_owner = sys.modules[source_tools.worker_lease_fence.__module__]
+assert fence_owner is runtime_api.review_tool_runtime, fence_owner
+window = object()
+runtime_api.review_tool_runtime.register_execution_window(1, 1, window)
+assert fence_owner.execution_window(1, 1) is window
+fence_owner.release_execution_window(1, 1)
 assert not [
     entry for entry in entry_points(group="hermes_agent.plugins")
     if entry.module.partition(".")[0] == "review_agent"

@@ -1,4 +1,7 @@
 *
+!pyproject.toml
+!LICENSE
+!NOTICE.md
 !requirements/
 !requirements/requirements-admin.txt
 !scripts/

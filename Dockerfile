@@ -1,6 +1,11 @@
 ARG HERMES_IMAGE=nousresearch/hermes-agent:v2026.8.31@sha256:64923faeae267792bf9bf87fe3b4c4869e35004e360c7df01730ad801b74d524
 ARG REVIEW_AGENT_UV_IMAGE=ghcr.io/astral-sh/uv:0.12.7-python3.13-trixie@sha256:767ae9f0bb33c54c8b6d1fc7e1ec842f85b18146936d7d0b9f16a357cec4f3fe
 FROM ${REVIEW_AGENT_UV_IMAGE} AS review_agent_uv
+# The package's wheel is built here, so the build backend that pyproject.toml
+# pins runs in this stage and never enters the image.
+COPY pyproject.toml LICENSE NOTICE.md /source/
+COPY src/review_agent/ /source/src/review_agent/
+RUN uv build --no-config --no-cache --wheel --out-dir /dist /source
 FROM ${HERMES_IMAGE}
 
 ARG HERMES_IMAGE
@@ -37,9 +42,6 @@ RUN uv venv --python /opt/hermes/.venv/bin/python /opt/review-agent-code-graph \
     && chown 10000:10000 /var/lib/review-agent-code-graph
 
 COPY --chown=hermes:hermes bootstrap/ /opt/review-agent-bootstrap/
-# The package is importable from the bootstrap root's plugins directory; the
-# installer copies it from there into the Hermes home as the plugin.
-COPY --chown=hermes:hermes src/review_agent/ /opt/review-agent-bootstrap/plugins/review_agent/
 ARG REVIEW_AGENT_VERSION=development
 ARG REVIEW_AGENT_REVISION=unknown
 LABEL org.opencontainers.image.version=$REVIEW_AGENT_VERSION \
@@ -54,27 +56,21 @@ RUN printf '%s\n' \
     && git -C /opt/hermes apply /opt/review-agent-bootstrap/hermes/auxiliary-no-fallback.patch \
     && git -C /opt/hermes apply --unidiff-zero --check /opt/review-agent-bootstrap/hermes/account-usage.patch \
     && git -C /opt/hermes apply --unidiff-zero /opt/review-agent-bootstrap/hermes/account-usage.patch
-# Offline operator helpers imported by review-agent-memory. The webhook agent
-# cannot reach them because file, terminal, and code execution are disabled.
-COPY --chown=root:root tools/review_agent_*.py /usr/local/bin/
-RUN cp /usr/local/bin/review_agent_memory.py /usr/local/bin/review-agent-memory \
-    && cp /usr/local/bin/review_agent_admin.py /usr/local/bin/review-agent-admin \
-    && cp /usr/local/bin/review_agent_admission.py /usr/local/bin/review-agent-admission \
-    && cp /usr/local/bin/review_agent_worker.py /usr/local/bin/review-agent-worker \
-    && cp /usr/local/bin/review_agent_publisher.py /usr/local/bin/review-agent-publisher \
-    && cp /usr/local/bin/review_agent_github_gateway.py /usr/local/bin/review-agent-github-gateway \
-    && cp /usr/local/bin/review_agent_github_app_worker.py /usr/local/bin/review-agent-github-app-worker \
-    && cp /usr/local/bin/review_agent_hermes_contract.py /usr/local/bin/review-agent-hermes-contract \
+# The image holds one copy of the package, installed. The commands and the
+# profile installer import it from the Hermes environment, and the installer
+# copies it from there into the Hermes home as the plugin. The graph indexer
+# imports it from its own environment. --no-deps keeps both on the pins above.
+# Compose files, the Helm chart and the documentation call the commands in
+# /usr/local/bin. The webhook agent cannot reach them because file, terminal,
+# and code execution are disabled.
+RUN --mount=type=bind,from=review_agent_uv,source=/dist,target=/dist \
+    uv pip install --no-config --no-cache --python /opt/hermes/.venv/bin/python \
+        --no-deps /dist/*.whl \
+    && uv pip install --no-config --no-cache --python /opt/review-agent-code-graph/bin/python \
+        --no-deps /dist/*.whl \
+    && ln -s /opt/hermes/.venv/bin/review-agent-* /usr/local/bin/ \
     && chmod 0755 /opt/review-agent-bootstrap/install.sh \
-    /opt/review-agent-bootstrap/install.py \
-    /usr/local/bin/review-agent-memory \
-    /usr/local/bin/review-agent-admin \
-    /usr/local/bin/review-agent-admission \
-    /usr/local/bin/review-agent-hermes-contract \
-    /usr/local/bin/review-agent-worker \
-    /usr/local/bin/review-agent-github-gateway \
-    /usr/local/bin/review-agent-github-app-worker \
-    /usr/local/bin/review-agent-publisher
+    /opt/review-agent-bootstrap/install.py
 
 # Hermes runs s6-overlay as PID 1, which must start as root to initialize /run
 # and then drops privileges to the unprivileged hermes user (uid 10000) on its

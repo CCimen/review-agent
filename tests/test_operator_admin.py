@@ -5,7 +5,6 @@ import json
 import os
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
-import importlib.util
 from pathlib import Path
 import sys
 import tempfile
@@ -21,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_PARENT = ROOT / "src"
 sys.path.insert(0, str(PLUGIN_PARENT))
 
+from review_agent.cli import admin as admin_cli  # noqa: E402
 from review_agent.operations import inspection, readiness as operations_readiness  # noqa: E402
 from review_agent.github import app_auth  # noqa: E402
 from review_agent.github.gateway import (  # noqa: E402
@@ -56,13 +56,7 @@ def _private_key() -> str:
 
 
 def _load_admin_cli():
-    path = ROOT / "tools" / "review_agent_admin.py"
-    spec = importlib.util.spec_from_file_location("review_agent_admin", path)
-    if spec is None or spec.loader is None:
-        raise AssertionError("could not load review-agent-admin")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return admin_cli
 
 
 class OperatorSetupTests(unittest.TestCase):

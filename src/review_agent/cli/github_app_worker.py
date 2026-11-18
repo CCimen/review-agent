@@ -1,57 +1,138 @@
-#!/usr/bin/env python3
 """Run the opt-in direct GitHub App admission worker."""
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from datetime import timedelta
 import logging
 import os
-from pathlib import Path
 import signal
+import socket
 import sys
 import threading
+import time
+import uuid
 
-
-def _load_package() -> None:
-    candidates = (
-        Path("/opt/review-agent-bootstrap/plugins"),
-        Path(__file__).resolve().parents[1] / "src",
-    )
-    for candidate in candidates:
-        if (candidate / "review_agent" / "github" / "app_worker.py").is_file():
-            sys.path.insert(0, str(candidate))
-            return
-    raise SystemExit("Could not locate the review_agent package")
-
-
-_load_package()
-
-from review_agent.postgres.telemetry import WorkerTelemetry  # noqa: E402
-
-from review_agent.github.app_processor import (  # noqa: E402
-    GitHubAppProcessor,
-    ProcessorConfig,
-)
-from review_agent.github.app_worker import (  # noqa: E402
-    GitHubAppWorker,
-    GitHubAppWorkerConfigurationError,
-    GitHubAppWorkerPolicy,
-    default_github_app_worker_name,
-)
-from review_agent.github.gateway import (  # noqa: E402
-    GitHubGatewayProtocolError,
-)
-from review_agent.github.gateway_client import (  # noqa: E402
-    ReviewGitHubGatewayClient,
-)
-from review_agent.review import contract as review_contract  # noqa: E402
-from review_agent.postgres.runtime import (  # noqa: E402
+from ..github.app_processor import GitHubAppProcessor, ProcessorConfig
+from ..github.gateway import GitHubGatewayProtocolError
+from ..github.gateway_client import ReviewGitHubGatewayClient
+from ..postgres import webhook_deliveries
+from ..postgres.deployment_settings import apply_at_startup
+from ..postgres.runtime import (
+    TRANSIENT_DATABASE_ERRORS,
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
 )
-from review_agent.settings import ReviewAgentSettings  # noqa: E402
-from review_agent.postgres.deployment_settings import apply_at_startup  # noqa: E402
+from ..postgres.telemetry import WorkerTelemetry
+from ..review import contract as review_contract
+from ..settings import ReviewAgentSettings
+
+
+logger = logging.getLogger(__name__)
+class GitHubAppWorkerConfigurationError(ValueError):
+    """The GitHub App worker cannot start from its supplied configuration."""
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubAppWorkerPolicy:
+    poll_interval: timedelta = timedelta(seconds=2)
+    recovery_interval: timedelta = timedelta(seconds=30)
+    recovery_batch_size: int = 100
+    database_backoff_initial: timedelta = timedelta(seconds=1)
+    database_backoff_maximum: timedelta = timedelta(seconds=30)
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("poll_interval", self.poll_interval),
+            ("recovery_interval", self.recovery_interval),
+            ("database_backoff_initial", self.database_backoff_initial),
+            ("database_backoff_maximum", self.database_backoff_maximum),
+        ):
+            if value <= timedelta(0):
+                raise GitHubAppWorkerConfigurationError(f"{name} must be positive")
+        if self.recovery_batch_size < 1:
+            raise GitHubAppWorkerConfigurationError(
+                "recovery_batch_size must be positive"
+            )
+        if self.database_backoff_initial > self.database_backoff_maximum:
+            raise GitHubAppWorkerConfigurationError(
+                "database_backoff_initial must not exceed database_backoff_maximum"
+            )
+
+
+class GitHubAppWorker:
+    """Recover leases and process at most one App delivery at a time."""
+
+    def __init__(
+        self,
+        runtime: PostgreSQLRuntime,
+        processor: GitHubAppProcessor,
+        policy: GitHubAppWorkerPolicy,
+        *,
+        lease_owner: str,
+        stop_event: threading.Event,
+    ) -> None:
+        owner = lease_owner.strip()
+        if not owner:
+            raise GitHubAppWorkerConfigurationError("lease_owner is required")
+        self._runtime = runtime
+        self._processor = processor
+        self._policy = policy
+        self._lease_owner = owner
+        self._stop = stop_event
+        self._next_recovery_at = 0.0
+
+    def run(self, *, once: bool = False) -> None:
+        backoff = self._policy.database_backoff_initial
+        while not self._stop.is_set():
+            try:
+                self._recover_if_due()
+                result = self._processor.process_next(lease_owner=self._lease_owner)
+            except TRANSIENT_DATABASE_ERRORS as exc:
+                if once:
+                    raise
+                logger.warning(
+                    "GitHub App delivery deferred after transient database failure: %s",
+                    type(exc).__name__,
+                )
+                if self._stop.wait(backoff.total_seconds()):
+                    return
+                backoff = min(backoff * 2, self._policy.database_backoff_maximum)
+                continue
+            backoff = self._policy.database_backoff_initial
+            if result is not None:
+                logger.info(
+                    "GitHub App delivery %d finished with status=%s reason=%s",
+                    result.delivery_id,
+                    result.status,
+                    result.reason or "none",
+                )
+            if once:
+                return
+            if result is None and self._stop.wait(
+                self._policy.poll_interval.total_seconds()
+            ):
+                return
+
+    def _recover_if_due(self) -> None:
+        now = time.monotonic()
+        if now < self._next_recovery_at:
+            return
+        self._next_recovery_at = now + self._policy.recovery_interval.total_seconds()
+        with self._runtime.transaction() as connection:
+            webhook_deliveries.recover_expired_deliveries(
+                connection,
+                limit=self._policy.recovery_batch_size,
+                actor=self._lease_owner,
+            )
+
+
+def default_github_app_worker_name() -> str:
+    """Return one bounded process-unique lease owner without credentials."""
+    return (f"github-app:{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}")[
+        :120
+    ]
 
 
 def _positive_integer(name: str, default: str | None = None) -> int:

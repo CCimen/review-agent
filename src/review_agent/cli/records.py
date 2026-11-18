@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Human administration for the Review Agent PostgreSQL store."""
 
 from __future__ import annotations
@@ -11,51 +10,60 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 
 import psycopg
 
-from review_agent_private_io import write_private_file  # noqa: E402
-
-
-def _plugin_parent() -> Path:
-    candidates = (
-        Path("/opt/review-agent-bootstrap/plugins"),
-        Path(__file__).resolve().parents[1] / "src",
-    )
-    for candidate in candidates:
-        if (candidate / "review_agent" / "operations" / "inspection.py").exists():
-            sys.path.insert(0, str(candidate))
-            return candidate
-    raise SystemExit("Could not locate the review_agent package")
-
-
-_plugin_parent()
-
-from review_agent.operations import inspection  # noqa: E402
-from review_agent.domain import input_checks  # noqa: E402
-from review_agent.review import decisions as review_decisions  # noqa: E402
-from review_agent.domain.feedback import (  # noqa: E402
+from ..operations import inspection
+from ..domain import input_checks
+from ..review import decisions as review_decisions
+from ..domain.feedback import (
     FeedbackDomainError,
     FeedbackTriageStatus,
 )
-from review_agent.domain.finding import FindingDomainError  # noqa: E402
-from review_agent.postgres import (  # noqa: E402
+from ..domain.finding import FindingDomainError
+from ..postgres import (
     findings as postgres_findings,
     quality_report,
     quality_triage,
     reporting as postgres_reporting,
     review_runs as postgres_review_runs,
 )
-from review_agent.postgres.runtime import (  # noqa: E402
+from ..postgres.runtime import (
     PostgreSQLNotReady,
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
     PostgreSQLUnavailable,
 )
-from review_agent.settings import (  # noqa: E402
+from ..settings import (
     ReviewAgentSettings,
     SettingsError,
 )
+
+
+def write_private_file(destination: Path, content: str) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and destination.is_symlink():
+        raise ValueError(f"refusing to write through symlink: {destination}")
+    fd, raw_temporary = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
+    temporary = Path(raw_temporary)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+        os.chmod(destination, 0o600)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 class _MemoryCommandError(ValueError):

@@ -72,7 +72,7 @@ from review_agent.postgres.runtime import (  # noqa: E402
     PostgreSQLUnavailable,
 )
 from review_agent.postgres.migrations import runner  # noqa: E402
-from review_agent.publisher import (  # noqa: E402
+from review_agent.cli.publisher import (  # noqa: E402
     PublicationWorker,
     PublisherPolicy,
 )
@@ -2204,7 +2204,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                     publications.PublicationLeaseLost("lease replaced"),
                 ),
             ) as heartbeat,
-            self.assertLogs("review_agent.publisher", level="WARNING"),
+            self.assertLogs("review_agent.cli.publisher", level="WARNING"),
         ):
             worker._heartbeat(claim.publication, threading.Event(), lease_lost)
 
@@ -2843,7 +2843,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 max_comment_bytes=60_000,
             ), lease_owner="publisher", stop_event=threading.Event(),
         )
-        with self.assertLogs("review_agent.publisher", level="WARNING") as logs:
+        with self.assertLogs("review_agent.cli.publisher", level="WARNING") as logs:
             worker.run(once=True)
         self.assertIn("github_http_429", logs.output[0])
         with self.runtime.transaction() as connection:
@@ -4038,7 +4038,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ), lease_owner="fairness-worker", stop_event=threading.Event(),
         )
 
-        with self.assertLogs("review_agent.publisher", level="INFO") as logs:
+        with self.assertLogs("review_agent.cli.publisher", level="INFO") as logs:
             worker.run(once=True)
             worker.run(once=True)
 

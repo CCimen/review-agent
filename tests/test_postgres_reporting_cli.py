@@ -122,9 +122,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             )
         self.runtime.readiness()
         completed = subprocess.run(
-            [sys.executable, str(ROOT / "tools" / "review_agent_admin.py"), "queues", "inspect"],
+            [sys.executable, "-m", "review_agent.cli.admin", "queues", "inspect"],
             cwd=ROOT,
-            env={**os.environ, "REVIEW_AGENT_DATABASE_URL": DSN},
+            env={**os.environ, "PYTHONPATH": str(PACKAGE_ROOT), "REVIEW_AGENT_DATABASE_URL": DSN},
             check=True,
             capture_output=True,
             text=True,
@@ -1866,12 +1866,11 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             with self.subTest(options=extra):
                 completed = subprocess.run(
                     [
-                        sys.executable,
-                        str(ROOT / "tools" / "review_agent_memory.py"),
+                        sys.executable, "-m", "review_agent.cli.records",
                         "runs", "--repo", self.repository, "--pr", "12", *extra,
                     ],
                     cwd=ROOT,
-                    env={**os.environ, "REVIEW_AGENT_DATABASE_URL": DSN},
+                    env={**os.environ, "PYTHONPATH": str(PACKAGE_ROOT), "REVIEW_AGENT_DATABASE_URL": DSN},
                     check=True,
                     capture_output=True,
                     text=True,
@@ -1891,13 +1890,12 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self,
     ) -> None:
         self.register_repository()
-        environment = {**os.environ, "REVIEW_AGENT_DATABASE_URL": DSN}
+        environment = {**os.environ, "PYTHONPATH": str(PACKAGE_ROOT), "REVIEW_AGENT_DATABASE_URL": DSN}
         outputs: dict[str, str] = {}
         for output_format in ("json", "markdown"):
             completed = subprocess.run(
                 [
-                    sys.executable,
-                    str(ROOT / "tools" / "review_agent_memory.py"),
+                    sys.executable, "-m", "review_agent.cli.records",
                     "quality",
                     "--days",
                     "30",

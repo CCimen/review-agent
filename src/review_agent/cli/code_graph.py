@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Serve optional code graph context in a container without credential mounts."""
 
 from __future__ import annotations
@@ -10,45 +9,35 @@ import logging
 import os
 from pathlib import Path
 import signal
-import sys
 import threading
 from typing import cast
 
-
-def _load_package() -> None:
-    for candidate in (
-        Path("/opt/review-agent-bootstrap/plugins"),
-        Path(__file__).resolve().parents[1] / "src",
-    ):
-        if (candidate / "review_agent" / "code_graph" / "contract.py").is_file():
-            sys.path.insert(0, str(candidate))
-            return
-    raise SystemExit("Could not locate the review_agent package")
-
-
-_load_package()
-
-from review_agent.code_graph.contract import (  # noqa: E402
+from ..code_graph.contract import (
     GRAPH_QUERY_PATH,
     GRAPH_RESULT_MAX_BYTES,
     GraphError,
 )
 
+# The indexer runs in the graph environment, which holds the parsers and this
+# package but none of the server's dependencies. The service starts it as that
+# environment's copy of this command with --indexer.
+GRAPH_PYTHON = Path("/opt/review-agent-code-graph/bin/python")
+GRAPH_RUNNER = GRAPH_PYTHON.with_name("review-agent-code-graph")
+
 
 def serve(host: str, port: int) -> None:
     # The indexer runs with only its isolated dependency set, so server imports
     # stay out of that process's startup path.
-    from review_agent.code_graph.service import CodeGraphService
-    from review_agent.github.gateway import GitHubGatewayError
-    from review_agent.settings import ReviewAgentSettings
+    from ..code_graph.service import CodeGraphService
+    from ..github.gateway import GitHubGatewayError
+    from ..settings import ReviewAgentSettings
 
     configured = ReviewAgentSettings.from_environment()
-    python = Path("/opt/review-agent-code-graph/bin/python")
-    if not python.is_file():
+    if not GRAPH_PYTHON.is_file():
         raise GraphError("the code graph runtime is not installed")
     service = CodeGraphService(
         root=Path(os.environ.get("REVIEW_AGENT_CODE_GRAPH_ROOT", "/var/lib/review-agent-code-graph")),
-        gateway_url=configured.github_gateway_url, python=python, runner=Path(__file__).resolve(),
+        gateway_url=configured.github_gateway_url, python=GRAPH_PYTHON, runner=GRAPH_RUNNER,
         cache_bytes=int(os.environ.get("REVIEW_AGENT_CODE_GRAPH_CACHE_BYTES", str(10 * 1024**3))),
     )
     slots = threading.BoundedSemaphore(4)
@@ -128,7 +117,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8647)
     args = parser.parse_args()
     if args.indexer:
-        from review_agent.code_graph.indexer import main as index
+        from ..code_graph.indexer import main as index
         return index()
     logging.basicConfig(level=logging.INFO)
     serve(args.host, args.port)

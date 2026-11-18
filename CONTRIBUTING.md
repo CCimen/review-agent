@@ -9,6 +9,17 @@ python3 -m pip install --requirement requirements/requirements-admin.txt --requi
 npm install --global pyright@1.1.408
 ```
 
+The tests and checks put `src` on the import path themselves. To run a command
+from the checkout, install the package in editable mode, held to those pins,
+and call the command by name. `pyproject.toml` maps each command to its module
+in `src/review_agent/cli/`, and `PYTHONPATH=src python3 -m review_agent.cli.admin`
+runs the same code without installing:
+
+```bash
+python3 -m pip install --constraint requirements/requirements-admin.txt --editable .
+review-agent-admin capabilities
+```
+
 Run the fast bundle for every change. Run the PostgreSQL contract when Docker
 is available, and always when database or durable workflow behavior changes:
 
@@ -28,7 +39,7 @@ skips the backup and restore check:
 Admin frontend work also requires Node.js 24 and `sh ./scripts/check_admin.sh`.
 The script checks the committed OpenAPI schema and generated TypeScript types,
 then builds the frontend. After an intentional API change, regenerate them with
-`python3 tools/generate_admin_openapi.py > admin/openapi.json` and
+`python3 scripts/generate_admin_openapi.py > admin/openapi.json` and
 `npm --prefix admin run generate`. Authentication tests use the disposable
 PostgreSQL environment in `check_postgres_schema.sh`.
 
@@ -49,7 +60,7 @@ export REVIEW_AGENT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/
 export REVIEW_AGENT_ADMIN_PUBLIC_URL=http://127.0.0.1:5173
 
 REVIEW_AGENT_RUNTIME_DATABASE_URL=postgresql://review_agent_runtime:local-runtime-password@127.0.0.1:55432/postgres \
-  python3 tools/review_agent_admin.py database prepare
+  python3 -m review_agent.cli.admin database prepare
 python3 -m review_agent.console.auth --email admin@example.com
 uvicorn review_agent.console.app:app_from_environment --factory --port 8090
 ```
@@ -72,7 +83,6 @@ with `docker rm --force review-agent-dev-db`.
 | Path | What it is |
 | --- | --- |
 | `src/review_agent/` | The application: one Python package, `review_agent`, loaded by Hermes as a plugin and by every service |
-| `tools/` | Entrypoints for the services and operator commands; each starts code from the package |
 | `bootstrap/` | What the image installs into Hermes: installer, managed configuration, reviewer profiles |
 | `admin/` | The admin console frontend (React); its API lives in the package's `console/` |
 | `tests/` | Unit tests and the PostgreSQL contract tests; `tests/support.py` seeds review runs for them |
@@ -80,7 +90,7 @@ with `docker rm --force review-agent-dev-db`.
 | `examples/`, `install/`, `skills/` | The Helm chart, example configuration, the install plan schema, and the install skill |
 | `docs/`, `website/` | Documentation and the site that publishes it |
 | `requirements.txt`, `requirements/` | Pinned dependencies: the runtime's at the root; the console's, the code graph's, development and release tooling in the directory |
-| `pyproject.toml` | Build metadata for the package, and Ruff and Pyright settings. `pip install .` builds and installs the package with its migrations, and `./scripts/check_package.sh` checks the installed copy; images still copy the source tree |
+| `pyproject.toml` | Build metadata for the package, the installed commands (`[project.scripts]`), and Ruff and Pyright settings. The images build the wheel and install it without dependencies on top of the pins; `./scripts/check_package.sh` checks the installed copy and its commands |
 
 Inside the package:
 
@@ -88,19 +98,19 @@ Inside the package:
 | --- | --- |
 | `__init__.py` | The Hermes plugin entry: `register()` wires the model tools |
 | `settings.py`, `deployment_settings.py`, `capacity.py`, `https.py`, `build_info.py` | Shared by several packages: environment settings, operator policy defaults, per-response budgets and page limits, same-origin HTTPS redirect handling, image build metadata |
-| `admission.py`, `worker.py`, `publisher.py` | The webhook intake, review worker and publisher processes |
 | `domain/` | Pure rules and value types with no I/O: review subject, finding, publication, feedback commands, diff, suggestions, failure codes |
 | `postgres/` | PostgreSQL stores, one module per table family. `runtime.py` owns the pool, `telemetry.py` records process presence, and `migrations/` holds the runner and the SQL |
-| `github/` | Everything that talks to GitHub: App credentials, the read client, webhook verification, the private gateway that holds the App key and its client, the delivery worker, publication delivery |
+| `github/` | Everything that talks to GitHub: App credentials, the read client, webhook verification, the private gateway that holds the App key and its client, delivery processing, publication delivery |
 | `hermes/` | Everything specific to the Hermes runtime: chat and control clients, runtime API, model accounts, quota, context window, the provider gateway |
 | `repository_context/` | A repository's `.review-agent/` package: guidance, decisions, validation |
 | `code_graph/` | The optional code graph service, cache, indexer and client |
 | `review/` | Code-review use cases: run lifecycle, findings, parts, decisions, feedback, the review contract |
 | `documentation/` | Documentation-review use cases: scope, preflight, findings, configuration |
 | `publication/` | Turning a finished review into GitHub output: plan, render, partition, publish |
-| `tools/` | The tools the review model calls, with their JSON schemas. Not the repository's `tools/` directory of entrypoints |
+| `tools/` | The tools the review model calls, with their JSON schemas |
 | `operations/` | Operator use cases: inspection and recovery in `inspection.py`; `doctor`, the smoke test and App registration in `readiness.py` |
 | `console/` | The admin console backend. `app.py` builds the FastAPI app, `auth.py` wires sign-in and the account routes, `accounts.py` holds accounts and sessions, `registration.py` and `account_admin.py` their use cases, `application.py` the console's other use cases, and `api/` one HTTP module per area |
+| `cli/` | One module per installed command, named after the command: `review-agent-worker` is `cli/worker.py`. The exception is `review-agent-memory`, which inspects stored records and is `cli/records.py`. A long-running command holds its loop or server: the review worker, the publisher, webhook intake, the GitHub App delivery worker, the GitHub gateway and the code graph service |
 
 One noun names a concept in every layer: `domain/finding.py` holds the values,
 `postgres/findings.py` the store, `review/findings.py` the use cases and
@@ -118,8 +128,8 @@ there would load a second copy.
 Dependencies point mostly one way: `domain/`, then `postgres/`, then the
 adapters (`github/`, `hermes/`, `repository_context/`, `code_graph/`), then the
 use cases (`review/`, `documentation/`, `publication/`, `operations/`), then
-what calls them (`tools/`, `console/`, the process modules and the
-entrypoints). The top-level modules are shared configuration. This is a
+what calls them (`tools/`, `console/`, `cli/`). The top-level modules are
+shared configuration. This is a
 direction, not a strict layering: some imports still point upward, most of
 them to `review/contract.py`.
 

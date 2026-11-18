@@ -64,11 +64,10 @@ examples/repository-context/.review-agent only when the target has no
 in place. Keep instructions in instructions.md, list technical context
 explicitly in config.toml, and store indexed ADRs under
 .review-agent/decisions/. Do not invent or auto-discover policy files. Prepare
-the documented virtual environment, then run
-.venv/bin/python tools/review_agent_admin.py repository-context validate
-against the target repository. Show the repository diff and bounded validation
-receipt for normal review. The new guidance becomes active only after it is
-merged and a later pull request reads it from the base commit.
+the environment and validate the target repository with the commands that
+section gives for the release you checked out. Show the repository diff and
+bounded validation receipt for normal review. The new guidance becomes active
+only after it is merged and a later pull request reads it from the base commit.
 ```
 
 This path needs no Dokploy access, model login, database connection, or GitHub

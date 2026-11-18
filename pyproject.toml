@@ -1,10 +1,11 @@
 # Build metadata and tool configuration. The wheel holds the package,
-# src/review_agent, with its migrations and plugin manifest. Images do not
-# install it yet: they copy bootstrap/, the package and tools/ and install the
-# pins in requirements.txt and requirements/.
+# src/review_agent, with its migrations and plugin manifest, and names the
+# installed commands. Images install it without dependencies on top of the pins
+# in requirements.txt and requirements/.
 
 [build-system]
-requires = ["setuptools>=77"]
+# Pinned like every other build input: the image builds fetch and run it.
+requires = ["setuptools==84.2.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -43,6 +44,19 @@ admin = [
 # The runtime API the plugin registers inside the Hermes gateway.
 hermes = ["aiohttp>=3.14.4"]
 
+# One module in src/review_agent/cli per command. review-agent-memory is a
+# historical name: it inspects stored records.
+[project.scripts]
+review-agent-admin = "review_agent.cli.admin:main"
+review-agent-admission = "review_agent.cli.admission:main"
+review-agent-code-graph = "review_agent.cli.code_graph:main"
+review-agent-github-app-worker = "review_agent.cli.github_app_worker:main"
+review-agent-github-gateway = "review_agent.cli.github_gateway:main"
+review-agent-hermes-contract = "review_agent.cli.hermes_contract:main"
+review-agent-memory = "review_agent.cli.records:main"
+review-agent-publisher = "review_agent.cli.publisher:main"
+review-agent-worker = "review_agent.cli.worker:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["review_agent*"]
@@ -65,10 +79,10 @@ include = [
     "src/review_agent",
     "bootstrap/install.py",
     "scripts/check_trivy_report.py",
+    "scripts/generate_admin_openapi.py",
     "scripts/validate_release_tag.py",
     "scripts/write_build_info.py",
     "scripts/prepare_frontend_sbom.py",
-    "tools",
 ]
 exclude = [
     "**/__pycache__",
@@ -84,6 +98,6 @@ reportMissingImports = "error"
 reportMissingModuleSource = "error"
 reportMissingTypeStubs = "error"
 executionEnvironments = [
-    { root = ".", extraPaths = ["tools", "src"] },
+    { root = ".", extraPaths = ["src"] },
     { root = "src", extraPaths = ["src"] },
 ]

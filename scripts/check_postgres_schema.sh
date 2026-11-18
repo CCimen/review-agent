@@ -165,12 +165,14 @@ if [ -z "$RESTORE_HOST_PORT" ]; then
 fi
 
 PYTHONDONTWRITEBYTECODE=1 \
+PYTHONPATH="$ROOT/src" \
 REVIEW_AGENT_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:$RESTORE_HOST_PORT/review_agent_restore" \
 REVIEW_AGENT_RUNTIME_DATABASE_URL="postgresql://review_agent_restore_runtime:restore-runtime-password@127.0.0.1:$RESTORE_HOST_PORT/review_agent_restore" \
-    python3 tools/review_agent_admin.py database prepare
+    python3 -m review_agent.cli.admin database prepare
 PYTHONDONTWRITEBYTECODE=1 \
+PYTHONPATH="$ROOT/src" \
 REVIEW_AGENT_DATABASE_URL="postgresql://review_agent_restore_runtime:restore-runtime-password@127.0.0.1:$RESTORE_HOST_PORT/review_agent_restore" \
-    python3 tools/review_agent_admin.py database ready
+    python3 -m review_agent.cli.admin database ready
 
 RESTORED_MIGRATIONS=$(docker exec "$RESTORE_CONTAINER" \
     psql \

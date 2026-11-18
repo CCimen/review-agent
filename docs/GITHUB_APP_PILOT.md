@@ -24,11 +24,14 @@ Examples use Compose.
 
 ## 1. Register the App
 
-From a source checkout with the Python requirements installed, generate a
-prefilled registration URL:
+Generate a prefilled registration URL with the release image you will deploy.
+The command needs no network, database or secrets:
 
 ```bash
-python3 tools/review_agent_admin.py github-app registration-url \
+docker run --rm --network none \
+  --entrypoint review-agent-admin \
+  ghcr.io/ccimen/review-agent:<release> \
+  github-app registration-url \
   --owner <account> --owner-type <user-or-organization> \
   --public-url https://review.example.org \
   --homepage-url https://docs.example.org/review-agent/

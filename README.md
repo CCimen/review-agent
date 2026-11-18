@@ -128,8 +128,7 @@ src/review_agent/                       the application package; start reading h
   review/  documentation/               code-review and documentation-review use cases
   publication/  operations/             publishing a finished review; operator use cases
   tools/  console/                      the tools the review model calls; the admin console backend
-  worker.py  publisher.py  admission.py the long-running processes
-tools/                                  entrypoints for the services and operator commands
+  cli/                                  one module per installed command, with its loop or server
 bootstrap/                              installer, managed configuration, reviewer profiles
 admin/                                  admin console frontend
 tests/  scripts/                        tests, CI checks and release tooling

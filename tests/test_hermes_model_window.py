@@ -1,11 +1,8 @@
 """Offline model-window contract checks executed inside the pinned Hermes image."""
 
 import importlib.util
-import sys
 import unittest
 from unittest.mock import patch
-
-sys.path.insert(0, "/opt/review-agent-bootstrap/plugins")
 
 CONFIG = {"compression": {"threshold": 0.8}}
 

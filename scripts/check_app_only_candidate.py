@@ -28,7 +28,6 @@ SCAN_ROOTS = (
     Path("scripts"),
     Path("skills"),
     Path("src"),
-    Path("tools"),
     Path("website"),
 )
 EXCLUDED_PARTS = {

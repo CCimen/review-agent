@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Serve the private deterministic Review Agent GitHub gateway."""
 
 from __future__ import annotations
@@ -10,7 +9,6 @@ import hmac
 import json
 import logging
 import os
-from pathlib import Path
 import signal
 import sys
 import threading
@@ -18,27 +16,12 @@ from typing import Mapping, cast
 
 import psycopg
 
-
-def _load_package() -> None:
-    candidates = (
-        Path("/opt/review-agent-bootstrap/plugins"),
-        Path(__file__).resolve().parents[1] / "src",
-    )
-    for candidate in candidates:
-        if (candidate / "review_agent" / "github" / "gateway.py").is_file():
-            sys.path.insert(0, str(candidate))
-            return
-    raise SystemExit("Could not locate the review_agent package")
-
-
-_load_package()
-
-from review_agent.github.app_auth import (  # noqa: E402
+from ..github.app_auth import (
     GitHubAppConfigurationError,
     GitHubAppTokenService,
     load_private_key_file,
 )
-from review_agent.github.gateway import (  # noqa: E402
+from ..github.gateway import (
     ACKNOWLEDGE_FEEDBACK_PATH,
     ACKNOWLEDGE_REVIEW_PATH,
     AUTHORIZE_FEEDBACK_DELIVERY_PATH,
@@ -56,20 +39,20 @@ from review_agent.github.gateway import (  # noqa: E402
     ReviewSourceRequest,
     ReviewGitHubGateway,
 )
-from review_agent.github.publication_gateway import (  # noqa: E402
+from ..github.publication_gateway import (
     EXECUTE_REVIEW_PUBLICATION_PATH,
     PublicationGatewayRequest,
     ReviewPublicationGateway,
     result_mapping,
 )
-from review_agent.postgres.runtime import (  # noqa: E402
+from ..postgres.runtime import (
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,
     PostgreSQLRuntimeRole,
 )
-from review_agent.settings import ReviewAgentSettings  # noqa: E402
-from review_agent.postgres.deployment_settings import apply_at_startup  # noqa: E402
-from review_agent.code_graph.contract import (  # noqa: E402
+from ..settings import ReviewAgentSettings
+from ..postgres.deployment_settings import apply_at_startup
+from ..code_graph.contract import (
     GRAPH_EMBEDDINGS_PATH,
     GraphError,
     GraphIdentity,

@@ -54,7 +54,7 @@ from review_agent.postgres.migrations import runner  # noqa: E402
 from review_agent.settings import PostgresDatabaseUrl  # noqa: E402
 from review_agent.hermes.chat import HermesChatClient  # noqa: E402
 from review_agent.review.turn import ReviewTurnError  # noqa: E402
-from review_agent.worker import (  # noqa: E402
+from review_agent.cli.worker import (  # noqa: E402
     ReviewWorker,
     WorkerPolicy,
 )

@@ -279,15 +279,18 @@ class DocumentationScopeTests(unittest.TestCase):
 
             command = subprocess.run(
                 (
-                    sys.executable,
-                    str(ROOT / "tools/review_agent_admin.py"),
+                    sys.executable, "-m", "review_agent.cli.admin",
                     "repository-context", "docs-scope", str(root),
                     "--base", base, "--head", head,
                 ),
                 check=True,
                 stdout=subprocess.PIPE,
                 text=True,
-                env={**os.environ, "GIT_EXTERNAL_DIFF": "must-not-run"},
+                env={
+                    **os.environ,
+                    "PYTHONPATH": str(ROOT / "src"),
+                    "GIT_EXTERNAL_DIFF": "must-not-run",
+                },
             )
             scope = json.loads(command.stdout)
 

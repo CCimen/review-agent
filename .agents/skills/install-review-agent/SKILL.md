@@ -60,14 +60,15 @@ otherwise preserve the existing package and edit it in place:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+.venv/bin/python -m pip install --disable-pip-version-check \
+  --constraint requirements/requirements-admin.txt -e .
 repository_root=/path/to/repository
 if [ -e "$repository_root/.review-agent" ]; then
   echo ".review-agent already exists; preserve it and edit it in place."
 else
   cp -R examples/repository-context/.review-agent "$repository_root/"
 fi
-.venv/bin/python tools/review_agent_admin.py repository-context validate \
+.venv/bin/review-agent-admin repository-context validate \
   "$repository_root"
 ```
 
@@ -138,8 +139,9 @@ Prepare the source checkout once:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
-.venv/bin/python tools/review_agent_admin.py capabilities
+.venv/bin/python -m pip install --disable-pip-version-check \
+  --constraint requirements/requirements-admin.txt -e .
+.venv/bin/review-agent-admin capabilities
 ```
 
 The last command returns the shipped behavior as bounded JSON.
@@ -196,7 +198,7 @@ The last command returns the shipped behavior as bounded JSON.
 3. Generate the prefilled App registration URL with:
 
    ```bash
-   .venv/bin/python tools/review_agent_admin.py github-app registration-url \
+   .venv/bin/review-agent-admin github-app registration-url \
      --owner <account> --owner-type <user-or-organization> \
      --public-url https://<review-agent-domain> \
      --homepage-url https://<documentation-or-repository-url>
@@ -215,7 +217,7 @@ The last command returns the shipped behavior as bounded JSON.
    deployment values, not the interactive wizard, are the source of truth.
    Do not claim live validation for a non-default provider until its deployed
    route passes the same dry-run and live acceptance gates.
-5. Run `.venv/bin/python tools/review_agent_admin.py preflight` in the prepared host
+5. Run `.venv/bin/review-agent-admin preflight` in the prepared host
    environment. It is local and non-mutating.
 
 Before any external write, show the exact image or commit, services, public
@@ -280,7 +282,7 @@ installation inventory and repository activation.
    access before the configuration PR is merged:
 
    ```bash
-   .venv/bin/python tools/review_agent_admin.py \
+   .venv/bin/review-agent-admin \
      repository-context validate /path/to/repository
    ```
 

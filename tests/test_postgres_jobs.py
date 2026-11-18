@@ -51,6 +51,7 @@ from review_agent_tools.worker import (  # noqa: E402
     ReviewWorker,
     WorkerPolicy,
 )
+from tests import support  # noqa: E402
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -1552,7 +1553,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             self.subject(pull, head_character="a"),
             request_key=f"github:manual:split:{provider_id}",
         )
-        review_run_application.register_postgres_changed_files(
+        support.register_postgres_changed_files(
             self.runtime,
             run_id=run.run.id,
             files=tuple(

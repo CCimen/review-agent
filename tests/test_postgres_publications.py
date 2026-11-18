@@ -72,6 +72,7 @@ from review_agent_tools.publisher import (  # noqa: E402
     PublisherPolicy,
 )
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from tests import support  # noqa: E402
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -697,7 +698,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 )
             )
         paths = [item.path for item in changed_files]
-        result = review_run_application.start_postgres_review(
+        result = support.start_postgres_review(
             self.runtime,
             review_run_application.PostgresRunRequest(
                 provider="github",
@@ -714,7 +715,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, review_runs.StartedRun)
-        review_run_application.register_postgres_changed_files(
+        support.register_postgres_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=changed_files,
@@ -1881,7 +1882,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             (paths[25:27], DiffState.TRUNCATED),
             (paths[27:28], DiffState.COMPLETE),
         ):
-            review_run_application.record_postgres_diff_observation(
+            support.record_postgres_diff_observation(
                 self.runtime,
                 run_id=run_id,
                 paths=selected,
@@ -1929,7 +1930,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 for path in paths
             ),
         )
-        review_run_application.record_postgres_diff_observation(
+        support.record_postgres_diff_observation(
             self.runtime,
             run_id=run_id,
             paths=paths,
@@ -4248,7 +4249,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 findings_count=4,
             )
 
-        result = review_run_application.start_postgres_review(
+        result = support.start_postgres_review(
             self.runtime,
             review_run_application.PostgresRunRequest(
                 provider="github",
@@ -4264,7 +4265,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ),
         )
         assert isinstance(result, review_runs.StartedRun)
-        review_run_application.register_postgres_changed_files(
+        support.register_postgres_changed_files(
             self.runtime,
             run_id=result.run.id,
             files=(

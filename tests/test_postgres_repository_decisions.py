@@ -23,6 +23,7 @@ from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.review import (  # noqa: E402
     run_application as review_run_application,
 )
+from tests import support  # noqa: E402
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -44,7 +45,7 @@ class PostgreSQLRepositoryDecisionTests(unittest.TestCase):
         self.runtime.close()
 
     def start_run(self) -> ReviewRunId:
-        result = review_run_application.start_postgres_review(
+        result = support.start_postgres_review(
             self.runtime,
             review_run_application.PostgresRunRequest(
                 provider="github",

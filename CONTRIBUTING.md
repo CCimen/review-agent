@@ -80,7 +80,7 @@ with `docker rm --force review-agent-dev-db`.
 | `examples/`, `install/`, `skills/` | The OpenShift template and Helm chart, example configuration, the install plan schema, and the install skill |
 | `docs/`, `website/` | Documentation and the site that publishes it |
 | `requirements.txt`, `requirements/` | Pinned dependencies: the runtime's at the root; the console's, the code graph's, development and release tooling in the directory |
-| `pyproject.toml` | Ruff and Pyright settings; the application is not an installable distribution |
+| `pyproject.toml` | Build metadata for the package, and Ruff and Pyright settings. `pip install .` builds and installs the package with its migrations, and `./scripts/check_package.sh` checks the installed copy; images still copy the source tree |
 
 Inside the package:
 

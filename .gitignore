@@ -15,3 +15,6 @@ admin/dist/
 admin/dist-preview/
 admin/*.tsbuildinfo
 bootstrap/plugins/review_agent_tools/_build.json
+/build/
+/dist/
+*.egg-info/

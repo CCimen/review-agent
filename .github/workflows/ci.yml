@@ -53,6 +53,9 @@ jobs:
       - name: Validate Python bundle
         run: ./scripts/check_bundle.sh
 
+      - name: Validate installed package
+        run: ./scripts/check_package.sh
+
       - name: Validate admin frontend and generated API contract
         run: sh ./scripts/check_admin.sh
 

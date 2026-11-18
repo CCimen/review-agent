@@ -17,7 +17,7 @@ from ..domain.documentation_operating_policy import (
 )
 from ..domain.review import ReviewPurpose, ReviewRunId
 from ..domain.documentation_review import DocumentationOutcome, EvidenceRead
-from ..documentation.scope import DocumentationScope
+from ..domain.documentation_scope import DocumentationScope
 from . import coverage as postgres_coverage
 from . import documentation_operating_policy
 from . import documentation_reviews

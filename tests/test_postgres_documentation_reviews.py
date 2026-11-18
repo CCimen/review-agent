@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 from review_agent_tools.review import (  # noqa: E402
     run_application as review_run_application,
 )
-from review_agent_tools.documentation.scope import (  # noqa: E402
+from review_agent_tools.domain.documentation_scope import (  # noqa: E402
     ChangedPath,
     DocumentationScope,
     ScopeExclusion,

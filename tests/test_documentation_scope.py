@@ -15,6 +15,7 @@ PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools.documentation import scope as documentation_scope  # noqa: E402
+from review_agent_tools.domain.documentation_scope import ChangedPath  # noqa: E402
 from review_agent_tools.domain import documentation_policy  # noqa: E402
 
 
@@ -72,7 +73,7 @@ class DocumentationScopeTests(unittest.TestCase):
             base_sha="a" * 40,
             comparison_sha="a" * 40,
             head_sha="b" * 40,
-            changed_files=(documentation_scope.ChangedPath("M", "src/config.py"),),
+            changed_files=(ChangedPath("M", "src/config.py"),),
             policy=policy,
             policy_hash="sha256:" + "c" * 64,
         )

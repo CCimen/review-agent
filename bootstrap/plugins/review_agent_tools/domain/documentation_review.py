@@ -8,7 +8,7 @@ import json
 import re
 from typing import cast
 
-from ..documentation.scope import (
+from .documentation_scope import (
     ChangedPath,
     DocumentationScope,
     ScopeExclusion,

@@ -32,7 +32,7 @@
           "minLength": 1
         },
         "platform": {
-          "enum": ["compose", "openshift"]
+          "enum": ["compose"]
         },
         "public_url": {
           "type": "string",

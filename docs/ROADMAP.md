@@ -22,7 +22,7 @@ last_verified: 2026-11-17
 | Code graph (optional) | Structural and semantic lookups of related code | [Code graph](./CODE_GRAPH.md) |
 | Admin console (optional) | Teams, roles, repository access, model connections, usage, audit, OIDC and SCIM | [Admin panel](./ADMIN_PANEL.md) |
 | Many organizations | One deployment serves any number of approved GitHub App installations | [GitHub App setup](./GITHUB_APP_PILOT.md#share-the-app-with-other-organizations) |
-| Deployment | One Compose stack for Docker, Dokploy, Coolify, and Portainer, an OpenShift template, and a Helm chart for Kubernetes | [Deployment](./DEPLOYMENT.md) |
+| Deployment | One Compose stack for Docker, Dokploy, Coolify, and Portainer, and a Helm chart for Kubernetes | [Deployment](./DEPLOYMENT.md) |
 
 State lives in one PostgreSQL database per environment. Jobs and publication
 are lease-based, so workers and publishers can run in several replicas and an

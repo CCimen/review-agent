@@ -28,9 +28,9 @@ and API together on port `8090`; Node.js is used only during the build. Follow
 the normal [deployment and upgrade procedure](DEPLOYMENT.md), including backup
 and migrations.
 
-The OpenShift template deploys the main runtime only; running the
-console there also needs a Deployment, Service, HTTPS Route and network-policy
-access to the private database and gateway, which that template does not supply.
+The Helm chart deploys the main runtime only; running the console on Kubernetes
+also needs a Deployment, Service, HTTPS ingress and network-policy access to the
+private database and gateway, which the chart does not supply.
 
 1. Add these non-secret values to the deployment configuration:
 
@@ -689,7 +689,7 @@ configured, container state.
 - Structured events record process lifecycle and review handoff with run and job
   IDs, never stdout, prompts, model reasoning or provider responses. Each
   instance keeps its latest 1,000 events; instances unseen for seven days are
-  removed with their events. Use Dokploy or OpenShift for full container logs.
+  removed with their events. Use Dokploy for full container logs.
 
 ### Dokploy container state
 

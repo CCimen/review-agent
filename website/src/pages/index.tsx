@@ -162,11 +162,6 @@ function Home(): ReactNode {
                       platform secret UI.
                     </p>
                   </TabItem>
-                  <TabItem value="openshift" label="OpenShift">
-                    <CodeBlock language="bash">
-                      {'oc process -f examples/openshift/review-agent-template.yaml \\\n  -p IMAGE="$REVIEW_AGENT_IMAGE" \\\n  -p MODEL="$REVIEW_AGENT_MODEL" | oc apply -f -'}
-                    </CodeBlock>
-                  </TabItem>
                 </Tabs>
                 <p className={styles.setupLinks}>
                   <Link to="/docs/deployment">Open the deployment guide</Link>

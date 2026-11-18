@@ -1,6 +1,6 @@
 ---
 name: install-review-agent
-description: Plan, deploy, verify, upgrade, or recover the self-hosted Review Agent; approve an organization-managed GitHub App installation or explicit repositories; configure or validate repository-owned `.review-agent/` packages; and establish the initial quality baseline. Use for Review Agent installation, organization onboarding, Dokploy or Compose deployment, OpenShift setup, repository activation or context, readiness checks, smoke tests, initial quality reporting, upgrades, and rollback. Do not use to classify reviewer feedback or bypass owner, secret, OAuth, DNS, deployment, or live-review approval gates.
+description: Plan, deploy, verify, upgrade, or recover the self-hosted Review Agent; approve an organization-managed GitHub App installation or explicit repositories; configure or validate repository-owned `.review-agent/` packages; and establish the initial quality baseline. Use for Review Agent installation, organization onboarding, Dokploy or Compose deployment, repository activation or context, readiness checks, smoke tests, initial quality reporting, upgrades, and rollback. Do not use to classify reviewer feedback or bypass owner, secret, OAuth, DNS, deployment, or live-review approval gates.
 ---
 
 # Install Review Agent
@@ -116,7 +116,7 @@ Read only the material needed for the requested platform:
 
 - `website/static/llms.txt` for the public entry points and release state;
 - `docs/AI_ASSISTED_SETUP.md` for approval boundaries;
-- `docs/DEPLOYMENT.md` for Compose/Dokploy or OpenShift;
+- `docs/DEPLOYMENT.md` for Compose/Dokploy;
 - `docs/GITHUB_APP_PILOT.md` for App registration and repository activation;
 - `docs/REPOSITORY_CONTEXT.md` for optional repository-owned instructions,
   technical context, and typed decisions;
@@ -188,8 +188,8 @@ The last command returns the shipped behavior as bounded JSON.
    | `deployment.feedback_enabled` | `REVIEW_AGENT_FEEDBACK_ENABLED` |
    | `runtime.worker_concurrency` | `REVIEW_AGENT_WORKER_CONCURRENCY` |
    | `runtime.active_job_limit` | `REVIEW_AGENT_ACTIVE_JOB_LIMIT` |
-   | `runtime.worker_replicas` | Compose `--scale review-worker=N` or OpenShift replicas |
-   | `runtime.publication_replicas` | Compose `--scale review-publisher=N` or OpenShift replicas |
+   | `runtime.worker_replicas` | Compose `--scale review-worker=N` |
+   | `runtime.publication_replicas` | Compose `--scale review-publisher=N` |
 
    The public URL, platform, GitHub activation mode, and backup owner drive the
    deployment plan and its approval gates, not a runtime config file.
@@ -226,7 +226,7 @@ mutations.
 
 ## Apply the approved deployment
 
-Use the repository's Compose or OpenShift definition without copying its logic
+Use the repository's Compose definition without copying its logic
 into another template. Change only the named environment or project. Keep the
 GitHub gateway, PostgreSQL, Hermes API, workers, and publishers private; expose
 only the admission route.
@@ -250,10 +250,7 @@ resume after confirmation.
 Use `docker compose exec hermes-review review-agent-admin ...` for health,
 queue, and smoke-test commands. Use
 `docker compose exec review-github-gateway review-agent-admin ...` for
-installation inventory and repository activation. On OpenShift, use
-`oc rsh deployment/hermes-review review-agent-admin ...` and
-`oc rsh deployment/review-agent-github-gateway review-agent-admin ...`,
-respectively.
+installation inventory and repository activation.
 
 1. List the installation from the private gateway, then choose one activation
    policy. For the recommended organization-managed mode, approve the

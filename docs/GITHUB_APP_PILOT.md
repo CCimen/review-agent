@@ -20,10 +20,7 @@ There are two ways to use it:
 | Run your own Review Agent | Deploy it, register your own App (steps 1–5). The App can stay private. |
 | Let another organization use your deployment | Make your App public and approve their installation ([Share the App](#share-the-app-with-other-organizations)). |
 
-Examples use Compose. On OpenShift, replace
-`docker compose exec review-github-gateway` with
-`oc rsh deployment/review-agent-github-gateway`, and
-`docker compose exec hermes-review` with `oc rsh deployment/hermes-review`.
+Examples use Compose.
 
 ## 1. Register the App
 

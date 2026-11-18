@@ -67,25 +67,25 @@ class DeploymentConfigTests(unittest.TestCase):
         self.assertNotIn("review-runtime", gateway)
         self.assertNotIn("review-ingress", gateway)
 
-    def test_openshift_runtime_matches_the_app_only_credential_boundary(self):
-        template = read("examples/openshift/review-agent-template.yaml")
-
-        document = mapping(yaml.safe_load(template))
+    def test_helm_chart_matches_the_app_only_credential_boundary(self):
+        objects = self._chart_objects(
+            "--set", "drained=true", "--set", "initialize=true"
+        )
         containers: dict[str, dict[str, object]] = {}
         job_containers: dict[str, dict[str, object]] = {}
         pod_specs: dict[str, dict[str, object]] = {}
-        for raw_object in sequence(document["objects"]):
-            resource = mapping(raw_object)
-            if resource.get("kind") == "Job":
-                name = str(mapping(resource["metadata"])["name"])
+        for (kind, name), resource in objects.items():
+            if kind == "Job":
                 spec = mapping(resource["spec"])
                 pod_template = mapping(spec["template"])
                 pod_spec = mapping(pod_template["spec"])
-                job_containers[name] = mapping(sequence(pod_spec["containers"])[0])
+                # Jobs are immutable, so every release revision gets its own.
+                job_containers[name.removesuffix("-1")] = mapping(
+                    sequence(pod_spec["containers"])[0]
+                )
                 continue
-            if resource.get("kind") != "Deployment":
+            if kind != "Deployment":
                 continue
-            name = str(mapping(resource["metadata"])["name"])
             spec = mapping(resource["spec"])
             pod_template = mapping(spec["template"])
             pod_spec = mapping(pod_template["spec"])
@@ -157,13 +157,9 @@ class DeploymentConfigTests(unittest.TestCase):
                 "review-agent-publisher",
             },
         )
-        gateway_policy = next(
-            mapping(resource)
-            for resource in sequence(document["objects"])
-            if mapping(resource).get("kind") == "NetworkPolicy"
-            and mapping(mapping(resource)["metadata"])["name"]
-            == "review-agent-github-gateway-ingress"
-        )
+        gateway_policy = objects[
+            ("NetworkPolicy", "review-agent-github-gateway-ingress")
+        ]
         gateway_peers = {
             mapping(mapping(mapping(peer)["podSelector"])["matchLabels"])["app"]
             for rule in sequence(mapping(gateway_policy["spec"])["ingress"])
@@ -199,10 +195,6 @@ class DeploymentConfigTests(unittest.TestCase):
         key_secret = mapping(gateway_volumes["app-key"]["secret"])
         self.assertEqual(key_secret["secretName"], "review-agent-github-app")
 
-        self.assertNotIn("ALLOWED_REPOSITORIES", template)
-        self.assertNotIn("REVIEW_AGENT_ALLOWED_REPOSITORIES", template)
-        self.assertNotIn("REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES", template)
-
     def test_default_profile_has_no_repository_specific_assumptions(self):
         soul = read("bootstrap/profiles/default-standard/SOUL.md")
         canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
@@ -236,8 +228,8 @@ class DeploymentConfigTests(unittest.TestCase):
 
     def test_worker_shutdown_grace_matches_across_deployments(self):
         compose = read("compose.yaml")
-        openshift_template = mapping(
-            yaml.safe_load(read("examples/openshift/review-agent-template.yaml"))
+        helm_values = mapping(
+            yaml.safe_load(read("examples/helm/review-agent/values.yaml"))
         )
         compose_worker = compose.split("\n  review-worker:\n", 1)[1].split(
             "\n  review-github-gateway:", 1
@@ -248,26 +240,14 @@ class DeploymentConfigTests(unittest.TestCase):
         )
         self.assertIsNotNone(compose_grace)
         assert compose_grace is not None
-        grace_parameter = next(
-            mapping(item)
-            for item in sequence(openshift_template["parameters"])
-            if mapping(item).get("name") == "WORKER_TERMINATION_GRACE_SECONDS"
-        )
-        worker_deployment = next(
-            mapping(item)
-            for item in sequence(openshift_template["objects"])
-            if mapping(mapping(item).get("metadata", {})).get("name")
-            == "review-agent-worker"
-        )
+        helm_grace = helm_values["workerTerminationGraceSeconds"]
+
+        self.assertEqual(helm_grace, int(compose_grace.group(1)))
+        worker_deployment = self._chart_objects()[("Deployment", "review-agent-worker")]
         worker_pod = mapping(
             mapping(mapping(worker_deployment["spec"])["template"])["spec"]
         )
-
-        self.assertEqual(grace_parameter["value"], compose_grace.group(1))
-        self.assertEqual(
-            worker_pod["terminationGracePeriodSeconds"],
-            "${{WORKER_TERMINATION_GRACE_SECONDS}}",
-        )
+        self.assertEqual(worker_pod["terminationGracePeriodSeconds"], helm_grace)
 
     def test_app_runtime_uses_least_privilege_deployment(self):
         compose = read("compose.yaml")
@@ -410,12 +390,6 @@ class DeploymentConfigTests(unittest.TestCase):
         self.assertIn(required_model, compose_admin)
         self.assertNotIn("REVIEW_AGENT_MODEL:-", compose + compose_admin)
         self.assertIn("REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET:?", compose)
-        openshift = read("examples/openshift/review-agent-template.yaml")
-        model_parameter = openshift.split("  - name: MODEL\n", 1)[1].split(
-            "  - name:", 1
-        )[0]
-        self.assertIn("required: true", model_parameter)
-        self.assertNotIn("value:", model_parameter)
         deployment_schema = mapping(mapping(install_schema["properties"])["deployment"])
         deployment_properties = mapping(deployment_schema["properties"])
         effort_schema = mapping(deployment_properties["reasoning_effort"])
@@ -444,19 +418,6 @@ class DeploymentConfigTests(unittest.TestCase):
                     "docker compose up -d --no-deps --no-build --force-recreate",
                 ),
             ),
-            "bash -euo pipefail <<'OPENSHIFT_UPGRADE'": (
-                tab("openshift-upgrade", "OpenShift"),
-                (
-                    "oc process -f examples/openshift/review-agent-template.yaml",
-                    'oc scale deployment "${DEPLOYMENTS[@]}" --replicas=0',
-                    "oc wait --for=delete $pods",
-                    "oc delete job review-agent-profile-install",
-                    'oc apply -f "$RENDERED"',
-                    "oc wait --for=condition=complete job/review-agent-profile-install",
-                    "oc scale deployment/hermes-review",
-                    "oc scale deployment/review-agent-admission",
-                ),
-            ),
             "bash -euo pipefail <<'HELM_DEPLOY'": (
                 tab("kubernetes-upgrade", "Kubernetes (Helm)"),
                 (
@@ -474,26 +435,6 @@ class DeploymentConfigTests(unittest.TestCase):
                 self.assertIn(fail_fast_shell, procedure)
                 positions = [procedure.index(step) for step in steps]
                 self.assertEqual(positions, sorted(positions))
-
-    def test_documented_openshift_commands_supply_required_parameters(self):
-        template = mapping(
-            yaml.safe_load(read("examples/openshift/review-agent-template.yaml"))
-        )
-        required = [
-            str(parameter["name"])
-            for parameter in map(mapping, sequence(template["parameters"]))
-            if parameter.get("required") and "value" not in parameter
-        ]
-        self.assertIn("MODEL", required)
-        render = "oc process -f examples/openshift/review-agent-template.yaml"
-        for document in ("docs/DEPLOYMENT.md", "website/src/pages/index.tsx"):
-            commands = read(document).split(render)[1:]
-            self.assertTrue(commands, document)
-            for command in commands:
-                arguments = command.split("oc apply", 1)[0].split('"$RENDERED"', 1)[0]
-                for name in required:
-                    with self.subTest(document=document, parameter=name):
-                        self.assertIn(f"-p {name}=", arguments)
 
     def _helm(self) -> str:
         helm = shutil.which("helm")
@@ -522,49 +463,10 @@ class DeploymentConfigTests(unittest.TestCase):
             )
         }
 
-    def test_helm_chart_deploys_the_same_workloads_as_the_openshift_template(self):
-        parameters: dict[str, object] = {
-            "${IMAGE}": HELM_IMAGE,
-            "${MODEL}": "example-model",
-            "${{WORKER_TERMINATION_GRACE_SECONDS}}": 150,
-        }
-        template = mapping(
-            yaml.safe_load(read("examples/openshift/review-agent-template.yaml"))
-        )
-        for parameter in map(mapping, sequence(template["parameters"])):
-            parameters.setdefault("${" + str(parameter["name"]) + "}", parameter.get("value"))
-
-        def resolved(value: object) -> object:
-            if isinstance(value, dict):
-                return {key: resolved(item) for key, item in mapping(value).items()}
-            if isinstance(value, list):
-                return [resolved(item) for item in sequence(value)]
-            return parameters.get(value, value) if isinstance(value, str) else value
-
+    def test_helm_chart_sets_pod_user_job_labels_and_shared_volume(self):
         def pod_template(item: dict[str, object]) -> dict[str, object]:
             return mapping(mapping(item["spec"])["template"])
 
-        expected = {
-            (str(item["kind"]), str(mapping(item["metadata"])["name"])): item
-            for item in map(mapping, sequence(resolved(template["objects"])))
-            if item["kind"] != "Route"
-        }
-        # The initialization phase is the template's own starting state: every
-        # workload at zero replicas and both Jobs present.
-        actual: dict[tuple[str, str], dict[str, object]] = {}
-        for (kind, name), item in self._chart_objects(
-            "--set", "drained=true", "--set", "initialize=true"
-        ).items():
-            if kind == "Job":
-                # Jobs are immutable, so every release revision gets its own.
-                self.assertTrue(name.endswith("-1"), name)
-                name = name.removesuffix("-1")
-                mapping(item["metadata"])["name"] = name
-            actual[(kind, name)] = item
-        self.assertEqual(set(expected), set(actual))
-
-        # Everything the chart adds to the template is asserted here and then
-        # removed, so the comparison below covers the rest exactly.
         colocated = {
             "podAffinity": {
                 "requiredDuringSchedulingIgnoredDuringExecution": [
@@ -577,8 +479,12 @@ class DeploymentConfigTests(unittest.TestCase):
                 ]
             }
         }
-        for key, item in actual.items():
-            kind, name = key
+        # The initialization phase renders every object: every workload at
+        # zero replicas and both Jobs present.
+        objects = self._chart_objects(
+            "--set", "drained=true", "--set", "initialize=true"
+        )
+        for (kind, name), item in objects.items():
             if kind in {"Deployment", "Job"}:
                 pod = mapping(pod_template(item)["spec"])
                 self.assertEqual(
@@ -591,29 +497,28 @@ class DeploymentConfigTests(unittest.TestCase):
                     },
                     pod["securityContext"],
                 )
-                pod["securityContext"] = {"seccompProfile": {"type": "RuntimeDefault"}}
             if kind == "Job":
+                # Jobs are immutable, so every release revision gets its own.
+                self.assertTrue(name.endswith("-1"), name)
                 # The deploy script finds earlier attempts by this label.
                 initialization = {"app": "review-agent-init"}
-                self.assertEqual(initialization, mapping(item["metadata"]).pop("labels"))
+                self.assertEqual(initialization, mapping(item["metadata"])["labels"])
                 self.assertEqual(
-                    {"labels": initialization}, pod_template(item).pop("metadata")
+                    {"labels": initialization}, pod_template(item)["metadata"]
                 )
             if name in {"hermes-review", "review-agent-worker"} and kind == "Deployment":
                 # Both mount the ReadWriteOnce Hermes volume, so each must
                 # land on the node of the other, whichever is replaced.
                 labels = mapping(mapping(pod_template(item)["metadata"])["labels"])
-                self.assertEqual("hermes-data", labels.pop("review-agent/volume"))
+                self.assertEqual("hermes-data", labels["review-agent/volume"])
                 self.assertEqual(
-                    colocated, mapping(pod_template(item)["spec"]).pop("affinity")
+                    colocated, mapping(pod_template(item)["spec"])["affinity"]
                 )
-            if kind == "PersistentVolumeClaim":
-                self.assertEqual(
-                    {"helm.sh/resource-policy": "keep"},
-                    mapping(item["metadata"]).pop("annotations"),
-                )
-            with self.subTest(kind=kind, name=name):
-                self.assertEqual(expected[key], item)
+        volume = objects[("PersistentVolumeClaim", "review-agent-hermes-data")]
+        self.assertEqual(
+            {"helm.sh/resource-policy": "keep"},
+            mapping(volume["metadata"])["annotations"],
+        )
 
     def test_helm_chart_runs_initialization_only_while_drained(self):
         def phase(*extra: str) -> tuple[int, set[object]]:

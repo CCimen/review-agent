@@ -13,10 +13,11 @@ The model reads code and proposes findings. Everything else is ordinary code:
 who may request a review, which commits are reviewed, what is stored, and what
 is written to GitHub.
 
-![Review lifecycle: admission stores the signed delivery; the App worker authorizes it through the private GitHub gateway and queues a job; the review worker runs one Hermes session in which the model reads source and the review tools record findings; the publisher rechecks both commits and posts the review. PostgreSQL holds each handoff.](../website/static/img/review-lifecycle.svg)
+![Review lifecycle: admission stores the signed delivery; the App worker authorizes it through the private GitHub gateway and queues a job; the review worker starts a Hermes session in which the model reads source and the review tools record findings; the publisher rechecks both commits and posts the review. PostgreSQL holds each handoff. The figure shows a review that fits one job.](../website/static/img/review-lifecycle.svg)
 
-A feedback command stops at the App worker, which records the decision and
-acknowledges the comment; no model runs.
+A [large pull request](#5-large-pull-requests) runs as several jobs and
+sessions. A feedback command stops at the App worker, which stores valid
+feedback and answers the comment through the gateway; no model runs.
 
 ## 1. Request and admission
 

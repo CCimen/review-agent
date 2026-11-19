@@ -416,10 +416,12 @@ class DeploymentConfigTests(unittest.TestCase):
             body = deployment.split(f"\n### {heading}\n", 1)[1]
             return re.split(r"\n#{2,3} ", body, maxsplit=1)[0]
 
-        # The Helm upgrade reruns the installation script.
-        self.assertIn(
-            "(#deploy-with-kubernetes-helm)",
-            section("Upgrade with Kubernetes (Helm)"),
+        # The Helm upgrade reruns the installation script instead of its own copy.
+        helm_upgrade = section("Upgrade with Kubernetes (Helm)")
+        self.assertIn("(#deploy-with-kubernetes-helm)", helm_upgrade)
+        self.assertNotIn(
+            "helm upgrade",
+            "".join(re.findall(r"```\w*\n(.*?)```", helm_upgrade, flags=re.S)),
         )
         procedures = {
             "bash -euo pipefail <<'COMPOSE_UPGRADE'": (

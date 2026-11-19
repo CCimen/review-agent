@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 470" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, system-ui, sans-serif">
   <title id="title">Compose topology</title>
-  <desc id="desc">Only admission and the optional console sit behind the reverse proxy. GitHub sends webhooks to admission; operators sign in to the console, which also mounts the App key and calls GitHub. The App worker, publisher, Hermes, and review worker reach GitHub only through the private gateway, which holds the App key and requests installation tokens. Hermes alone calls the model provider. The review worker calls Hermes on the runtime network. Every service connects to PostgreSQL on the internal database network.</desc>
+  <desc id="desc">Only admission and the optional console sit behind the reverse proxy. GitHub sends webhooks to admission; operators sign in to the console, which also mounts the App key and calls GitHub. The App worker, publisher, Hermes, and review worker reach GitHub only through the private gateway, which holds the App key and requests installation tokens. Hermes alone calls the model provider, for review inference. The review worker calls Hermes on the runtime network. Every service shown connects to PostgreSQL on the internal database network.</desc>
   <style>
     svg { --bg: #f7f9fb; --panel: #ffffff; --line: #c4cad3; --text: #1f1f25; --muted: #555a64; --accent: #005595; --soft: #e7f0f7; }
     @media (prefers-color-scheme: dark) {
@@ -76,7 +76,7 @@
   <line class="flow" x1="460" y1="234" x2="460" y2="66" marker-end="url(#arrow)"/>
   <text class="edge" x="468" y="150">installation tokens</text>
   <line class="flow" x1="652" y1="234" x2="652" y2="66" marker-end="url(#arrow)"/>
-  <text class="edge" x="660" y="150">model calls</text>
+  <text class="edge" x="660" y="150">review inference</text>
 
   <!-- GitHub control network -->
   <path class="net" d="M98 318H640"/>
@@ -98,7 +98,7 @@
 
   <rect class="db" x="28" y="346" width="512" height="56" rx="8"/>
   <text class="title" x="40" y="370">PostgreSQL</text>
-  <text class="body" x="40" y="390">state and queues · every service connects over review-database</text>
+  <text class="body" x="40" y="390">state and queues · every service shown connects over review-database</text>
   <rect class="box" x="572" y="346" width="160" height="56" rx="8"/>
   <text class="title" x="584" y="368">Review worker</text>
   <text class="body" x="584" y="390">runs review jobs</text>

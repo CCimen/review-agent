@@ -130,7 +130,7 @@ Last verified: 2026-11-18
 
 ## Runtime shape
 
-![Compose topology: only admission and the optional console sit behind the reverse proxy. The private GitHub gateway holds the App key, Hermes alone calls the model provider, and every service uses PostgreSQL on an internal network.](../website/static/img/compose-topology.svg)
+![Compose topology: only admission and the optional console sit behind the reverse proxy. The private GitHub gateway and the optional console hold the App key, Hermes alone calls the model provider, and every service shown uses PostgreSQL on an internal network.](../website/static/img/compose-topology.svg)
 
 One box represents one worker type, not one replica. Scale review workers and
 publishers independently. Expose admission on port `8644`. Keep the GitHub
@@ -144,10 +144,15 @@ publication operations. Hermes and the publisher do not receive the key or
 installation tokens. The optional admin panel also mounts the key, to read App
 and installation status for access administration.
 
-Two one-shot jobs run before the services start: `review-profile-install`
-installs the review profile and `review-db-migrate` migrates the database. The
-optional provider-control service runs in Hermes' network namespace, and the
-optional code graph reaches GitHub only through the gateway.
+Two one-shot jobs prepare the deployment: `review-profile-install` installs
+the review profile, and `review-db-migrate` migrates the database once
+PostgreSQL is healthy. The gateway starts after the migration. Admission and
+Hermes also wait for the profile; the App worker, publisher, and Hermes wait for
+a healthy gateway; and the review worker waits for a healthy Hermes.
+
+The optional provider-control service runs in Hermes' network namespace. The
+optional code graph reaches GitHub only through the gateway, which also sends
+its embedding requests to OpenAI when embeddings are enabled.
 
 ## Create the credentials
 
@@ -1290,10 +1295,11 @@ The model reads code and proposes findings. Everything else is ordinary code:
 who may request a review, which commits are reviewed, what is stored, and what
 is written to GitHub.
 
-![Review lifecycle: admission stores the signed delivery; the App worker authorizes it through the private GitHub gateway and queues a job; the review worker runs one Hermes session in which the model reads source and the review tools record findings; the publisher rechecks both commits and posts the review. PostgreSQL holds each handoff.](../website/static/img/review-lifecycle.svg)
+![Review lifecycle: admission stores the signed delivery; the App worker authorizes it through the private GitHub gateway and queues a job; the review worker starts a Hermes session in which the model reads source and the review tools record findings; the publisher rechecks both commits and posts the review. PostgreSQL holds each handoff. The figure shows a review that fits one job.](../website/static/img/review-lifecycle.svg)
 
-A feedback command stops at the App worker, which records the decision and
-acknowledges the comment; no model runs.
+A [large pull request](#5-large-pull-requests) runs as several jobs and
+sessions. A feedback command stops at the App worker, which stores valid
+feedback and answers the comment through the gateway; no model runs.
 
 ## 1. Request and admission
 

@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 470" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, system-ui, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 566" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, system-ui, sans-serif">
   <title id="title">How a /review comment becomes a published review</title>
-  <desc id="desc">Admission checks the signed webhook and stores the delivery in PostgreSQL. The App worker claims it, authorizes the sender and pull request through the private GitHub gateway, pins the base and head commits, and queues a run and job; feedback commands end at the App worker. The review worker claims the job and runs one Hermes session in which the model reads source through the gateway and the review tools record findings and freeze the review. The publisher claims the frozen review, rechecks both commits, and posts through the gateway.</desc>
+  <desc id="desc">Admission checks the signed webhook and stores the delivery in PostgreSQL. The App worker claims it, authorizes the sender and pull request through the private GitHub gateway, pins the base and head commits, and queues a run and job; a feedback command stops there, and no model runs. The review worker claims the job and starts a Hermes session. In Hermes the model reads source through the gateway, and the review tools record findings and freeze the review. The publisher claims the frozen review, rechecks both commits, and posts or recovers each part through the gateway. The figure shows a review that fits one job; a large pull request is first split into part jobs.</desc>
   <style>
     svg { --bg: #f7f9fb; --panel: #ffffff; --line: #c4cad3; --text: #1f1f25; --muted: #555a64; --accent: #005595; --soft: #e7f0f7; }
     @media (prefers-color-scheme: dark) {
@@ -26,7 +26,7 @@
     </marker>
   </defs>
 
-  <rect class="bg" x="0.5" y="0.5" width="759" height="469" rx="12"/>
+  <rect class="bg" x="0.5" y="0.5" width="759" height="565" rx="12"/>
 
   <!-- GitHub -->
   <rect class="box" x="16" y="16" width="728" height="44" rx="8"/>
@@ -61,41 +61,48 @@
   <text class="title" x="215" y="214">App worker</text>
   <text class="body" x="215" y="238">Checks sender and PR</text>
   <text class="body" x="215" y="258">Pins base and head</text>
-  <text class="note" x="215" y="278">Feedback ends here</text>
+  <text class="note" x="215" y="280">Feedback stops here</text>
 
-  <!-- 3 Review -->
-  <rect class="box" x="390" y="168" width="167" height="128" rx="8"/>
+  <!-- 3 Review: Hermes, started by the review worker -->
+  <rect class="gate" x="390" y="168" width="167" height="128" rx="8"/>
   <text class="kicker" x="402" y="192">3 · REVIEW</text>
-  <text class="title" x="402" y="214">Review worker</text>
-  <rect class="gate" x="400" y="226" width="147" height="56" rx="6"/>
-  <text class="label" x="410" y="248">Hermes session</text>
-  <text class="body" x="410" y="268">model ↔ review tools</text>
+  <text class="title" x="402" y="214">Hermes</text>
+  <text class="body" x="402" y="238">Model reads source</text>
+  <text class="body" x="402" y="258">Tools record findings</text>
+  <text class="body" x="402" y="278">and freeze the review</text>
+
+  <rect class="box" x="390" y="326" width="140" height="58" rx="8"/>
+  <text class="label" x="402" y="350">Review worker</text>
+  <text class="muted" x="402" y="370">starts the session</text>
+  <line class="flow" x1="466" y1="324" x2="466" y2="298" marker-end="url(#arrow)"/>
 
   <!-- 4 Publish -->
   <rect class="box" x="577" y="168" width="167" height="128" rx="8"/>
   <text class="kicker" x="589" y="192">4 · PUBLISH</text>
   <text class="title" x="589" y="214">Publisher</text>
   <text class="body" x="589" y="238">Rechecks commits</text>
-  <text class="body" x="589" y="258">Posts each part once</text>
+  <text class="body" x="589" y="258">Posts or recovers</text>
+  <text class="body" x="589" y="278">each part</text>
 
   <!-- PostgreSQL handoffs -->
-  <rect class="db" x="16" y="336" width="728" height="88" rx="8"/>
-  <text class="title" x="32" y="374">PostgreSQL</text>
-  <text class="muted" x="32" y="394">state, queues</text>
+  <rect class="db" x="16" y="414" width="728" height="88" rx="8"/>
+  <text class="title" x="32" y="452">PostgreSQL</text>
+  <text class="muted" x="32" y="472">state, queues</text>
 
-  <rect class="chip" x="135" y="360" width="116" height="40" rx="20"/>
-  <text class="body" x="193" y="385" text-anchor="middle">delivery</text>
-  <rect class="chip" x="322" y="360" width="116" height="40" rx="20"/>
-  <text class="body" x="380" y="385" text-anchor="middle">run and job</text>
-  <rect class="chip" x="509" y="360" width="116" height="40" rx="20"/>
-  <text class="body" x="567" y="385" text-anchor="middle">frozen review</text>
+  <rect class="chip" x="135" y="438" width="116" height="40" rx="20"/>
+  <text class="body" x="193" y="463" text-anchor="middle">delivery</text>
+  <rect class="chip" x="322" y="438" width="116" height="40" rx="20"/>
+  <text class="body" x="380" y="463" text-anchor="middle">run and job</text>
+  <rect class="chip" x="509" y="438" width="116" height="40" rx="20"/>
+  <text class="body" x="567" y="463" text-anchor="middle">frozen review</text>
 
-  <line class="flow" x1="165" y1="296" x2="165" y2="358" marker-end="url(#arrow)"/>
-  <line class="flow" x1="231" y1="360" x2="231" y2="298" marker-end="url(#arrow)"/>
-  <line class="flow" x1="350" y1="296" x2="350" y2="358" marker-end="url(#arrow)"/>
-  <line class="flow" x1="418" y1="360" x2="418" y2="298" marker-end="url(#arrow)"/>
-  <line class="flow" x1="537" y1="296" x2="537" y2="358" marker-end="url(#arrow)"/>
-  <line class="flow" x1="605" y1="360" x2="605" y2="298" marker-end="url(#arrow)"/>
+  <line class="flow" x1="165" y1="296" x2="165" y2="436" marker-end="url(#arrow)"/>
+  <line class="flow" x1="231" y1="438" x2="231" y2="298" marker-end="url(#arrow)"/>
+  <line class="flow" x1="350" y1="296" x2="350" y2="436" marker-end="url(#arrow)"/>
+  <line class="flow" x1="418" y1="438" x2="418" y2="386" marker-end="url(#arrow)"/>
+  <line class="flow" x1="545" y1="296" x2="545" y2="436" marker-end="url(#arrow)"/>
+  <line class="flow" x1="605" y1="438" x2="605" y2="298" marker-end="url(#arrow)"/>
 
-  <text class="muted" x="32" y="452">Each service stores its result in PostgreSQL; the next one claims it under a lease.</text>
+  <text class="muted" x="32" y="530">Each step stores its result in PostgreSQL; the next one claims it under a lease.</text>
+  <text class="muted" x="32" y="550">Shown: a review that fits one job. A large pull request is first split into part jobs.</text>
 </svg>

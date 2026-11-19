@@ -11,7 +11,7 @@ last_verified: 2026-11-18
 
 ## Runtime shape
 
-![Compose topology: only admission and the optional console sit behind the reverse proxy. The private GitHub gateway holds the App key, Hermes alone calls the model provider, and every service uses PostgreSQL on an internal network.](../website/static/img/compose-topology.svg)
+![Compose topology: only admission and the optional console sit behind the reverse proxy. The private GitHub gateway and the optional console hold the App key, Hermes alone calls the model provider, and every service shown uses PostgreSQL on an internal network.](../website/static/img/compose-topology.svg)
 
 One box represents one worker type, not one replica. Scale review workers and
 publishers independently. Expose admission on port `8644`. Keep the GitHub
@@ -25,10 +25,15 @@ publication operations. Hermes and the publisher do not receive the key or
 installation tokens. The optional admin panel also mounts the key, to read App
 and installation status for access administration.
 
-Two one-shot jobs run before the services start: `review-profile-install`
-installs the review profile and `review-db-migrate` migrates the database. The
-optional provider-control service runs in Hermes' network namespace, and the
-optional code graph reaches GitHub only through the gateway.
+Two one-shot jobs prepare the deployment: `review-profile-install` installs
+the review profile, and `review-db-migrate` migrates the database once
+PostgreSQL is healthy. The gateway starts after the migration. Admission and
+Hermes also wait for the profile; the App worker, publisher, and Hermes wait for
+a healthy gateway; and the review worker waits for a healthy Hermes.
+
+The optional provider-control service runs in Hermes' network namespace. The
+optional code graph reaches GitHub only through the gateway, which also sends
+its embedding requests to OpenAI when embeddings are enabled.
 
 ## Create the credentials
 

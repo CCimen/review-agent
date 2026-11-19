@@ -70,7 +70,7 @@ export function EngineServices({ level = 2 }: { level?: 2 | 3 } = {}) {
                   restart that service.
                 </Text>
                 <AstryxLink
-                  href="https://ccimen.github.io/review-agent/admin-panel#dokploy-container-state"
+                  href="https://ccimen.github.io/review-agent/docs/admin-panel#dokploy-container-state"
                   target="_blank"
                   rel="noreferrer"
                 >

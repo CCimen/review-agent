@@ -228,7 +228,7 @@ function ConnectionEditor({
             <Text as="p">
               No additional runtime is configured.{" "}
               <AstryxLink
-                href="https://ccimen.github.io/review-agent/admin-panel#managed-model-connections"
+                href="https://ccimen.github.io/review-agent/docs/admin-panel#managed-model-connections"
                 target="_blank"
                 rel="noreferrer"
               >
@@ -797,7 +797,7 @@ function ConnectionContent({ connection }: { connection: Connection }) {
                   Existing review execution can continue.
                 </Text>
                 <AstryxLink
-                  href="https://ccimen.github.io/review-agent/admin-panel#managed-model-connections"
+                  href="https://ccimen.github.io/review-agent/docs/admin-panel#managed-model-connections"
                   target="_blank"
                   rel="noreferrer"
                 >

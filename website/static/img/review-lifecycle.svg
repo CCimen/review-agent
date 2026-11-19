@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 470" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, system-ui, sans-serif">
+  <title id="title">How a /review comment becomes a published review</title>
+  <desc id="desc">Admission checks the signed webhook and stores the delivery in PostgreSQL. The App worker claims it, authorizes the sender and pull request through the private GitHub gateway, pins the base and head commits, and queues a run and job; feedback commands end at the App worker. The review worker claims the job and runs one Hermes session in which the model reads source through the gateway and the review tools record findings and freeze the review. The publisher claims the frozen review, rechecks both commits, and posts through the gateway.</desc>
+  <style>
+    svg { --bg: #f7f9fb; --panel: #ffffff; --line: #c4cad3; --text: #1f1f25; --muted: #555a64; --accent: #005595; --soft: #e7f0f7; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #202026; --panel: #18181c; --line: #4b4b57; --text: #f5f5f6; --muted: #b6b9c3; --accent: #69b3e7; --soft: #1c3346; }
+    }
+    .bg { fill: var(--bg); stroke: var(--line); }
+    .box { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+    .gate { fill: var(--soft); stroke: var(--accent); stroke-width: 1.5; }
+    .db { fill: var(--soft); stroke: var(--line); stroke-width: 1.5; }
+    .chip { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; }
+    .flow { stroke: var(--accent); stroke-width: 2; fill: none; }
+    .head { fill: var(--accent); }
+    .kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; fill: var(--accent); }
+    .title { font-size: 16px; font-weight: 700; fill: var(--text); }
+    .label { font-size: 14px; font-weight: 700; fill: var(--text); }
+    .body { font-size: 13px; fill: var(--text); }
+    .muted { font-size: 13px; fill: var(--muted); }
+    .note { font-size: 13px; font-style: italic; fill: var(--muted); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head" d="M0 0L10 5L0 10z"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0.5" y="0.5" width="759" height="469" rx="12"/>
+
+  <!-- GitHub -->
+  <rect class="box" x="16" y="16" width="728" height="44" rx="8"/>
+  <text class="title" x="32" y="44">GitHub</text>
+  <text class="muted" x="728" y="43" text-anchor="end">pull request, comments, permissions, source</text>
+
+  <!-- Webhook into admission -->
+  <line class="flow" x1="100" y1="60" x2="100" y2="166" marker-end="url(#arrow)"/>
+  <text class="muted" x="90" y="106" text-anchor="end">signed</text>
+  <text class="muted" x="90" y="122" text-anchor="end">webhook</text>
+
+  <!-- Gateway -->
+  <rect class="gate" x="203" y="92" width="541" height="40" rx="8"/>
+  <text class="label" x="473" y="117" text-anchor="middle">Private GitHub gateway · holds the App key</text>
+  <line class="flow" x1="286" y1="62" x2="286" y2="90" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <line class="flow" x1="473" y1="62" x2="473" y2="90" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <line class="flow" x1="660" y1="62" x2="660" y2="90" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <line class="flow" x1="286" y1="134" x2="286" y2="166" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <line class="flow" x1="473" y1="134" x2="473" y2="166" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <line class="flow" x1="660" y1="134" x2="660" y2="166" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+
+  <!-- 1 Receive -->
+  <rect class="box" x="16" y="168" width="167" height="128" rx="8"/>
+  <text class="kicker" x="28" y="192">1 · RECEIVE</text>
+  <text class="title" x="28" y="214">Admission</text>
+  <text class="body" x="28" y="238">Checks the signature</text>
+  <text class="body" x="28" y="258">Stores the delivery</text>
+
+  <!-- 2 Authorize -->
+  <rect class="box" x="203" y="168" width="167" height="128" rx="8"/>
+  <text class="kicker" x="215" y="192">2 · AUTHORIZE</text>
+  <text class="title" x="215" y="214">App worker</text>
+  <text class="body" x="215" y="238">Checks sender and PR</text>
+  <text class="body" x="215" y="258">Pins base and head</text>
+  <text class="note" x="215" y="278">Feedback ends here</text>
+
+  <!-- 3 Review -->
+  <rect class="box" x="390" y="168" width="167" height="128" rx="8"/>
+  <text class="kicker" x="402" y="192">3 · REVIEW</text>
+  <text class="title" x="402" y="214">Review worker</text>
+  <rect class="gate" x="400" y="226" width="147" height="56" rx="6"/>
+  <text class="label" x="410" y="248">Hermes session</text>
+  <text class="body" x="410" y="268">model ↔ review tools</text>
+
+  <!-- 4 Publish -->
+  <rect class="box" x="577" y="168" width="167" height="128" rx="8"/>
+  <text class="kicker" x="589" y="192">4 · PUBLISH</text>
+  <text class="title" x="589" y="214">Publisher</text>
+  <text class="body" x="589" y="238">Rechecks commits</text>
+  <text class="body" x="589" y="258">Posts each part once</text>
+
+  <!-- PostgreSQL handoffs -->
+  <rect class="db" x="16" y="336" width="728" height="88" rx="8"/>
+  <text class="title" x="32" y="374">PostgreSQL</text>
+  <text class="muted" x="32" y="394">state, queues</text>
+
+  <rect class="chip" x="135" y="360" width="116" height="40" rx="20"/>
+  <text class="body" x="193" y="385" text-anchor="middle">delivery</text>
+  <rect class="chip" x="322" y="360" width="116" height="40" rx="20"/>
+  <text class="body" x="380" y="385" text-anchor="middle">run and job</text>
+  <rect class="chip" x="509" y="360" width="116" height="40" rx="20"/>
+  <text class="body" x="567" y="385" text-anchor="middle">frozen review</text>
+
+  <line class="flow" x1="165" y1="296" x2="165" y2="358" marker-end="url(#arrow)"/>
+  <line class="flow" x1="231" y1="360" x2="231" y2="298" marker-end="url(#arrow)"/>
+  <line class="flow" x1="350" y1="296" x2="350" y2="358" marker-end="url(#arrow)"/>
+  <line class="flow" x1="418" y1="360" x2="418" y2="298" marker-end="url(#arrow)"/>
+  <line class="flow" x1="537" y1="296" x2="537" y2="358" marker-end="url(#arrow)"/>
+  <line class="flow" x1="605" y1="360" x2="605" y2="298" marker-end="url(#arrow)"/>
+
+  <text class="muted" x="32" y="452">Each service stores its result in PostgreSQL; the next one claims it under a lease.</text>
+</svg>

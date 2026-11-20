@@ -140,6 +140,10 @@ not list or enable repositories.
   `sender_not_authorized` and leaves the repository disabled.
 - In explicit mode a comment never enables a repository.
 
+Release 0.5.0-rc.1 and earlier enable the repository before checking the
+sender, so on those releases anyone who can comment on a pull request there can
+enable it. Use explicit mode on them if that matters.
+
 Platform administrators can do the same in the console under
 **Repositories → Access management**.
 

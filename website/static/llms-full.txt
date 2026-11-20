@@ -80,7 +80,8 @@ installation in Review Agent. Approval has two modes
 
 - **Automatic** (the default of `github-app approve`): the first signed
   `/review` or feedback command from a permitted user enables a repository. A
-  command from anyone else leaves it disabled.
+  command from anyone else leaves it disabled, except on 0.5.0-rc.1 and
+  earlier.
 - **Explicit**: an operator enables each repository with `github-app onboard`
   or **Add repository** in the console.
 
@@ -976,6 +977,10 @@ not list or enable repositories.
 - A command from someone who may not send it is rejected with
   `sender_not_authorized` and leaves the repository disabled.
 - In explicit mode a comment never enables a repository.
+
+Release 0.5.0-rc.1 and earlier enable the repository before checking the
+sender, so on those releases anyone who can comment on a pull request there can
+enable it. Use explicit mode on them if that matters.
 
 Platform administrators can do the same in the console under
 **Repositories → Access management**.

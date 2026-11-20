@@ -5,7 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import sys
-from typing import cast
+from typing import Any, cast
 import unittest
 from unittest.mock import Mock, patch
 from uuid import uuid4
@@ -42,6 +42,7 @@ from review_agent.postgres import (  # noqa: E402
     review_runs as postgres_review_runs,
     jobs,
     registry,
+    review_requesters,
     webhook_deliveries,
 )
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
@@ -1286,6 +1287,36 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
                 "(SELECT count(*) FROM review_agent.github_app_repository_access)"
             ).fetchone()
         self.assertEqual(counts, (0, 0))
+
+    def test_grant_revoked_before_automatic_activation_cannot_enable_repo(self) -> None:
+        self.approve_automatic_installation()
+        with self.runtime.transaction() as connection:
+            repository = registry.ensure_repository(connection, registry.RepositoryDefinition(
+                provider="github", provider_repository_id=9001, full_name="CCimen/review-agent"))
+            connection.execute("""INSERT INTO review_agent.repository_review_requesters
+                (repository_id, github_user_id, github_login) VALUES (%s, 5001, 'ccimen')""",
+                (repository.id,))
+        check = review_requesters.is_allowed
+
+        def revoke_after_check(connection: Any, **values: Any) -> bool:
+            allowed = check(connection, **values)
+            with psycopg.connect(DSN, autocommit=True) as other:
+                other.execute("DELETE FROM review_agent.repository_review_requesters")
+            return allowed
+
+        self.register("issue_comment", self.review_payload())
+        with patch.object(review_requesters, "is_allowed", side_effect=revoke_after_check):
+            result = self.processor(_GitHub(permission="read")).process_next(
+                lease_owner="revoked-before-activation"
+            )
+
+        self.assertEqual(result.reason if result else None, "sender_not_authorized")
+        self.assertEqual(self.tokens.token_requests, [])
+        with self.runtime.transaction() as connection:
+            access = connection.execute(
+                "SELECT count(*) FROM review_agent.github_app_repository_access"
+            ).fetchone()
+        self.assertEqual(access, (0,))
 
     def test_unapproved_all_repository_installation_does_not_verify_or_admit_repo(
         self,

@@ -1290,7 +1290,7 @@ class ReviewGitHubGateway:
                 command.repository,
             )
             # Only a sender who may run this command can enable its repository.
-            self._authorize_command_sender(
+            granted = self._authorize_command_sender(
                 self._github_factory(verified.token.value), command, category
             )
             with self._postgres.transaction() as connection:
@@ -1303,6 +1303,14 @@ class ReviewGitHubGateway:
                     actor="github-app:review-delivery",
                     reason=f"verified repository for delivery {delivery_id}",
                 )
+                # A grant revoked since it admitted the sender rolls this back.
+                if granted and not review_requesters.is_allowed(
+                    connection,
+                    provider_repository_id=command.provider_repository_id,
+                    github_user_id=command.sender_id,
+                    for_update=True,
+                ):
+                    raise GitHubGatewayRejected("sender_not_authorized")
         except GitHubAppTokenRetryable as exc:
             raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
         except GitHubAppTokenPermanent as exc:

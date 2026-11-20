@@ -36,7 +36,8 @@ installation in Review Agent. Approval has two modes
 
 - **Automatic** (the default of `github-app approve`): the first signed
   `/review` or feedback command from a permitted user enables a repository. A
-  command from anyone else leaves it disabled.
+  command from anyone else leaves it disabled, except on 0.5.0-rc.1 and
+  earlier.
 - **Explicit**: an operator enables each repository with `github-app onboard`
   or **Add repository** in the console.
 

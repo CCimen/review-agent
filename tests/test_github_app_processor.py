@@ -445,6 +445,7 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
             explicit = self.processor(github).process_next(lease_owner="manual-draft")
             assert explicit is not None and original is not None
             self.assertEqual(explicit.run_id, original.run_id)
+            self.assertEqual(self.feedback_github.reactions, [("CCimen/review-agent", 6001, "eyes")])
             self.register("pull_request", self.documentation_event("converted_to_draft"))
             control = self.processor(github).process_next(lease_owner="draft-control")
             self.assertEqual(control.reason, "documentation_pull_ineligible")
@@ -468,6 +469,25 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
         self.assertEqual(closed.reason, "documentation_pull_ineligible")
         with self.runtime.transaction() as connection:
             self.assertEqual(postgres_review_runs.get_run(connection, original.run_id).failure_code, "documentation_ineligible")
+
+    def test_unpromoted_documentation_run_has_no_review_acknowledgement(self) -> None:
+        self.enable_documentation()
+        self.settle_documentation(self.register("pull_request", self.documentation_event()))
+        with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
+            admitted = self.processor().process_next(lease_owner="automatic")
+        assert admitted is not None and admitted.run_id is not None
+        gateway = ReviewGitHubGateway(
+            postgres=self.runtime,
+            tokens=cast(GitHubAppTokenService, self.tokens),
+            profile="default-standard",
+            feedback_factory=lambda _: cast(GitHubIssueCommentGateway, self.feedback_github),
+        )
+
+        with self.assertRaises(GitHubGatewayRejected) as raised:
+            gateway.acknowledge_review(run_id=admitted.run_id)
+
+        self.assertEqual(raised.exception.reason, "review_acknowledgement_unavailable")
+        self.assertEqual(self.feedback_github.reactions, [])
 
     def test_leased_automatic_event_cannot_admit_after_a_newer_update(self) -> None:
         self.enable_documentation()

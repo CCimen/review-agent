@@ -677,6 +677,11 @@ kubectl exec deployment/hermes-review -- review-agent-admin doctor
 - Migration 039 adds two constraints: a finding decision must name the
   occurrence it judged, and a changed file's part must be a part of its review.
   If existing rows violate either, the migration fails and changes nothing.
+- In automatic mode, 0.4.14 let any commenter enable a repository. Repositories
+  it enabled stay enabled: after the switch, check the list in
+  [Verify](./GITHUB_APP_PILOT.md#5-verify) and
+  [disable](./GITHUB_APP_PILOT.md#change-or-revoke-access) any you did not
+  intend.
 
 **What moved**
 

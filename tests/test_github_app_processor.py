@@ -100,6 +100,9 @@ class _Tokens:
         return app_auth.VerifiedInstallationRepository(
             provider_repository_id=provider_repository_id,
             full_name=expected_full_name,
+            token=InstallationToken(
+                "metadata-token", datetime.now(timezone.utc) + timedelta(hours=1)
+            ),
         )
 
 
@@ -1208,9 +1211,7 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
         self.assertEqual(busy_delivery.attempt_count, 3)
         self.assertIsNone(busy_delivery.normalized_payload)
 
-    def test_approved_all_repository_installation_activates_exact_repo_on_first_review(
-        self,
-    ) -> None:
+    def approve_automatic_installation(self) -> None:
         installation_delivery = self.register(
             "installation", self.installation_payload(selection="all")
         )
@@ -1230,6 +1231,11 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
                 actor="operator:owner",
                 reason="approved organization-managed reviews",
             )
+
+    def test_approved_all_repository_installation_activates_exact_repo_on_first_review(
+        self,
+    ) -> None:
+        self.approve_automatic_installation()
         delivery_id = self.register("issue_comment", self.review_payload())
 
         with patch.object(
@@ -1253,6 +1259,33 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
         self.assertTrue(access.enabled)
         self.assertEqual(access.trigger_mode, github_app.TriggerMode.AUTOMATIC)
         self.assertEqual(access.profile_key, "default-standard")
+
+    def test_automatic_activation_requires_a_permitted_sender(self) -> None:
+        self.approve_automatic_installation()
+        feedback = self.review_payload()
+        comment = feedback["comment"]
+        assert isinstance(comment, dict)
+        comment.update(
+            id=6002,
+            body="/review false-positive F2 because Existing validation covers it.",
+        )
+
+        for payload in (self.review_payload(), feedback):
+            delivery_id = self.register("issue_comment", payload)
+            result = self.processor(_GitHub(permission="read")).process_next(
+                lease_owner="worker-reader"
+            )
+            self.assertEqual(result.delivery_id if result else None, delivery_id)
+            self.assertEqual(result.status if result else None, "rejected")
+            self.assertEqual(result.reason if result else None, "sender_not_authorized")
+
+        self.assertEqual(self.tokens.token_requests, [])
+        with self.runtime.transaction() as connection:
+            counts = connection.execute(
+                "SELECT (SELECT count(*) FROM review_agent.repositories), "
+                "(SELECT count(*) FROM review_agent.github_app_repository_access)"
+            ).fetchone()
+        self.assertEqual(counts, (0, 0))
 
     def test_unapproved_all_repository_installation_does_not_verify_or_admit_repo(
         self,

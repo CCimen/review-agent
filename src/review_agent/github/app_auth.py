@@ -92,6 +92,8 @@ class GitHubAppIdentity:
 class VerifiedInstallationRepository:
     provider_repository_id: int
     full_name: str
+    # The exact metadata-only token that proved access, never cached.
+    token: InstallationToken
 
 
 @dataclass(frozen=True, slots=True)
@@ -475,7 +477,10 @@ class GitHubAppTokenService:
         provider_repository_id: int,
         expected_full_name: str,
     ) -> VerifiedInstallationRepository:
-        """Prove current installation access with one exact metadata-only token."""
+        """Prove current installation access with one exact metadata-only token.
+
+        The token is returned for the reads that must precede activation.
+        """
         if type(provider_installation_id) is not int or provider_installation_id < 1:
             raise ValueError("provider_installation_id must be positive")
         if type(provider_repository_id) is not int or provider_repository_id < 1:
@@ -508,6 +513,7 @@ class GitHubAppTokenService:
         return VerifiedInstallationRepository(
             provider_repository_id=identifier,
             full_name=full_name,
+            token=token,
         )
 
     def token_for(

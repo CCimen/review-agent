@@ -161,9 +161,11 @@ The App delivers these events to `/webhooks/github-app`:
 Admission stores the signed delivery before any provider read. For `/review`
 and feedback commands, the App worker then checks, through the private
 gateway, the repository's enabled state and the sender's current access
-([who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review));
-for feedback, the gateway also rechecks the open pull request before anything
-is recorded. Automatic documentation reviews have no sender check.
+([who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review)).
+In an installation approved for automatic activation, the sender is checked
+before a command can enable its repository. For feedback, the gateway also
+rechecks the open pull request before anything is recorded. Automatic
+documentation reviews have no sender check.
 
 Installation webhooks and inventory sync record repositories but never enable
 one. [Approve the installation](./GITHUB_APP_PILOT.md#4-approve-the-installation)

@@ -79,8 +79,8 @@ installation in Review Agent. Approval has two modes
 ([GitHub App setup, step 4](./GITHUB_APP_PILOT.md#4-approve-the-installation)):
 
 - **Automatic** (the default of `github-app approve`): the first signed
-  `/review` or feedback command in a repository enables it, before the sender
-  is checked. Only a permitted user starts a review.
+  `/review` or feedback command from a permitted user enables a repository. A
+  command from anyone else leaves it disabled.
 - **Explicit**: an operator enables each repository with `github-app onboard`
   or **Add repository** in the console.
 
@@ -970,12 +970,11 @@ not list or enable repositories.
 
 - A repository is enabled when its first signed `/review` or feedback command
   is processed: the gateway requests a token restricted to that repository,
-  verifies its identity, and records it as enabled.
-- Only then does the gateway check the sender
-  ([who can request a review](#who-can-request-a-review)). A command from
-  someone who may not request reviews starts no review, but the repository
-  stays enabled. Anyone who can comment on a pull request there can therefore
-  enable it.
+  verifies its identity, checks the sender
+  ([who can request a review](#who-can-request-a-review)), and only then
+  records the repository as enabled.
+- A command from someone who may not send it is rejected with
+  `sender_not_authorized` and leaves the repository disabled.
 - In explicit mode a comment never enables a repository.
 
 Platform administrators can do the same in the console under
@@ -1111,7 +1110,7 @@ Suspending or uninstalling the App on GitHub blocks every repository of that
 installation. Removing one repository from a selected-repositories installation
 blocks that repository. When GitHub access returns, a repository of an
 automatic installation is enabled again by the next `/review` or feedback
-command processed for it, before the sender is checked, as described under
+command from a permitted sender, as described under
 [automatic activation](#automatic-approve-once); a repository an operator
 disabled stays disabled. In explicit mode, run `github-app onboard` again.
 
@@ -1243,7 +1242,7 @@ your decision.
    | Owner action | Result |
    | --- | --- |
    | Install the App with **All repositories** or **Only select repositories** | GitHub defines where the App may request a token. Reviews remain locked for a new installation. |
-   | Run `github-app approve <installation-id>` | The trusted installation may activate an exact repository on its first signed `/review` delivery. Requester authorization still gates the review. |
+   | Run `github-app approve <installation-id>` | The trusted installation activates an exact repository on the first signed `/review` or feedback command from a permitted sender. A command from anyone else enables nothing. |
    | Keep explicit mode and run `github-app onboard <owner/repository>` | Only that named repository is verified and enabled, with either GitHub installation scope. |
 
    [Set up and share the GitHub App](./GITHUB_APP_PILOT.md) owns the details.
@@ -3609,9 +3608,11 @@ The App delivers these events to `/webhooks/github-app`:
 Admission stores the signed delivery before any provider read. For `/review`
 and feedback commands, the App worker then checks, through the private
 gateway, the repository's enabled state and the sender's current access
-([who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review));
-for feedback, the gateway also rechecks the open pull request before anything
-is recorded. Automatic documentation reviews have no sender check.
+([who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review)).
+In an installation approved for automatic activation, the sender is checked
+before a command can enable its repository. For feedback, the gateway also
+rechecks the open pull request before anything is recorded. Automatic
+documentation reviews have no sender check.
 
 Installation webhooks and inventory sync record repositories but never enable
 one. [Approve the installation](./GITHUB_APP_PILOT.md#4-approve-the-installation)

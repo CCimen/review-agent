@@ -112,7 +112,7 @@ your decision.
    | Owner action | Result |
    | --- | --- |
    | Install the App with **All repositories** or **Only select repositories** | GitHub defines where the App may request a token. Reviews remain locked for a new installation. |
-   | Run `github-app approve <installation-id>` | The trusted installation may activate an exact repository on its first signed `/review` delivery. Requester authorization still gates the review. |
+   | Run `github-app approve <installation-id>` | The trusted installation activates an exact repository on the first signed `/review` or feedback command from a permitted sender. A command from anyone else enables nothing. |
    | Keep explicit mode and run `github-app onboard <owner/repository>` | Only that named repository is verified and enabled, with either GitHub installation scope. |
 
    [Set up and share the GitHub App](./GITHUB_APP_PILOT.md) owns the details.

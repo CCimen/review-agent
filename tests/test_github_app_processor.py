@@ -1379,6 +1379,34 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(counts, (0, 0))
 
+    def test_removal_during_automatic_activation_is_not_overwritten(self) -> None:
+        self.approve_automatic_installation()
+        with self.runtime.transaction() as connection:
+            installation = github_app.get_installation_by_provider_id(connection, 7001)
+            github_app.grant_repository_access(
+                connection, installation_id=installation.id, provider_repository_id=9001,
+                full_name="CCimen/review-agent", actor="github-app:test", reason="listed",
+            )
+        self.register("issue_comment", self.review_payload())
+        verify = self.tokens.verify_installation_repository
+
+        def remove_repository(*args: Any) -> app_auth.VerifiedInstallationRepository:
+            with self.runtime.transaction() as connection:
+                github_app.remove_repository_access_for_installation(
+                    connection, provider_repository_id=9001, expected_provider_installation_id=7001,
+                    actor="github-app:test", reason="removed on GitHub",
+                )
+            return verify(*args)
+
+        with patch.object(self.tokens, "verify_installation_repository", side_effect=remove_repository):
+            result = self.processor().process_next(lease_owner="removal-race")
+
+        with self.runtime.transaction() as connection:
+            access = github_app.get_repository_access_by_provider_id(connection, 9001)
+        self.assertEqual(access.access_state, github_app.RepositoryAccess.REMOVED)
+        self.assertFalse(access.enabled)
+        self.assertEqual(result.reason if result else None, "repository_access_changed")
+
     def test_unapproved_all_repository_installation_does_not_verify_or_admit_repo(
         self,
     ) -> None:

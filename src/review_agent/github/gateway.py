@@ -1292,6 +1292,9 @@ class ReviewGitHubGateway:
                     raise github_app.GitHubAppRepositoryUnauthorized(
                         "installation requires explicit repository activation"
                     )
+                observation = github_app.observe_repository_access(
+                    connection, repository=command.provider_repository_id
+                )
             verified = self._tokens.verify_installation_repository(
                 command.provider_installation_id,
                 command.provider_repository_id,
@@ -1301,14 +1304,15 @@ class ReviewGitHubGateway:
             github = self._github_factory(verified.token.value)
             granted = self._authorize_command_sender(github, command, category)
             if not self._enable_verified_repository(
-                command, verified, delivery_id=delivery_id, lease_owner=lease_owner,
+                command, verified, observation, delivery_id=delivery_id, lease_owner=lease_owner,
                 lease_generation=lease_generation, grant_required=granted,
             ):
                 # The grant was revoked after admitting the sender; GitHub write
-                # or admin can still admit them.
+                # or admin can still admit them. The rolled-back attempt wrote
+                # nothing, so the observation still holds.
                 self._authorize_sender(github, command)
                 self._enable_verified_repository(
-                    command, verified, delivery_id=delivery_id, lease_owner=lease_owner,
+                    command, verified, observation, delivery_id=delivery_id, lease_owner=lease_owner,
                     lease_generation=lease_generation, grant_required=False,
                 )
         except (
@@ -1316,6 +1320,9 @@ class ReviewGitHubGateway:
             webhook_deliveries.DeliveryNotFound,
         ) as exc:
             raise GitHubGatewayRejected("delivery_lease_lost") from exc
+        except github_app.RepositoryAccessChanged as exc:
+            # A removal or a concurrent activation; the retry re-admits from current state.
+            raise GitHubGatewayRetryable("repository_access_changed") from exc
         except GitHubAppTokenRetryable as exc:
             raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
         except GitHubAppTokenPermanent as exc:
@@ -1331,6 +1338,7 @@ class ReviewGitHubGateway:
         self,
         command: _IssueCommentCommand,
         verified: VerifiedInstallationRepository,
+        observation: github_app.RepositoryAccessObservation,
         *,
         delivery_id: int,
         lease_owner: str,
@@ -1356,6 +1364,7 @@ class ReviewGitHubGateway:
                     profile_key=self._profile,
                     actor="github-app:review-delivery",
                     reason=f"verified repository for delivery {delivery_id}",
+                    observation=observation,
                 )
                 # Grant and revoke lock this repository row too, so the read is current.
                 if grant_required and not review_requesters.is_allowed(

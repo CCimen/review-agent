@@ -31,6 +31,10 @@ class GitHubAppRepositoryNotFound(GitHubAppStateError):
     """The requested GitHub App repository access record does not exist."""
 
 
+class RepositoryAccessChanged(GitHubAppStateError):
+    """Repository access changed after it was observed for a verification."""
+
+
 class GitHubAppRepositoryUnauthorized(GitHubAppStateError):
     """The repository is not currently authorized for this App operation."""
 
@@ -1209,6 +1213,7 @@ def enable_automatic_repository(
     profile_key: str,
     actor: str,
     reason: str,
+    observation: RepositoryAccessObservation,
 ) -> RepositoryAccessState:
     """Enable one provider-verified repository under an approved installation."""
     _require_transaction(connection)
@@ -1225,6 +1230,22 @@ def enable_automatic_repository(
         raise GitHubAppRepositoryUnauthorized(
             "installation does not allow automatic repository activation"
         )
+    # Lock catalog then access, as onboarding does, so a removal committed
+    # during the GitHub verification is not overwritten.
+    connection.execute(
+        "SELECT id FROM review_agent.repositories WHERE provider = 'github' AND provider_repository_id = %s FOR UPDATE",
+        (provider_repository_id,),
+    )
+    current = connection.execute(
+        """SELECT access.xmin::text
+        FROM review_agent.github_app_repository_access access
+        JOIN review_agent.repositories repository ON repository.id = access.repository_id
+        WHERE repository.provider = 'github' AND repository.provider_repository_id = %s
+        FOR UPDATE OF access""",
+        (provider_repository_id,),
+    ).fetchone()
+    if (current[0] if current else None) != observation.version:
+        raise RepositoryAccessChanged("repository access changed during verification")
     access = grant_repository_access(
         connection,
         installation_id=installation.id,
@@ -1623,14 +1644,19 @@ class RepositoryAccessObservation:
 
 
 def observe_repository_access(
-    connection: psycopg.Connection[TupleRow], *, repository: str
+    connection: psycopg.Connection[TupleRow], *, repository: str | int
 ) -> RepositoryAccessObservation:
-    """Capture the committed local grant before a network verification starts."""
+    """Capture the committed local grant, by full name or provider ID, before a network verification starts."""
+    match = (
+        "repository.provider_repository_id = %s"
+        if isinstance(repository, int)
+        else "lower(repository.full_name) = lower(%s)"
+    )
     row = connection.execute(
-        """SELECT repository.provider_repository_id, access.xmin::text, repository.xmin::text
+        f"""SELECT repository.provider_repository_id, access.xmin::text, repository.xmin::text
         FROM review_agent.repositories repository
         LEFT JOIN review_agent.github_app_repository_access access ON access.repository_id = repository.id
-        WHERE repository.provider = 'github' AND lower(repository.full_name) = lower(%s)""",
+        WHERE repository.provider = 'github' AND {match}""",
         (repository,),
     ).fetchone()
     return (

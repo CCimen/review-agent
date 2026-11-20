@@ -116,6 +116,9 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     profile_key="default-standard",
                     actor="github-app:review-delivery",
                     reason="verified exact repository access",
+                    observation=github_app.observe_repository_access(
+                        connection, repository=9001
+                    ),
                 )
                 authorization = github_app.authorize_review_admission(
                     connection,
@@ -192,6 +195,9 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     profile_key="default-standard",
                     actor="github-app:review-delivery",
                     reason="verified exact repository access",
+                    observation=github_app.observe_repository_access(
+                        connection, repository=9001
+                    ),
                 )
                 restricted = github_app.set_repository_activation_policy(
                     connection,
@@ -242,6 +248,9 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     profile_key="default-standard",
                     actor="github-app:review-delivery",
                     reason="verified exact repository access",
+                    observation=github_app.observe_repository_access(
+                        connection, repository=9001
+                    ),
                 )
                 github_app.set_repository_activation_policy(
                     connection,
@@ -274,6 +283,9 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                         profile_key="default-standard",
                         actor="github-app:review-delivery",
                         reason="must not override an operator pause",
+                        observation=github_app.observe_repository_access(
+                            connection, repository=9001
+                        ),
                     )
 
         self.assertFalse(disabled.enabled)
@@ -310,6 +322,9 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     profile_key="default-standard",
                     actor="github-app:review-delivery",
                     reason="verified exact repository access",
+                    observation=github_app.observe_repository_access(
+                        connection, repository=9001
+                    ),
                 )
                 github_app.disable_repository(
                     connection,
@@ -342,6 +357,9 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                         profile_key="default-standard",
                         actor="github-app:review-delivery",
                         reason="must preserve the operator pause",
+                        observation=github_app.observe_repository_access(
+                            connection, repository=9001
+                        ),
                     )
                 github_app.remove_repository_access(
                     connection,
@@ -369,6 +387,9 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                         profile_key="default-standard",
                         actor="github-app:review-delivery",
                         reason="must preserve the operator pause",
+                        observation=github_app.observe_repository_access(
+                            connection, repository=9001
+                        ),
                     )
 
     def test_complete_inventory_reconciliation_is_atomic_safe_and_idempotent(

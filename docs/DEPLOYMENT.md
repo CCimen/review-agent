@@ -530,9 +530,15 @@ kubectl exec deployment/hermes-review -- review-agent-admin doctor
 
 #### 0.5.0-rc.1 to 0.5.0-rc.2
 
-Replace the images. There is no migration, Compose, or environment change. In
-automatic mode, a command now enables a repository only when its sender may run
-it ([approval](./GITHUB_APP_PILOT.md#4-approve-the-installation)).
+- Let the queue finish first, or request queued reviews again afterwards.
+  Reviews queued under rc.1 fail with `review_contract_changed`.
+- Replace the images. There is no migration, Compose, or environment change.
+- In automatic mode, a command now enables a repository only when its sender
+  may run it ([approval](./GITHUB_APP_PILOT.md#4-approve-the-installation)).
+  Repositories that rc.1 enabled stay enabled: check the list in
+  [Verify](./GITHUB_APP_PILOT.md#5-verify) and
+  [disable](./GITHUB_APP_PILOT.md#change-or-revoke-access) any you did not
+  intend.
 
 #### 0.4.14 to 0.5.0-rc.2
 

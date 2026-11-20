@@ -144,6 +144,11 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 ((tag_sha, "completed", "failure"), [verify, promotion], False),
                 (("b" * 40, "completed", "success"), [verify, promotion], False),
                 ((tag_sha, "completed", "success"), [verify], False),
+                (
+                    (tag_sha, "completed", "success"),
+                    [verify, {**promotion, "conclusion": "skipped"}],
+                    False,
+                ),
             ):
                 head_sha, status, conclusion = run
                 with self.subTest(run=run, jobs=[job["name"] for job in run_jobs]):

@@ -1360,8 +1360,8 @@ class ReviewGitHubGateway:
                         promoted = documentation_admissions.promoted_comment(
                             connection, scope.run.id
                         )
-                        if promoted:
-                            comment_id = _positive(promoted[0], "comment_id")
+                        if promoted is not None:
+                            comment_id = _positive(promoted, "comment_id")
                 if comment_id is None:
                     raise GitHubGatewayRejected(
                         "review_acknowledgement_unavailable"

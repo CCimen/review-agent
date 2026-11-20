@@ -85,11 +85,11 @@ def record(
 
 def promoted_comment(
     connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
-) -> tuple[object, ...]:
+) -> int | None:
     """The comment recorded when an explicit request promoted this run.
 
-    Empty when the run has no admission. Otherwise one value, which is None
-    when the admission was never promoted.
+    None when the run has no admission, was never promoted, or was promoted
+    by a request without a comment.
     """
     row = connection.execute(
         """SELECT admission.promotion_json->'comment_id'
@@ -97,7 +97,7 @@ def promoted_comment(
         WHERE admission.review_run_id = %s""",
         (run_id,),
     ).fetchone()
-    return () if row is None else (row[0],)
+    return None if row is None else row[0]
 
 
 def is_automatic(connection: psycopg.Connection[TupleRow], run_id: ReviewRunId) -> bool:

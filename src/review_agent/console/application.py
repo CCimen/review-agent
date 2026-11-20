@@ -663,6 +663,7 @@ def show_finding(
             occurrence_id=occurrence_id,
             decision_limit=101,
             decision_before_id=decisions_before_id,
+            published_only=True,
         )
         decisions = detail.decisions[:100]
         return postgres_quality_feedback.AdminFindingDetail(
@@ -695,7 +696,7 @@ def decide_finding(
             connection, scope, request.repository, maintain=True
         )
         result = review_decisions.decide_finding_in_transaction(
-            connection, replace(request, actor=scope.actor)
+            connection, replace(request, actor=scope.actor), published_only=True
         )
         audit.record(
             connection,
@@ -761,7 +762,10 @@ def _run_controls(
     stale_after_minutes: int = 15,
 ) -> console_run_actions.RunControls:
     result = console_run_actions.controls(
-        connection, run_id=ReviewRunId(run_id), stale_after_minutes=stale_after_minutes
+        connection,
+        run_id=ReviewRunId(run_id),
+        stale_after_minutes=stale_after_minutes,
+        include_owner_history=scope.is_owner,
     )
     return (
         result
@@ -809,7 +813,7 @@ def apply_run_action(
             reason=request.reason,
             repository_id=repository_id,
             details={"action": request.action.value},
-            owner_only=request.action is console_run_actions.RunAction.MARK_STALLED,
+            owner_only=request.action.owner_only_history,
         )
         return _run_controls(
             connection,

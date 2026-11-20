@@ -90,6 +90,7 @@ def show_finding_in_transaction(
     decision_before_id: int | None = None,
     now: datetime | None = None,
     purpose: ReviewPurpose = ReviewPurpose.CODE,
+    published_only: bool = False,
 ) -> postgres_reporting.FindingDetail:
     normalized_repository = resolve_repository(repository)
     query = resolve_fingerprint_query(fingerprint)
@@ -102,6 +103,7 @@ def show_finding_in_transaction(
         repository_id=scope.id,
         purpose=purpose,
         query=query,
+        published_only=published_only,
     )
     return postgres_reporting.finding_detail(
         connection,
@@ -109,6 +111,7 @@ def show_finding_in_transaction(
         purpose=purpose,
         fingerprint=resolved,
         now=moment,
+        published_only=published_only,
         occurrence_id=(
             FindingOccurrenceId(input_checks.positive(occurrence_id, field="occurrence_id"))
             if occurrence_id is not None
@@ -142,6 +145,7 @@ def decide_finding_in_transaction(
     request: DecisionRequest,
     *,
     now: datetime | None = None,
+    published_only: bool = False,
 ) -> OperatorDecisionResult:
     repository = resolve_repository(request.repository)
     query = resolve_fingerprint_query(request.fingerprint)
@@ -175,8 +179,15 @@ def decide_finding_in_transaction(
     except FindingDomainError as exc:
         raise input_checks.InputError(str(exc)) from exc
     scope = postgres_reporting.repository_scope(connection, repository=repository)
+    if published_only and occurrence_id is None:
+        raise input_checks.InputError("A published finding occurrence is required")
     purpose = (
-        postgres_reporting.occurrence_purpose(connection, repository_id=scope.id, occurrence_id=occurrence_id)
+        postgres_reporting.occurrence_purpose(
+            connection,
+            repository_id=scope.id,
+            occurrence_id=occurrence_id,
+            published_only=published_only,
+        )
         if occurrence_id is not None else ReviewPurpose.CODE
     )
     if purpose is ReviewPurpose.DOCUMENTATION and definition.decision is DecisionKind.INTENTIONAL_BY_DESIGN:
@@ -186,6 +197,7 @@ def decide_finding_in_transaction(
         repository_id=scope.id,
         query=query,
         purpose=purpose,
+        published_only=published_only,
     )
     target = postgres_reporting.decision_target(
         connection,

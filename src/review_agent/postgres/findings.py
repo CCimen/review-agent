@@ -25,6 +25,7 @@ from ..domain.finding import (
     require_unique_finding_identities,
 )
 from ..domain.review import PullRequestId, RepositoryId, ReviewPurpose, ReviewRunId
+from . import published_findings
 
 
 class FindingStoreError(ValueError):
@@ -510,14 +511,19 @@ def resolve_fingerprint(
     repository_id: RepositoryId,
     query: FingerprintQuery,
     purpose: ReviewPurpose = ReviewPurpose.CODE,
+    published_only: bool = False,
 ) -> str:
     """Resolve a full fingerprint or prefix inside exactly one repository."""
     _require_transaction(connection)
     operator = "=" if query.exact else "LIKE"
     value = query.value if query.exact else query.value + "%"
+    visibility = (
+        f"AND EXISTS (SELECT 1 FROM {published_findings.OCCURRENCES} visible WHERE visible.finding_id = identity.id)"
+        if published_only else ""
+    )
     rows = connection.execute(
-        "SELECT fingerprint FROM review_agent.finding_identities "
-        f"WHERE repository_id = %s AND fingerprint {operator} %s AND purpose = %s "
+        "SELECT fingerprint FROM review_agent.finding_identities identity "
+        f"WHERE repository_id = %s AND fingerprint {operator} %s AND purpose = %s {visibility} "
         "ORDER BY fingerprint LIMIT 2",
         (repository_id, value, purpose.value),
     ).fetchall()

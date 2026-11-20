@@ -252,7 +252,7 @@ class AdminRunActionTests(unittest.TestCase):
                 ),
             )
             controls = console_run_actions.controls(
-                connection, run_id=current.review_run_id
+                connection, run_id=current.review_run_id, include_owner_history=True
             )
         self.assertEqual(controls.run.status.value, "failed")
         self.assertEqual(controls.audit[0].stale_after_minutes, 15)

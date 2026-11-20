@@ -22,7 +22,7 @@ from ..domain.finding import (
 )
 from ..domain.review import ReviewRunId
 from ..domain import repository_decision_context
-from . import registry
+from . import published_findings, registry
 from . import repository_decisions as decision_snapshots
 
 
@@ -514,6 +514,7 @@ def decision_history(
     finding_id: FindingId,
     limit: int | None = None,
     before_id: FindingDecisionId | None = None,
+    published_only: bool = False,
 ) -> tuple[FindingDecision, ...]:
     """Return complete history, or a newest-first bounded page when requested."""
     _require_transaction(connection)
@@ -530,9 +531,10 @@ def decision_history(
     if limit is not None:
         order_and_limit = "ORDER BY id DESC LIMIT %s"
         parameters.append(limit)
+    source = published_findings.DECISIONS if published_only else "review_agent.finding_decisions"
     with connection.cursor(row_factory=class_row(_DecisionRow)) as cursor:
         rows = cursor.execute(
-            f"SELECT {_DECISION_COLUMNS} FROM review_agent.finding_decisions "
+            f"SELECT {_DECISION_COLUMNS} FROM {source} AS decision "
             f"{where} {order_and_limit}",
             tuple(parameters),
         ).fetchall()

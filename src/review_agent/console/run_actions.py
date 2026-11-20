@@ -29,6 +29,10 @@ class RunAction(StrEnum):
     CANCEL = "cancel"
     MARK_STALLED = "mark_stalled"
 
+    @property
+    def owner_only_history(self) -> bool:
+        return self is RunAction.MARK_STALLED
+
 
 @dataclass(frozen=True, slots=True)
 class ActionAvailability:
@@ -198,8 +202,9 @@ def controls(
     run_id: ReviewRunId,
     now: datetime | None = None,
     stale_after_minutes: int = 15,
+    include_owner_history: bool = False,
 ) -> RunControls:
-    """Return one run's current job controls and last 50 audit events."""
+    """Return one run's current job controls and last 50 visible audit events."""
     _require_transaction(connection)
     moment = _moment(now)
     if not 1 <= stale_after_minutes <= 1440:
@@ -216,7 +221,14 @@ def controls(
         stale_after_minutes=stale_after_minutes,
         lease_live=store.has_live_lease(connection, run.id, now=moment),
     )
-    rows = store.recent_actions(connection, run.id)
+    rows = store.recent_actions(
+        connection,
+        run.id,
+        actions=[
+            action.value for action in RunAction
+            if include_owner_history or not action.owner_only_history
+        ],
+    )
     return RunControls(
         run=RunSnapshot(
             id=run.id,

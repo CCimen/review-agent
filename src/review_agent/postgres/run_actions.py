@@ -65,9 +65,9 @@ def lock_job(
 
 
 def recent_actions(
-    connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
+    connection: psycopg.Connection[TupleRow], run_id: ReviewRunId, *, actions: list[str]
 ) -> list[RecordedAction]:
-    """The run's last 50 recorded actions, newest first."""
+    """The run's last 50 actions visible to the caller, newest first."""
     with connection.cursor(row_factory=class_row(RecordedAction)) as cursor:
         return cursor.execute(
             """
@@ -75,11 +75,11 @@ def recent_actions(
                    previous_job_status, expected_lease_generation,
                    expected_available_at, stale_after_minutes, recorded_at
             FROM review_agent.admin_run_actions
-            WHERE review_run_id = %s
+            WHERE review_run_id = %s AND action = ANY(%s)
             ORDER BY id DESC
             LIMIT 50
             """,
-            (run_id,),
+            (run_id, actions),
         ).fetchall()
 
 

@@ -21,7 +21,7 @@ from ..domain.documentation_scope import DocumentationScope
 from . import coverage as postgres_coverage
 from . import documentation_operating_policy
 from . import documentation_reviews
-from .team_access import ReadScope, repository_source
+from .team_access import IntegrationScope, ReadScope, repository_source
 
 
 HistoryStatus = Literal[
@@ -549,7 +549,6 @@ def review_detail(
                 purpose.value if purpose is not None else None,
             ),
         ).fetchall()
-    items = _history_items(connection, [selected, *rows[:20]])
     # Read only the frozen, fully published result, never a generated draft or
     # model response. Bound retained content independently of publisher policy.
     publication = connection.execute(
@@ -559,6 +558,10 @@ def review_detail(
              AND status = 'posted' AND posted_at IS NOT NULL""",
         (run_id, selected.pull_request_id),
     ).fetchone()
+    integration = isinstance(scope, IntegrationScope)
+    if integration and publication is None:
+        return None
+    items = _history_items(connection, [selected, *rows[:20]])
     links: list[PublicationLink] = []
     link_rows: list[TupleRow] = []
     if publication is not None:
@@ -593,7 +596,7 @@ def review_detail(
             links.append(PublicationLink(label, f"{pr_url}#{anchor}-{external_id}"))
     result = (
         documentation_reviews.get_result(connection, run_id=run_id)
-        if selected.purpose == ReviewPurpose.DOCUMENTATION
+        if selected.purpose == ReviewPurpose.DOCUMENTATION and not integration
         else None
     )
     return ReviewDetail(

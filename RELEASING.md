@@ -25,8 +25,10 @@ you publish the GitHub release.
   `examples/workflows/review-agent-context.yml` to the same release. Regenerate
   both LLM files and commit them, with any changed operator guidance, before
   tagging.
-- The Pages gate requires an attached `IMAGE-DIGESTS.txt`. A version-bump
-  merge can fail this gate while image qualification is pending; the currently
+- The Pages gate requires an attached `IMAGE-DIGESTS.txt` and that the newest
+  **Publish container image** run for the declared tag succeeded, including
+  version-tag promotion, at the commit the tag names. A version-bump merge
+  fails this gate while that run is pending or after it fails; the currently
   published site remains available.
   Successful image qualification automatically retries publication from `main`.
 - Record the test deployment, one dry run, one published review, and backup

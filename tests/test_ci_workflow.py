@@ -93,6 +93,9 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             "github.event.workflow_run.conclusion == 'success' }}",
             build["if"],
         )
+        self.assertEqual(
+            {"contents": "read", "actions": "read"}, mapping(build["permissions"])
+        )
         checkout = mapping(named_step(build, "Check out repository")["with"])
         self.assertEqual("refs/heads/main", checkout["ref"])
         self.assertEqual("false", checkout["persist-credentials"])
@@ -103,6 +106,63 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("Release state: ", command)
         self.assertIn('gh release view "$release_tag" --json assets', command)
         self.assertIn("IMAGE-DIGESTS.txt", command)
+        tag_sha = "a" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            llms = temporary / "website" / "static" / "llms.txt"
+            llms.parent.mkdir(parents=True)
+            llms.write_text("Release state: v1.2.3\n", encoding="utf-8")
+            fake_gh = temporary / "bin" / "gh"
+            fake_gh.parent.mkdir()
+            fake_gh.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    set -euo pipefail
+                    case "$1 $2" in
+                      "release view") echo IMAGE-DIGESTS.txt ;;
+                      "api repos/example/review-agent/commits/v1.2.3") echo "$TAG_SHA" ;;
+                      "api --method")
+                        [[ " $* " == *" repos/example/review-agent/actions/workflows/release-image.yml/runs "* ]]
+                        [[ " $* " == *" event=release "* ]]
+                        [[ " $* " == *" branch=v1.2.3 "* ]]
+                        [[ " $* " == *" per_page=1 "* ]]
+                        echo "$FAKE_RELEASE_RUN" ;;
+                      *) exit 2 ;;
+                    esac
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+            for release_run, qualified in (
+                (f"{tag_sha} completed success", True),
+                (f"{tag_sha} in_progress null", False),
+                (f"{tag_sha} completed failure", False),
+                (f"{'b' * 40} completed success", False),
+            ):
+                with self.subTest(release_run=release_run):
+                    environment = os.environ.copy()
+                    environment.update(
+                        {
+                            "FAKE_RELEASE_RUN": release_run,
+                            "GH_REPO": "example/review-agent",
+                            "PATH": f"{fake_gh.parent}{os.pathsep}{environment['PATH']}",
+                            "TAG_SHA": tag_sha,
+                        }
+                    )
+                    # The runner's default shell is bash -e without pipefail.
+                    completed = subprocess.run(
+                        ["bash", "-e", "-c", command],
+                        cwd=temporary,
+                        env=environment,
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        qualified, completed.returncode == 0, completed.stderr
+                    )
         step_names = [
             str(mapping(step).get("name", "")) for step in sequence(build["steps"])
         ]

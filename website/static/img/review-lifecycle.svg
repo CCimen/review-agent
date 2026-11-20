@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 566" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, system-ui, sans-serif">
   <title id="title">How a /review comment becomes a published review</title>
-  <desc id="desc">Admission checks the signed webhook and stores the delivery in PostgreSQL. The App worker claims it, authorizes the sender and pull request through the private GitHub gateway, pins the base and head commits, and queues a run and job; a feedback command stops there, and no model runs. The review worker claims the job and starts a Hermes session. In Hermes the model reads source through the gateway, and the review tools record findings and freeze the review. The publisher claims the frozen review, rechecks both commits, and posts or recovers each part through the gateway. The figure shows a review that fits one job; a large pull request is first split into part jobs.</desc>
+  <desc id="desc">Admission checks the signed webhook and stores the delivery in PostgreSQL. The App worker claims it, authorizes the sender and pull request through the private GitHub gateway, pins the base and head commits, and queues a run and job; a feedback command stops there, and no model runs. The review worker claims the job and starts a Hermes session. In Hermes the model reads source through the gateway, and the review tools record findings and freeze the review. The publisher claims the frozen review, rechecks both commits, and posts or recovers each part through the gateway. The figure shows a review that fits one job; a large review can split into part jobs.</desc>
   <style>
     svg { --bg: #f7f9fb; --panel: #ffffff; --line: #c4cad3; --text: #1f1f25; --muted: #555a64; --accent: #005595; --soft: #e7f0f7; }
     @media (prefers-color-scheme: dark) {
@@ -102,5 +102,5 @@
   <line class="flow" x1="605" y1="438" x2="605" y2="298" marker-end="url(#arrow)"/>
 
   <text class="muted" x="32" y="530">Each step stores its result in PostgreSQL; the next one claims it under a lease.</text>
-  <text class="muted" x="32" y="550">Shown: a review that fits one job. A large pull request is first split into part jobs.</text>
+  <text class="muted" x="32" y="550">Shown: a review that fits one job. A large review can split into part jobs.</text>
 </svg>

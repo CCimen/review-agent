@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 516" role="img" aria-labelledby="title desc" font-family="Arial, Helvetica, system-ui, sans-serif">
   <title id="title">Compose topology</title>
-  <desc id="desc">Only admission and the optional console sit behind the reverse proxy. GitHub sends webhooks to admission; operators sign in to the console, which also holds the App key and reads App status from GitHub. The App worker, publisher, review worker, and Hermes reach GitHub only through the private gateway, which holds the App key. The review worker starts sessions in Hermes, and Hermes alone calls the model provider, for review inference. Every service shown connects to PostgreSQL on the internal database network.</desc>
+  <desc id="desc">Only admission and the optional console sit behind the reverse proxy. GitHub sends webhooks to admission; operators sign in to the console, which also holds the App key and reads App status from GitHub. The App worker, publisher, review worker, and Hermes reach GitHub only through the private gateway, which holds the App key. The review worker starts sessions in Hermes, and Hermes calls the model provider for review inference. Every service shown connects to PostgreSQL on the internal database network.</desc>
   <style>
     svg { --bg: #f7f9fb; --panel: #ffffff; --line: #c4cad3; --text: #1f1f25; --muted: #555a64; --accent: #005595; --soft: #e7f0f7; }
     @media (prefers-color-scheme: dark) {

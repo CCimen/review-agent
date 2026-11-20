@@ -130,7 +130,7 @@ Last verified: 2026-11-18
 
 ## Runtime shape
 
-![Compose topology: only admission and the optional console sit behind the reverse proxy. The private GitHub gateway and the optional console hold the App key, Hermes alone calls the model provider, and every service shown uses PostgreSQL on an internal network.](../website/static/img/compose-topology.svg)
+![Compose topology: only admission and the optional console sit behind the reverse proxy. The private GitHub gateway and the optional console hold the App key, Hermes calls the model provider for review inference, and every service shown uses PostgreSQL on an internal network.](../website/static/img/compose-topology.svg)
 
 - One box is a worker type, not a replica; scale review workers and publishers
   independently.
@@ -1288,9 +1288,9 @@ is written to GitHub.
 
 ![Review lifecycle: admission stores the signed delivery; the App worker authorizes it through the private GitHub gateway and queues a job; the review worker starts a Hermes session in which the model reads source and the review tools record findings; the publisher rechecks both commits and posts the review. PostgreSQL holds each handoff. The figure shows a review that fits one job.](../website/static/img/review-lifecycle.svg)
 
-A [large pull request](#5-large-pull-requests) runs as several jobs and
-sessions. A feedback command stops at the App worker, which stores valid
-feedback and answers the comment through the gateway; no model runs.
+A [large review](#5-large-pull-requests) can split into several jobs. A
+feedback command stops at the App worker, which stores valid feedback and
+acknowledges the comment through the gateway; no model runs.
 
 ## 1. Request and admission
 

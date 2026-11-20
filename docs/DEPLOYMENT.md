@@ -11,7 +11,7 @@ last_verified: 2026-11-18
 
 ## Runtime shape
 
-![Compose topology: only admission and the optional console sit behind the reverse proxy. The private GitHub gateway and the optional console hold the App key, Hermes alone calls the model provider, and every service shown uses PostgreSQL on an internal network.](../website/static/img/compose-topology.svg)
+![Compose topology: only admission and the optional console sit behind the reverse proxy. The private GitHub gateway and the optional console hold the App key, Hermes calls the model provider for review inference, and every service shown uses PostgreSQL on an internal network.](../website/static/img/compose-topology.svg)
 
 - One box is a worker type, not a replica; scale review workers and publishers
   independently.

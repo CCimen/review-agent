@@ -36,10 +36,11 @@ webhook secret, and private-key file in the deployment secret manager.
 
 ### Service secrets
 
-Generate different random values for the App webhook and the private Hermes API:
+Set `REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET` to the webhook secret entered when
+the App was registered; GitHub and admission must hold the same value.
+Generate a different random value for the private Hermes API:
 
 ```bash
-openssl rand -hex 32  # REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET
 openssl rand -hex 32  # API_SERVER_KEY
 ```
 
@@ -269,8 +270,9 @@ the host.
 The chart in `examples/helm/review-agent` deploys the main runtime on a
 Kubernetes cluster that provides the rest. It expects an existing PostgreSQL
 database, three secrets, an ingress controller, a TLS certificate for the
-webhook host, and a storage class that can provision the 5 Gi volume Hermes
-and the review workers share. With the default `ReadWriteOnce` access mode,
+webhook host, a network plugin that enforces network policies, and a storage
+class that can provision the 5 Gi volume Hermes and the review workers share.
+With the default `ReadWriteOnce` access mode,
 one node must have room for Hermes and every review worker. It uses
 fixed resource names, so install one release per namespace.
 
@@ -363,9 +365,10 @@ kubectl exec deployment/hermes-review -- /opt/review-agent-bootstrap/install.sh
 kubectl rollout restart deployment/hermes-review
 ```
 
-Only admission has an Ingress. Network policies allow traffic to Hermes only
-from the review worker, and to the gateway only from Hermes, the review worker,
-the App delivery worker, and the publisher. Pods run as user `10000`, like the
+Only admission has an Ingress. The chart's network policies allow traffic to
+Hermes only from the review worker, and to the gateway only from Hermes, the
+review worker, the App delivery worker, and the publisher. Without a network
+plugin that enforces them, any pod in the cluster can reach both. Pods run as user `10000`, like the
 Compose services; change `podSecurityContext` on clusters that assign users
 themselves.
 
@@ -380,7 +383,11 @@ The volume holds the model login and is kept when the release is uninstalled.
 
 After the services are running, install and approve the App as described in
 [Set up and share the GitHub App](./GITHUB_APP_PILOT.md), then run
-`review-agent-admin doctor` in `hermes-review`.
+`review-agent-admin doctor` in `hermes-review`. On Kubernetes, that guide's
+`docker compose exec review-github-gateway` becomes
+`kubectl exec deployment/review-agent-github-gateway --`, and
+`docker compose exec hermes-review` becomes
+`kubectl exec deployment/hermes-review --`.
 
 ## Upgrade and roll back production
 
@@ -529,7 +536,9 @@ kubectl exec deployment/hermes-review -- review-agent-admin doctor
   The 0.4.14 files start services by paths that no longer exist:
   `review-provider-control` and `review-code-graph` fail to start, and the
   console, which waits for `review-provider-control`, does not start either.
-  The 0.4.14 `compose.yaml` and `compose.admin.yaml` work unchanged.
+  The 0.4.14 `compose.yaml` works unchanged. The 0.4.14 `compose.admin.yaml`
+  works with a pulled image; to build the console from source, use this
+  release's file, which builds from `console/Dockerfile`.
 - Let the queue finish first, or request queued reviews again afterwards. This
   release changes the installed reviewer, so reviews queued under 0.4.14 fail
   with `review_contract_changed`.
@@ -570,8 +579,7 @@ a path or a module:
 **Source checkouts only.** `admin/` is now `console/`, `bootstrap/profiles/`
 is `profiles/`, and the rest of `bootstrap/` (installer, managed
 `config.yaml`, Hermes patches) is `hermes/`. Paths inside the images, the image
-name `review-agent-admin`, the service `review-admin`, and
-`compose.admin.yaml` are unchanged.
+name `review-agent-admin`, and the service `review-admin` are unchanged.
 
 - A custom profile goes in `profiles/<key>/`.
 - The console image builds from `console/Dockerfile`; from the repository
@@ -619,8 +627,7 @@ name `review-agent-admin`, the service `review-admin`, and
 - From the repository export (`review-agent-memory export`, now schema version
   18): the keys `coach_runs`, `coach_candidates`, `review_verification_runs`,
   `candidate_verifications` and `candidate_reconciliations`. From the
-  publications listing: the four `verification_*` fields, which were always
-  null.
+  publications listing: the four `verification_*` fields.
 - The tables of the removed tools, with any rows, are retained; this release
   no longer reads or writes them.
 - The OpenShift template. The Helm chart under `examples/helm/` remains. An

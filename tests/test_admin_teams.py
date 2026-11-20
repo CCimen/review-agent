@@ -251,6 +251,8 @@ class AdminTeamTests(unittest.TestCase):
     def test_quality_scope_and_maintainer_decisions_use_current_membership(
         self,
     ) -> None:
+        from review_agent.review import decisions
+
         team = self.client.post(
             "/api/teams", json={"name": "Payments", "reason": "Onboard"}
         ).json()
@@ -334,6 +336,32 @@ class AdminTeamTests(unittest.TestCase):
                 expected,
             )
         item = batches[0].items[0]
+        helper.repository = "example/payments"
+        helper.provider_repository_id = 930
+        draft = helper.record_finding(
+            helper.start(pr_number=2, request_suffix="unpublished-quality")
+        ).items[0]
+        self.assertEqual(draft.fingerprint, item.fingerprint)
+        decisions.decide_finding(
+            helper.runtime,
+            decisions.DecisionRequest(
+                repository=helper.repository, fingerprint=draft.fingerprint,
+                occurrence_id=draft.occurrence_id, decision="resolved", actor="operator",
+                reason="Decision on the unpublished occurrence",
+            ),
+        )
+        detail_path = f"/api/findings/{item.fingerprint}"
+        detail = self.client.get(detail_path, params={"repository": helper.repository}).json()
+        self.assertEqual(detail["finding"]["occurrence_id"], item.occurrence_id)
+        self.assertEqual(detail["finding"]["occurrence_count"], 1)
+        self.assertIsNone(detail["finding"]["latest_decision"])
+        self.assertEqual(detail["decisions"], [])
+        hidden = self.client.get(
+            detail_path, params={"repository": helper.repository, "occurrence_id": draft.occurrence_id}
+        )
+        missing = self.client.get(f"/api/findings/{'f' * 64}", params={"repository": helper.repository})
+        self.assertEqual((hidden.status_code, missing.status_code), (404, 404))
+        self.assertEqual(hidden.json(), missing.json())
         url = f"/api/findings/{item.fingerprint}/decisions"
         decision = {
             "repository": "example/payments",
@@ -359,6 +387,9 @@ class AdminTeamTests(unittest.TestCase):
             headers=owner_headers,
         )
         self.assertEqual(promoted.status_code, 200, promoted.text)
+        hidden_decision = self.client.post(url, json={**decision, "occurrence_id": draft.occurrence_id})
+        self.assertEqual(hidden_decision.status_code, 404)
+        self.assertEqual(hidden_decision.json(), missing.json())
         result = self.client.post(url, json=decision)
         self.assertEqual(result.status_code, 200, result.text)
         self.assertEqual(result.json()["actor"], f"team-maintainer:{user['id']}")
@@ -1086,6 +1117,45 @@ class AdminTeamTests(unittest.TestCase):
         self.assertEqual(action["actor_id"], user["id"])
         self.assertEqual(action["actor_email"], user["email"])
         self.assertEqual(action["actor_role"], "team-maintainer")
+
+        admin = self.client.post(
+            "/api/users",
+            json={"email": "recovery@example.com", "password": test_admin_api.PASSWORD, "role": "admin"},
+        ).json()
+        with helper.runtime.transaction() as connection:
+            recovered_repository = connection.execute(
+                "UPDATE review_agent.review_runs AS run "
+                "SET started_at = statement_timestamp() - interval '31 minutes', "
+                "last_heartbeat_at = statement_timestamp() - interval '30 minutes' "
+                "FROM review_agent.pull_requests pr WHERE run.id = %s AND pr.id = run.pull_request_id "
+                "RETURNING pr.repository_id",
+                (foreign.review_run_id,),
+            ).fetchone()[0]
+        assigned = self.client.put(
+            f"/api/repository-ownership/{recovered_repository}",
+            json={"team_id": team["id"], "expected_team_id": None, "reason": "Investigate the run"},
+        )
+        self.assertEqual(assigned.status_code, 204)
+        self.fixture.login(admin["email"])
+        path = f"/api/history/{foreign.review_run_id}"
+        reason = "Investigated an interrupted deployment"
+        recovered = self.client.post(
+            f"{path}/actions",
+            json={
+                "action": "mark_stalled", "reason": reason,
+                "expected_job_id": foreign.id, "expected_lease_generation": foreign.lease_generation,
+                "expected_status": foreign.status.value, "expected_available_at": foreign.available_at.isoformat(),
+            },
+        )
+        self.assertEqual(recovered.status_code, 200, recovered.text)
+        self.assertEqual(recovered.json()["audit"], [])
+        self.assertEqual(self.client.get(f"{path}/controls").json()["audit"], [])
+        self.fixture.login(user["email"])
+        self.assertEqual(self.client.get(f"{path}/controls").json()["audit"], [])
+        visible = self.client.get(f"/api/history/{own.review_run_id}/controls").json()["audit"]
+        self.assertEqual([event["reason"] for event in visible], ["No longer needed"])
+        self.fixture.login()
+        self.assertEqual(self.client.get(f"{path}/controls").json()["audit"][0]["reason"], reason)
 
     def test_console_pool_can_serve_concurrent_page_queries(self) -> None:
         from concurrent.futures import ThreadPoolExecutor

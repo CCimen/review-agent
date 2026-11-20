@@ -2572,8 +2572,10 @@ generation, and include retries. They do not show billing, remaining quota or
 cost, and earlier reviews are not backfilled.
 
 **Finding decisions**, opened from a published review, records a human decision
-on one exact finding occurrence. Intentional-by-design decisions require the
-accepted ADR snapshot and matching path ([feedback and decisions](FEEDBACK_AND_DECISIONS.md)).
+on one exact published occurrence. A fingerprint opens the latest published
+occurrence and shows decisions on published occurrences. Intentional-by-design
+decisions require the accepted ADR snapshot and matching path
+([feedback and decisions](FEEDBACK_AND_DECISIONS.md)).
 **Review quality** shows reporting cohorts and the feedback backlog; maintainers
 and platform admins classify pending feedback.
 
@@ -2582,7 +2584,8 @@ leased work, or fail stale work after checking its heartbeat and lease (stale
 recovery needs an owner or admin). The confirmation captures the job generation,
 status and availability time; a concurrent change rejects the action. Terminal
 reviews and jobs awaiting publication cannot be cancelled. The state change and
-its audit event commit together.
+its audit event commit together. Only owners can read stale recovery events,
+including the actor and reason, in the run history.
 
 ### Usage by team, repository and GitHub user
 
@@ -2862,6 +2865,8 @@ Owners and admins give an application read access under **Settings →
 Integrations**: up to 100 teams, or **Entire deployment**, which includes
 unassigned repositories and future teams. Outcome metadata and aggregate reports
 are included; **Allow published review content** is a separate permission.
+The content endpoint returns 404 until publication finishes. Documentation scope
+and evidence records are available in the console.
 Integrations cannot manage users, reviews, providers, settings or deployment.
 
 1. Choose the scope and an expiry, and create the integration.

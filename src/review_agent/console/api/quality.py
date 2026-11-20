@@ -13,6 +13,7 @@ from ...domain.feedback import FeedbackTargetOwner, FeedbackTriageStatus
 from ...domain.finding import DecisionKind
 from ...domain.review import ReviewPurpose
 from ...postgres import quality_feedback, quality_report, quality_triage, reporting
+from ...postgres.findings import FingerprintNotFound
 from ...postgres.runtime import PostgreSQLRuntime
 
 
@@ -105,8 +106,8 @@ def create_router(runtime: PostgreSQLRuntime, auth: ConsoleAuth) -> APIRouter:
                 occurrence_id=occurrence_id,
                 decisions_before_id=decisions_before_id,
             )
-        except reporting.FindingNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (FingerprintNotFound, reporting.FindingNotFound):
+            raise HTTPException(404, "Published finding not found") from None
         except ValueError as exc:
             raise _input_error(exc) from exc
 
@@ -136,8 +137,8 @@ def create_router(runtime: PostgreSQLRuntime, auth: ConsoleAuth) -> APIRouter:
                 ),
                 access=access,
             )
-        except reporting.FindingNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (FingerprintNotFound, reporting.FindingNotFound):
+            raise HTTPException(404, "Published finding not found") from None
         except ValueError as exc:
             raise _input_error(exc) from exc
 

@@ -192,6 +192,53 @@ class IntegrationAPITests(unittest.TestCase):
             )
         self.assertEqual(self.client.get(path).status_code, 404)
 
+    def test_documentation_content_stays_with_the_posted_publication(self) -> None:
+        from review_agent.domain.documentation_review import DocumentationOutcome
+        from review_agent.domain.review import ReviewPurpose
+        from review_agent.postgres import documentation_reviews
+        from review_agent.publication import publish
+        from tests.test_postgres_documentation_reviews import evidence, scope
+        from tests.test_postgres_publications import FakePostgresPublicationGitHub
+
+        self.helper.repository = "example/payments"
+        self.helper.provider_repository_id = 930
+        docs = self.helper.start(
+            pr_number=2, request_suffix="integration-docs", purpose=ReviewPurpose.DOCUMENTATION,
+            paths=("src/api.py",),
+        )
+        run_id = docs.run.id
+        with self.helper.runtime.transaction() as connection:
+            documentation_reviews.initialize(connection, run_id=run_id, comparison_sha=scope().comparison_sha)
+            documentation_reviews.freeze_scope(connection, run_id=run_id, scope=scope())
+            documentation_reviews.record_evidence(connection, run_id=run_id, evidence=evidence())
+            documentation_reviews.finalize(
+                connection, run_id=run_id, outcome=DocumentationOutcome.INCOMPLETE,
+                semantic_inference_used=False, incomplete_reasons=("An input was unavailable.",),
+            )
+        prepared = publish.prepare_documentation_publication(
+            self.helper.runtime, run_id=run_id, max_comment_bytes=60_000
+        )
+        console = self.client.get(f"/api/history/{run_id}").json()
+        self.assertEqual(console["documentation"]["scope"]["areas"][0]["intent"], scope().areas[0].intent)
+        self.assertEqual(console["documentation"]["evidence"][0]["path"], evidence().path)
+        self.use(self.create_integration(read_review_content=True))
+        path = f"/api/v1/reviews/{run_id}/content"
+        prepared_response = self.client.get(path)
+        missing = self.client.get("/api/v1/reviews/999999/content")
+        self.assertEqual((prepared_response.status_code, missing.status_code), (404, 404))
+        self.assertEqual(prepared_response.json(), missing.json())
+
+        publish.publish_publication(
+            self.helper.runtime, publication_id=prepared.publication_id,
+            github=FakePostgresPublicationGitHub(self.helper.runtime), max_comment_bytes=60_000,
+        )
+        posted = self.client.get(path)
+        self.assertEqual(posted.status_code, 200, posted.text)
+        content = posted.json()["data"]
+        self.assertIn("An input was unavailable.", content["markdown"])
+        self.assertEqual(content["publication_links"][0]["label"], "Open Documentation check on GitHub")
+        self.assertIsNone(content["documentation"])
+
     def test_history_watermark_excludes_newer_rows_and_pages_by_stable_ids(
         self,
     ) -> None:

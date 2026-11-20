@@ -39,6 +39,7 @@ from ..domain.review import (
 )
 from . import coverage as postgres_coverage
 from . import decisions as postgres_decisions
+from . import published_findings
 from .team_access import ReadScope, repository_source
 
 
@@ -438,11 +439,22 @@ _INTENTIONAL_EVIDENCE_CURRENT_SQL = """
 """
 
 
-_FINDING_SELECT = f"""
+def _finding_select(
+    *, published_only: bool = False, exact_occurrence: bool = False
+) -> LiteralString:
+    occurrences = published_findings.OCCURRENCES if published_only else "review_agent.finding_occurrences"
+    decisions = (
+        published_findings.DECISIONS
+        if published_only else "review_agent.finding_decisions"
+    )
+    # In the console, count and date the published occurrences before selecting
+    # the requested one. The stored identity dates also include private drafts.
+    dates = "occurrence" if published_only else "identity"
+    return f"""
     SELECT identity.id, repository.full_name AS repository,
            identity.fingerprint, identity.rule_id, identity.path,
-           identity.symbol, identity.anchor, identity.first_seen_at,
-           identity.last_seen_at, occurrence.id AS occurrence_id,
+           identity.symbol, identity.anchor, {dates}.first_seen_at,
+           {dates}.last_seen_at, occurrence.id AS occurrence_id,
            occurrence.occurrence_count, occurrence.line, occurrence.title,
            occurrence.severity, occurrence.category,
            occurrence.publication_score, occurrence.confidence,
@@ -464,15 +476,21 @@ _FINDING_SELECT = f"""
     JOIN review_agent.repositories AS repository
       ON repository.id = identity.repository_id
     JOIN LATERAL (
-        SELECT occurrence.*, count(*) OVER ()::integer AS occurrence_count
-        FROM review_agent.finding_occurrences AS occurrence
-        WHERE occurrence.finding_id = identity.id
-        ORDER BY occurrence.observed_at DESC, occurrence.id DESC
+        SELECT eligible.* FROM (
+            SELECT occurrence.*, count(*) OVER ()::integer AS occurrence_count,
+                   min(observed_at) OVER () AS first_seen_at,
+                   max(observed_at) OVER () AS last_seen_at
+            FROM {occurrences} AS occurrence
+            WHERE occurrence.finding_id = identity.id
+            {"AND occurrence.id = %s" if exact_occurrence and not published_only else ""}
+        ) AS eligible
+        {"WHERE eligible.id = %s" if exact_occurrence and published_only else ""}
+        ORDER BY eligible.observed_at DESC, eligible.id DESC
         LIMIT 1
     ) AS occurrence ON true
     LEFT JOIN LATERAL (
         SELECT stored.*
-        FROM review_agent.finding_decisions AS stored
+        FROM {decisions} AS stored
         WHERE stored.finding_id = identity.id
         ORDER BY stored.id DESC
         LIMIT 1
@@ -589,7 +607,7 @@ def list_findings(
     with connection.cursor(row_factory=class_row(_FindingRow)) as cursor:
         rows = cursor.execute(
             _trusted_sql(
-                f"{_FINDING_SELECT} {where} "
+                f"{_finding_select()} {where} "
                 "ORDER BY identity.last_seen_at DESC, identity.id DESC LIMIT %s"
             ),
             tuple(parameters),
@@ -619,7 +637,7 @@ def list_finding_context(
     with connection.cursor(row_factory=class_row(_FindingRow)) as cursor:
         rows = cursor.execute(
             _trusted_sql(
-                f"{_FINDING_SELECT} WHERE {' AND '.join(conditions)} "
+                f"{_finding_select()} WHERE {' AND '.join(conditions)} "
                 "ORDER BY identity.last_seen_at DESC, identity.id DESC LIMIT %s"
             ),
             tuple(parameters),
@@ -685,16 +703,15 @@ def finding_detail(
     decision_limit: int | None = None,
     decision_before_id: FindingDecisionId | None = None,
     purpose: ReviewPurpose = ReviewPurpose.CODE,
+    published_only: bool = False,
 ) -> FindingDetail:
     """Return latest evidence and the complete decision chain for one identity."""
     _require_transaction(connection)
-    select_sql = _FINDING_SELECT
+    select_sql = _finding_select(
+        published_only=published_only, exact_occurrence=occurrence_id is not None
+    )
     parameters: tuple[object, ...] = (repository_id, fingerprint, purpose.value)
     if occurrence_id is not None:
-        select_sql = select_sql.replace(
-            "WHERE occurrence.finding_id = identity.id",
-            "WHERE occurrence.finding_id = identity.id AND occurrence.id = %s",
-        )
         parameters = (occurrence_id, *parameters)
     with connection.cursor(row_factory=class_row(_FindingRow)) as cursor:
         row = cursor.execute(
@@ -711,16 +728,18 @@ def finding_detail(
             finding_id=row.id,
             limit=decision_limit,
             before_id=decision_before_id,
+            published_only=published_only,
         ),
     )
 
 
 def occurrence_purpose(
     connection: psycopg.Connection[TupleRow], *, repository_id: RepositoryId,
-    occurrence_id: FindingOccurrenceId,
+    occurrence_id: FindingOccurrenceId, published_only: bool = False,
 ) -> ReviewPurpose:
+    occurrences = published_findings.OCCURRENCES if published_only else "review_agent.finding_occurrences"
     row = connection.execute(
-        """SELECT identity.purpose FROM review_agent.finding_occurrences occurrence
+        f"""SELECT identity.purpose FROM {occurrences} occurrence
            JOIN review_agent.finding_identities identity ON identity.id = occurrence.finding_id
            WHERE occurrence.id = %s AND identity.repository_id = %s""",
         (occurrence_id, repository_id),

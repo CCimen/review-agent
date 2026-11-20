@@ -13,6 +13,7 @@ from psycopg.rows import TupleRow, class_row
 from ..domain.feedback import FeedbackTargetOwner, FeedbackTriageStatus
 from ..domain.finding import FindingDecision
 from ..domain.review import ReviewPurpose
+from . import published_findings
 from .reporting import FindingReport
 from .team_access import AccessScope, maintainer_predicate, repository_source
 
@@ -224,24 +225,18 @@ def review_findings(
     """Return the exact current finding occurrences published for one run."""
     _require_transaction(connection)
     rows = connection.execute(
-        """
+        f"""
         SELECT identity.fingerprint,
-               published.source_finding_occurrence_id AS occurrence_id,
-               published.local_reference, occurrence.title,
+               occurrence.id AS occurrence_id,
+               occurrence.local_reference, occurrence.title,
                occurrence.severity, occurrence.category,
                identity.path, occurrence.line,
                count(*) OVER ()::integer AS total
-        FROM review_agent.publication_findings AS published
-        JOIN review_agent.publications AS publication
-          ON publication.id = published.publication_id
+        FROM {published_findings.OCCURRENCES} AS occurrence
         JOIN review_agent.finding_identities AS identity
-          ON identity.id = published.finding_id
-        JOIN review_agent.finding_occurrences AS occurrence
-          ON occurrence.id = published.source_finding_occurrence_id
-        WHERE publication.review_run_id = %s
-          AND publication.status = 'posted'
-          AND published.outcome = 'current'
-        ORDER BY published.id
+          ON identity.id = occurrence.finding_id
+        WHERE occurrence.review_run_id = %s
+        ORDER BY occurrence.publication_finding_id
         LIMIT 200
         """,
         (run_id,),

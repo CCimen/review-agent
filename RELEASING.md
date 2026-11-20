@@ -28,8 +28,8 @@ you publish the GitHub release.
 - The Pages gate requires an attached `IMAGE-DIGESTS.txt` and that the newest
   **Publish container image** run for the declared tag succeeded, including its
   **Publish qualified version tags** job, at the commit the tag names. A
-  version-bump merge fails this gate while that run is pending or after it
-  fails; the currently published site remains available.
+  version-bump merge fails this gate until that run has succeeded; the
+  currently published site remains available.
   Successful image qualification automatically retries publication from `main`.
 - Record the test deployment, one dry run, one published review, and backup
   owner without copying secrets.

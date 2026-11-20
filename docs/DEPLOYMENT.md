@@ -528,7 +528,13 @@ kubectl exec deployment/hermes-review -- review-agent-admin doctor
 
 ### Upgrade notes
 
-#### 0.4.14 to 0.5.0-rc.1
+#### 0.5.0-rc.1 to 0.5.0-rc.2
+
+Replace the images. There is no migration, Compose, or environment change. In
+automatic mode, a command now enables a repository only when its sender may run
+it ([approval](./GITHUB_APP_PILOT.md#4-approve-the-installation)).
+
+#### 0.4.14 to 0.5.0-rc.2
 
 **Before you switch**
 

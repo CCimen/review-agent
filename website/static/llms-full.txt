@@ -1,7 +1,7 @@
 # Review Agent: full public documentation
 
 Generated from the live documentation sources listed in `website/public-documents.json`. Internal review notes are excluded.
-Runtime release selected by `llms.txt`: v0.5.0-rc.1
+Runtime release selected by `llms.txt`: v0.5.0-rc.2
 
 ---
 
@@ -648,7 +648,13 @@ kubectl exec deployment/hermes-review -- review-agent-admin doctor
 
 ### Upgrade notes
 
-#### 0.4.14 to 0.5.0-rc.1
+#### 0.5.0-rc.1 to 0.5.0-rc.2
+
+Replace the images. There is no migration, Compose, or environment change. In
+automatic mode, a command now enables a repository only when its sender may run
+it ([approval](./GITHUB_APP_PILOT.md#4-approve-the-installation)).
+
+#### 0.4.14 to 0.5.0-rc.2
 
 **Before you switch**
 
@@ -1654,7 +1660,7 @@ docker run --rm --read-only \
   --network none \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.5.0-rc.1 \
+  ghcr.io/ccimen/review-agent:v0.5.0-rc.2 \
   repository-context validate /repo
 ```
 

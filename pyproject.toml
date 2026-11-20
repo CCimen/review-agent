@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 name = "review-agent"
 # The release this source belongs to; a test keeps it equal to REVISION in
 # scripts/generate_llms_docs.py, which the release workflow checks against the tag.
-version = "0.5.0-rc.1"
+version = "0.5.0-rc.2"
 description = "Self-hosted, advisory AI code review for GitHub pull requests"
 requires-python = ">=3.11"
 license = "EUPL-1.2"

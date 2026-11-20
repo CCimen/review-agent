@@ -31,6 +31,10 @@ class GitHubAppRepositoryNotFound(GitHubAppStateError):
     """The requested GitHub App repository access record does not exist."""
 
 
+class RepositoryAccessChanged(GitHubAppStateError):
+    """Repository access changed after it was observed for a verification."""
+
+
 class GitHubAppRepositoryUnauthorized(GitHubAppStateError):
     """The repository is not currently authorized for this App operation."""
 
@@ -1209,6 +1213,7 @@ def enable_automatic_repository(
     profile_key: str,
     actor: str,
     reason: str,
+    observation: RepositoryAccessObservation,
 ) -> RepositoryAccessState:
     """Enable one provider-verified repository under an approved installation."""
     _require_transaction(connection)
@@ -1225,6 +1230,31 @@ def enable_automatic_repository(
         raise GitHubAppRepositoryUnauthorized(
             "installation does not allow automatic repository activation"
         )
+    # Lock catalog then access, as onboarding does; NO KEY UPDATE still lets a
+    # removal's audit event reference the catalog row. A removal committed during
+    # the GitHub verification changes the access row or, before any grant, the
+    # installation row, and must not be overwritten.
+    connection.execute(
+        "SELECT id FROM review_agent.repositories WHERE provider = 'github' AND provider_repository_id = %s FOR NO KEY UPDATE",
+        (provider_repository_id,),
+    )
+    access_version = connection.execute(
+        """SELECT access.xmin::text
+        FROM review_agent.github_app_repository_access access
+        JOIN review_agent.repositories repository ON repository.id = access.repository_id
+        WHERE repository.provider = 'github' AND repository.provider_repository_id = %s
+        FOR UPDATE OF access""",
+        (provider_repository_id,),
+    ).fetchone()
+    installation_version = connection.execute(
+        "SELECT xmin::text FROM review_agent.github_app_installations WHERE id = %s",
+        (installation.id,),
+    ).fetchone()
+    if (
+        installation_version[0] if installation_version else None,
+        access_version[0] if access_version else None,
+    ) != (observation.installation_version, observation.version):
+        raise RepositoryAccessChanged("repository access changed during verification")
     access = grant_repository_access(
         connection,
         installation_id=installation.id,
@@ -1300,6 +1330,14 @@ def remove_repository_access_for_installation(
 ) -> RepositoryAccessState | None:
     """Remove access only if the named installation still owns the repository."""
     _require_transaction(connection)
+    # Automatic activation compares this version, so the removal is seen even
+    # for a repository that has no local grant yet.
+    connection.execute(
+        """UPDATE review_agent.github_app_installations
+        SET updated_at = GREATEST(updated_at, statement_timestamp())
+        WHERE provider_installation_id = %s""",
+        (_positive(expected_provider_installation_id, "expected_provider_installation_id"),),
+    )
     row = connection.execute(
         """
         SELECT access.repository_id
@@ -1620,6 +1658,7 @@ class RepositoryAccessObservation:
     provider_repository_id: int | None
     version: str | None
     repository_version: str | None
+    installation_version: str | None = None
 
 
 def observe_repository_access(
@@ -1637,6 +1676,31 @@ def observe_repository_access(
         RepositoryAccessObservation(row[0], row[1], row[2])
         if row
         else RepositoryAccessObservation(None, None, None)
+    )
+
+
+def observe_automatic_activation(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    provider_installation_id: int,
+    provider_repository_id: int,
+) -> RepositoryAccessObservation:
+    """Capture installation and grant versions, by provider ID, before automatic activation verifies a repository."""
+    row = connection.execute(
+        """SELECT installation.xmin::text, (
+            SELECT access.xmin::text
+            FROM review_agent.github_app_repository_access access
+            JOIN review_agent.repositories repository ON repository.id = access.repository_id
+            WHERE repository.provider = 'github' AND repository.provider_repository_id = %s)
+        FROM review_agent.github_app_installations installation
+        WHERE installation.provider_installation_id = %s""",
+        (provider_repository_id, provider_installation_id),
+    ).fetchone()
+    return RepositoryAccessObservation(
+        provider_repository_id,
+        row[1] if row else None,
+        None,
+        installation_version=row[0] if row else None,
     )
 
 

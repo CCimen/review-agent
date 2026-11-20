@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 import hashlib
 import os
@@ -1355,6 +1356,120 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             enabled = github_app.get_repository_access_by_provider_id(connection, 9001).enabled
         self.assertTrue(enabled)
+
+    def activate_while_verifying(
+        self, *changes: Callable[[psycopg.Connection[Any]], object]
+    ) -> app_processor.ProcessingResult | None:
+        """Commit one change before each GitHub verification of automatic activation."""
+        verify = self.tokens.verify_installation_repository
+        pending = list(changes)
+
+        def verify_after_change(*args: Any) -> app_auth.VerifiedInstallationRepository:
+            if pending:
+                with self.runtime.transaction() as connection:
+                    pending.pop(0)(connection)
+            return verify(*args)
+
+        with (
+            patch.object(self.tokens, "verify_installation_repository", side_effect=verify_after_change),
+            patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract),
+        ):
+            return self.processor().process_next(lease_owner="activating-worker")
+
+    @staticmethod
+    def remove_on_github(repository_id: int = 9001) -> Callable[[psycopg.Connection[Any]], object]:
+        return lambda connection: github_app.remove_repository_access_for_installation(
+            connection, provider_repository_id=repository_id, expected_provider_installation_id=7001,
+            actor="github-app:test", reason="removed on GitHub",
+        )
+
+    @staticmethod
+    def activate_elsewhere(connection: psycopg.Connection[Any]) -> object:
+        installation = github_app.get_installation_by_provider_id(connection, 7001)
+        access = github_app.grant_repository_access(
+            connection, installation_id=installation.id, provider_repository_id=9001,
+            full_name="CCimen/review-agent", actor="github-app:test", reason="other command",
+            trigger_mode=github_app.TriggerMode.AUTOMATIC,
+        )
+        return github_app.enable_repository(
+            connection, repository_id=access.repository_id, profile_key="default-standard",
+            trigger_mode=github_app.TriggerMode.AUTOMATIC, actor="github-app:test",
+            reason="other command",
+        )
+
+    @staticmethod
+    def refused_by_github(_connection: psycopg.Connection[Any]) -> object:
+        raise app_auth.GitHubAppTokenPermanent("repository is no longer installed")
+
+    def test_lease_lost_during_automatic_activation_enables_nothing(self) -> None:
+        self.approve_automatic_installation()
+        delivery_id = self.register("issue_comment", self.review_payload())
+
+        result = self.activate_while_verifying(lambda connection: connection.execute(
+            "UPDATE review_agent.github_webhook_deliveries SET lease_expires_at = last_heartbeat_at WHERE id = %s",
+            (delivery_id,),
+        ))
+
+        self.assertEqual(result.reason if result else None, "delivery_lease_lost")
+        self.assertEqual(self.tokens.repository_verifications, [(7001, 9001, "CCimen/review-agent")])
+        with self.runtime.transaction() as connection:
+            counts = connection.execute(
+                "SELECT (SELECT count(*) FROM review_agent.repositories), "
+                "(SELECT count(*) FROM review_agent.github_app_repository_access)"
+            ).fetchone()
+        self.assertEqual(counts, (0, 0))
+
+    def test_removal_during_automatic_activation_is_not_overwritten(self) -> None:
+        self.approve_automatic_installation()
+        with self.runtime.transaction() as connection:
+            installation = github_app.get_installation_by_provider_id(connection, 7001)
+            github_app.grant_repository_access(
+                connection, installation_id=installation.id, provider_repository_id=9001,
+                full_name="CCimen/review-agent", actor="github-app:test", reason="listed",
+            )
+        self.register("issue_comment", self.review_payload())
+
+        result = self.activate_while_verifying(self.remove_on_github(), self.refused_by_github)
+
+        with self.runtime.transaction() as connection:
+            access = github_app.get_repository_access_by_provider_id(connection, 9001)
+        self.assertEqual(access.access_state, github_app.RepositoryAccess.REMOVED)
+        self.assertFalse(access.enabled)
+        self.assertEqual(result.reason if result else None, "provider_authorization_denied")
+
+    def test_removal_of_ungranted_repository_during_activation_enables_nothing(self) -> None:
+        self.approve_automatic_installation()
+        self.register("issue_comment", self.review_payload())
+
+        result = self.activate_while_verifying(self.remove_on_github(), self.refused_by_github)
+
+        with self.runtime.transaction() as connection:
+            access = connection.execute(
+                "SELECT count(*) FROM review_agent.github_app_repository_access"
+            ).fetchone()
+        self.assertEqual(access, (0,))
+        self.assertEqual(result.reason if result else None, "provider_authorization_denied")
+
+    def test_unrelated_removal_during_activation_admits_on_the_same_attempt(self) -> None:
+        self.approve_automatic_installation()
+        self.register("issue_comment", self.review_payload())
+
+        # Another repository is removed, then another command enables this one.
+        result = self.activate_while_verifying(self.remove_on_github(9002), self.activate_elsewhere)
+
+        self.assertEqual(result.status if result else None, "accepted")
+        self.assertEqual(len(self.tokens.repository_verifications), 2)
+
+    def test_concurrent_activation_admits_the_waiting_delivery(self) -> None:
+        self.approve_automatic_installation()
+        delivery_id = self.register("issue_comment", self.review_payload())
+
+        # Admission takes the other command's activation without asking GitHub again.
+        result = self.activate_while_verifying(self.activate_elsewhere, self.refused_by_github)
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.status if result else None, "accepted")
+        self.assertEqual(len(self.tokens.repository_verifications), 1)
 
     def test_unapproved_all_repository_installation_does_not_verify_or_admit_repo(
         self,

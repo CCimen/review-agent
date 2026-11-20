@@ -1202,38 +1202,45 @@ class ReviewGitHubGateway:
         except github_app.GitHubAppRepositoryUnauthorized:
             if command.trigger == "automatic":
                 raise GitHubGatewayRejected("repository_not_authorized")
-            self._activate_automatic_repository(
-                command, delivery_id=delivery_id, category=command_category
-            )
 
-        try:
-            with self._postgres.transaction() as connection:
-                current_delivery = webhook_deliveries.require_live_delivery(
-                    connection,
-                    delivery_id=delivery_id,
-                    lease_owner=lease_owner,
-                    lease_generation=lease_generation,
-                )
-                current = self._delivery_command(connection, current_delivery, command_category)
-                if current != command:
-                    raise GitHubGatewayRejected("delivery_subject_changed")
-                github_app.authorize_review_admission(
-                    connection,
-                    provider_repository_id=current.provider_repository_id,
-                    provider_installation_id=current.provider_installation_id,
-                    profile_key=self._profile,
-                )
-                if current.purpose is ReviewPurpose.DOCUMENTATION:
-                    github_app.authorize_documentation_review(connection, current.provider_repository_id,
-                        profile_key=self._profile, automatic=current.trigger == "automatic")
-                return current
-        except (
-            webhook_deliveries.DeliveryLeaseLost,
-            webhook_deliveries.DeliveryNotFound,
-        ) as exc:
-            raise GitHubGatewayRejected("delivery_lease_lost") from exc
-        except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected(exc.reason) from exc
+        # A change during the GitHub verification voids it. Admission still takes
+        # a repository another command enabled; otherwise verify once more, and
+        # defer the delivery after a second change in a row.
+        for _ in range(2):
+            activated = self._activate_automatic_repository(
+                command, delivery_id=delivery_id, lease_owner=lease_owner,
+                lease_generation=lease_generation, category=command_category,
+            )
+            try:
+                with self._postgres.transaction() as connection:
+                    current_delivery = webhook_deliveries.require_live_delivery(
+                        connection,
+                        delivery_id=delivery_id,
+                        lease_owner=lease_owner,
+                        lease_generation=lease_generation,
+                    )
+                    current = self._delivery_command(connection, current_delivery, command_category)
+                    if current != command:
+                        raise GitHubGatewayRejected("delivery_subject_changed")
+                    github_app.authorize_review_admission(
+                        connection,
+                        provider_repository_id=current.provider_repository_id,
+                        provider_installation_id=current.provider_installation_id,
+                        profile_key=self._profile,
+                    )
+                    if current.purpose is ReviewPurpose.DOCUMENTATION:
+                        github_app.authorize_documentation_review(connection, current.provider_repository_id,
+                            profile_key=self._profile, automatic=current.trigger == "automatic")
+                    return current
+            except (
+                webhook_deliveries.DeliveryLeaseLost,
+                webhook_deliveries.DeliveryNotFound,
+            ) as exc:
+                raise GitHubGatewayRejected("delivery_lease_lost") from exc
+            except github_app.GitHubAppRepositoryUnauthorized as exc:
+                if activated or exc.reason != "repository_not_authorized":
+                    raise GitHubGatewayRejected(exc.reason) from exc
+        raise GitHubGatewayRetryable("repository_access_changed")
 
     def _delivery_command(self, connection: psycopg.Connection[TupleRow], delivery: webhook_deliveries.WebhookDelivery,
                           category: webhook_deliveries.CommandCategory) -> _IssueCommentCommand:
@@ -1273,8 +1280,12 @@ class ReviewGitHubGateway:
         command: _IssueCommentCommand,
         *,
         delivery_id: int,
+        lease_owner: str,
+        lease_generation: int,
         category: webhook_deliveries.CommandCategory,
-    ) -> None:
+    ) -> bool:
+        """Enable the repository, or write nothing and return False when its
+        access or installation changed during the GitHub verification."""
         try:
             with self._postgres.transaction() as connection:
                 installation = github_app.get_installation_by_provider_id(
@@ -1289,6 +1300,11 @@ class ReviewGitHubGateway:
                     raise github_app.GitHubAppRepositoryUnauthorized(
                         "installation requires explicit repository activation"
                     )
+                observation = github_app.observe_automatic_activation(
+                    connection,
+                    provider_installation_id=command.provider_installation_id,
+                    provider_repository_id=command.provider_repository_id,
+                )
             verified = self._tokens.verify_installation_repository(
                 command.provider_installation_id,
                 command.provider_repository_id,
@@ -1298,14 +1314,27 @@ class ReviewGitHubGateway:
             github = self._github_factory(verified.token.value)
             granted = self._authorize_command_sender(github, command, category)
             if not self._enable_verified_repository(
-                command, verified, delivery_id=delivery_id, grant_required=granted
+                command, verified, observation, delivery_id=delivery_id, lease_owner=lease_owner,
+                lease_generation=lease_generation, grant_required=granted,
             ):
                 # The grant was revoked after admitting the sender; GitHub write
-                # or admin can still admit them.
+                # or admin can still admit them. The rolled-back attempt wrote
+                # nothing, so the observation still holds.
                 self._authorize_sender(github, command)
                 self._enable_verified_repository(
-                    command, verified, delivery_id=delivery_id, grant_required=False
+                    command, verified, observation, delivery_id=delivery_id, lease_owner=lease_owner,
+                    lease_generation=lease_generation, grant_required=False,
                 )
+            return True
+        except (
+            webhook_deliveries.DeliveryLeaseLost,
+            webhook_deliveries.DeliveryNotFound,
+        ) as exc:
+            raise GitHubGatewayRejected("delivery_lease_lost") from exc
+        except github_app.RepositoryAccessChanged:
+            # A removal, a concurrent activation or another installation change
+            # committed first.
+            return False
         except GitHubAppTokenRetryable as exc:
             raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
         except GitHubAppTokenPermanent as exc:
@@ -1321,13 +1350,24 @@ class ReviewGitHubGateway:
         self,
         command: _IssueCommentCommand,
         verified: VerifiedInstallationRepository,
+        observation: github_app.RepositoryAccessObservation,
         *,
         delivery_id: int,
+        lease_owner: str,
+        lease_generation: int,
         grant_required: bool,
     ) -> bool:
         """Enable a verified repository, or write nothing if a required grant is gone."""
         try:
             with self._postgres.transaction() as connection:
+                # The HTTP reads before this may outlast the lease. Lock the live
+                # delivery first, as admission does, so recovery cannot move it.
+                webhook_deliveries.require_live_delivery(
+                    connection,
+                    delivery_id=delivery_id,
+                    lease_owner=lease_owner,
+                    lease_generation=lease_generation,
+                )
                 github_app.enable_automatic_repository(
                     connection,
                     provider_installation_id=command.provider_installation_id,
@@ -1336,6 +1376,7 @@ class ReviewGitHubGateway:
                     profile_key=self._profile,
                     actor="github-app:review-delivery",
                     reason=f"verified repository for delivery {delivery_id}",
+                    observation=observation,
                 )
                 # Grant and revoke lock this repository row too, so the read is current.
                 if grant_required and not review_requesters.is_allowed(

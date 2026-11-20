@@ -232,6 +232,9 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     profile_key="default-standard",
                     actor="github-app:review-delivery",
                     reason="verified exact repository access",
+                    observation=github_app.observe_automatic_activation(
+                        connection, provider_installation_id=7001, provider_repository_id=9001
+                    ),
                 )
                 with self.assertRaises(github_app.GitHubAppRepositoryUnauthorized):
                     github_app.enable_automatic_repository(
@@ -242,6 +245,9 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                         profile_key="default-standard",
                         actor="github-app:review-delivery",
                         reason="must preserve the operator pause",
+                        observation=github_app.observe_automatic_activation(
+                            connection, provider_installation_id=7001, provider_repository_id=9002
+                        ),
                     )
 
         self.assertEqual(classified, [(9001, False), (9002, True)])

@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 import re
 from typing import Literal, cast
 
+from ..domain.source_access import valid_proof
+
 ARCHIVE_MAX_BYTES = 64 * 1024 * 1024
 SNAPSHOT_MAX_BYTES = 256 * 1024 * 1024
 SNAPSHOT_MAX_FILES = 10_000
@@ -37,18 +39,24 @@ class GraphIdentity:
     run_id: int
     job_id: int
     lease_generation: int
+    proof: str = field(repr=False)
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, object]) -> GraphIdentity:
-        if set(values) != {"run_id", "job_id", "lease_generation"}:
+        if set(values) != {"run_id", "job_id", "lease_generation", "proof"}:
             raise GraphError("invalid graph lease fields")
-        if any(type(value) is not int or value < 1 for value in values.values()):
+        numbers = (values["run_id"], values["job_id"], values["lease_generation"])
+        proof = values["proof"]
+        if any(type(value) is not int or value < 1 for value in numbers) or not valid_proof(proof):
             raise GraphError("invalid graph lease identity")
-        return cls(**cast(dict[str, int], dict(values)))
+        return cls(*cast(tuple[int, int, int], numbers), proof=proof)
 
-    def to_mapping(self) -> dict[str, object]:
+    def lease_fields(self) -> dict[str, object]:
         return {"run_id": self.run_id, "job_id": self.job_id,
                 "lease_generation": self.lease_generation}
+
+    def to_mapping(self) -> dict[str, object]:
+        return {**self.lease_fields(), "proof": self.proof}
 
 
 @dataclass(frozen=True, slots=True)

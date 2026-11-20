@@ -78,7 +78,9 @@ class _Gateway:
             head_sha="a" * 40,
         )
 
-    def read_review_source(self, request: ReviewSourceRequest) -> ReviewPullSource | bytes:
+    def read_review_source(self, request: ReviewSourceRequest, *, proof: str) -> ReviewPullSource | bytes:
+        if proof != "a" * 64:
+            raise GitHubGatewayRejected("review_job_lease_lost")
         self.source_calls.append(
             {
                 "run_id": request.run_id,
@@ -279,7 +281,7 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
 
     def test_archive_bytes_round_trip_and_concurrency_slot_is_released(self) -> None:
         client = ReviewGitHubGatewayClient(self.base_url)
-        identity = GraphIdentity(51, 61, 7)
+        identity = GraphIdentity(51, 61, 7, "a" * 64)
         self.assertEqual(client.get_code_graph_archive(identity), b"bounded archive bytes")
         self.assertTrue(self.server.acquire_archive_slot())
         try:
@@ -290,7 +292,7 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
         self.assertEqual(client.get_code_graph_archive(identity), b"bounded archive bytes")
 
     def test_source_route_accepts_only_run_and_worker_lease_identity(self) -> None:
-        client = ReviewGitHubGatewayClient(self.base_url)
+        client = ReviewGitHubGatewayClient(self.base_url, source_proof="a" * 64)
 
         result = client.get_review_pull(
             run_id=51,
@@ -316,12 +318,17 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
                 }
             ).encode("utf-8"),
             method="POST",
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer " + "a" * 64},
         )
         with self.assertRaises(urllib.error.HTTPError) as raised:
             urllib.request.urlopen(request)
         self.assertEqual(raised.exception.code, 400)
         raised.exception.close()
+        request.remove_header("Authorization")
+        with self.assertRaises(urllib.error.HTTPError) as unsigned:
+            urllib.request.urlopen(request)
+        self.assertEqual(unsigned.exception.code, 401)
+        unsigned.exception.close()
         self.assertEqual(len(self.gateway.source_calls), 1)
 
     def test_feedback_routes_round_trip_only_lease_identity_and_fixed_status(self) -> None:
@@ -398,7 +405,7 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
         self.publication_gateway.execute.return_value = []
 
         comments = client.for_posted_publication(
-            publication_id=71
+            publication_id=71, finalization_token="00000000-0000-4000-8000-000000000001"
         ).list_issue_comments(
             "CCimen/review-agent", 42, max_pages=1, newest_first=False
         )

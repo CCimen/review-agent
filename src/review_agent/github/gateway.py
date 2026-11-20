@@ -24,6 +24,7 @@ from ..code_graph.contract import (
 )
 from ..code_graph.embeddings import embedding_inputs, openai_embeddings
 from ..domain.review import ReviewPurpose, ReviewRunId
+from ..domain.source_access import SourceAudience
 from ..domain.documentation_review import DocumentationReviewError, EvidenceRead, EvidenceRole
 from ..postgres import (
     documentation_admissions,
@@ -842,12 +843,16 @@ class ReviewGitHubGateway:
 
         return self._provider_feedback(command.provider_repository_id, operation)
 
-    def read_review_source(self, request: ReviewSourceRequest) -> SourceResult:
-        scope = self._require_source_authority(
-            run_id=request.run_id,
-            job_id=request.job_id,
-            lease_generation=request.lease_generation,
-        )
+    def read_review_source(self, request: ReviewSourceRequest, *, proof: str) -> SourceResult:
+        audience: SourceAudience = "graph" if request.operation in {"graph_subject", "archive"} else "review"
+
+        def authorize() -> review_runs.ReviewRunScope:
+            return self._require_source_authority(
+                run_id=request.run_id, job_id=request.job_id, lease_generation=request.lease_generation,
+                proof=proof, audience=audience,
+            )
+
+        scope = authorize()
         if request.operation in {"documentation_comparison", "documentation_file", "documentation_policy"}:
             if scope.run.purpose is not ReviewPurpose.DOCUMENTATION:
                 raise GitHubGatewayRejected("documentation_review_required")
@@ -883,10 +888,7 @@ class ReviewGitHubGateway:
                     scope.repository, scope.head_sha, max_bytes=ARCHIVE_MAX_BYTES,
                 ),
             )
-            self._require_source_authority(
-                run_id=request.run_id, job_id=request.job_id,
-                lease_generation=request.lease_generation,
-            )
+            authorize()
             return archive
         if request.operation == "pull":
             def operation(github: GitHubReadClient) -> SourceResult:
@@ -949,11 +951,7 @@ class ReviewGitHubGateway:
                     require_regular=request.operation == "documentation_file",
                 )
         result = self._provider_source(scope.provider_repository_id, operation)
-        self._require_source_authority(
-            run_id=request.run_id,
-            job_id=request.job_id,
-            lease_generation=request.lease_generation,
-        )
+        authorize()
         if request.operation in {"documentation_comparison", "documentation_file"}:
             try:
                 with self._postgres.transaction() as connection:
@@ -996,6 +994,7 @@ class ReviewGitHubGateway:
         self._require_source_authority(
             run_id=identity.run_id, job_id=identity.job_id,
             lease_generation=identity.lease_generation,
+            proof=identity.proof, audience="embeddings",
         )
         policy = self._graph_policy
         if (not policy.enabled
@@ -1009,6 +1008,7 @@ class ReviewGitHubGateway:
         self._require_source_authority(
             run_id=identity.run_id, job_id=identity.job_id,
             lease_generation=identity.lease_generation,
+            proof=identity.proof, audience="embeddings",
         )
         return result
 
@@ -1103,11 +1103,13 @@ class ReviewGitHubGateway:
         run_id: int,
         job_id: int,
         lease_generation: int,
+        proof: str,
+        audience: SourceAudience,
     ) -> review_runs.ReviewRunScope:
         try:
             with self._postgres.transaction() as connection:
                 resolved_run_id = ReviewRunId(_positive(run_id, "run_id"))
-                jobs.require_live_lease(
+                access = jobs.require_source_access(
                     connection,
                     job_id=_positive(job_id, "job_id"),
                     review_run_id=resolved_run_id,
@@ -1115,6 +1117,8 @@ class ReviewGitHubGateway:
                         lease_generation, "lease_generation"
                     ),
                 )
+                if not access.permits(proof, audience):
+                    raise GitHubGatewayRejected("review_job_lease_lost")
                 scope = review_runs.get_run_scope(connection, resolved_run_id)
                 github_app.authorize_review_read(
                     connection,

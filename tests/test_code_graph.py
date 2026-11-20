@@ -28,6 +28,7 @@ from review_agent.code_graph.embeddings import (  # noqa: E402
     openai_embeddings,
 )
 from review_agent.code_graph.service import CodeGraphService  # noqa: E402
+from review_agent.domain.source_access import embedding_proof  # noqa: E402
 from review_agent.github.gateway import GitHubGatewayRejected  # noqa: E402
 from review_agent.code_graph import indexer as code_graph_indexer  # noqa: E402
 
@@ -124,9 +125,10 @@ class GraphContractTests(unittest.TestCase):
             GraphPolicy.from_environment({"REVIEW_AGENT_CODE_GRAPH_ENABLED": "treu"})
 
     def test_graph_identity_cannot_supply_repository_or_revision(self) -> None:
-        values = {"run_id": 1, "job_id": 2, "lease_generation": 3}
+        fields = {"run_id": 1, "job_id": 2, "lease_generation": 3}
+        values = {**fields, "proof": "a" * 64}
         self.assertEqual(GraphIdentity.from_mapping(values).to_mapping(), values)
-        for invalid in ({**values, "repository": "other/repo"}, {**values, "job_id": True}):
+        for invalid in (fields, {**values, "repository": "other/repo"}, {**values, "job_id": True}):
             with self.assertRaises(GraphError):
                 GraphIdentity.from_mapping(invalid)
 
@@ -208,7 +210,7 @@ class GraphCacheTests(unittest.TestCase):
             service.client = client
 
             def request(number: int) -> dict[str, object]:
-                return {"identity": GraphIdentity(number, number, 1).to_mapping(),
+                return {"identity": GraphIdentity(number, number, 1, "a" * 64).to_mapping(),
                         "operation": "prepare", "pattern": "", "target": ""}
 
             try:
@@ -235,8 +237,13 @@ class GraphCacheTests(unittest.TestCase):
             root = Path(temporary)
             runner = root / "runner.py"
             ended = root / "review-ended"
-            runner.write_text('''import json, pathlib, sys
+            runner.write_text(f"expected_proof = {embedding_proof('a' * 64)!r}\n" + '''import base64, json, os, pathlib, sys
 request = json.load(sys.stdin)
+if request["operation"] == "embed" or request.get("pattern") == "semantic":
+    credential = json.loads(base64.b64decode(os.environ["CRG_OPENAI_API_KEY"]))
+    assert credential["proof"] == expected_proof
+else:
+    assert "CRG_OPENAI_API_KEY" not in os.environ
 database = pathlib.Path(request["database"])
 ended = pathlib.Path(__file__).with_name("review-ended")
 if request["operation"] == "build":
@@ -272,8 +279,8 @@ else:
             service = CodeGraphService(root=root / "cache", gateway_url="http://gateway:8646",
                                        python=Path(sys.executable), runner=runner)
             service.client = client
-            request = {"identity": GraphIdentity(1, 2, 3).to_mapping(), "operation": "prepare", "pattern": "", "target": ""}
-            query = {**request, "identity": GraphIdentity(2, 3, 1).to_mapping(),
+            request = {"identity": GraphIdentity(1, 2, 3, "a" * 64).to_mapping(), "operation": "prepare", "pattern": "", "target": ""}
+            query = {**request, "identity": GraphIdentity(2, 3, 1, "a" * 64).to_mapping(),
                      "operation": "query", "pattern": "symbol", "target": "example"}
             try:
                 self.assertEqual(service.handle(request)["status"], "building")
@@ -303,6 +310,7 @@ else:
                 result = service.handle(query)
                 self.assertEqual(result["embedding_state"], "ready")
                 self.assertEqual(result["results"], [{"batches": ["first", "second"]}])
+                self.assertEqual(service.handle({**query, "pattern": "semantic"})["status"], "ready")
                 self.assertEqual(client.get_code_graph_archive.call_count, 1)
             finally:
                 service.close()
@@ -318,7 +326,7 @@ else:
             )
             client = Mock()
             service.client = client
-            identity = GraphIdentity(1, 2, 3).to_mapping()
+            identity = GraphIdentity(1, 2, 3, "a" * 64).to_mapping()
             request = {"identity": identity, "operation": "prepare", "pattern": "", "target": ""}
             query = {**request, "operation": "query", "pattern": "symbol", "target": "example"}
 
@@ -361,7 +369,7 @@ else:
                 self.assertEqual(client.get_code_graph_archive.call_count, 3)
                 cloud = GraphSubject(91, "example/one", "a" * 40, True, "openai")
                 self.assertEqual(build(cloud, "first")["embedding_state"], "unavailable")
-                request["identity"] = GraphIdentity(2, 2, 3).to_mapping()
+                request["identity"] = GraphIdentity(2, 2, 3, "a" * 64).to_mapping()
                 self.assertEqual(service.handle(request)["status"], "building")
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline and service.handle(request)["status"] == "building":
@@ -385,11 +393,11 @@ else:
             client.get_code_graph_subject.return_value = GraphSubject(91, "example/one", "a" * 40, True, "none")
             client.get_code_graph_archive.return_value = b"invalid archive"
             service.client = client
-            request = {"identity": GraphIdentity(1, 2, 3).to_mapping(), "operation": "prepare", "pattern": "", "target": ""}
+            request = {"identity": GraphIdentity(1, 2, 3, "a" * 64).to_mapping(), "operation": "prepare", "pattern": "", "target": ""}
             try:
                 with patch("review_agent.code_graph.service.threading.Thread.start", side_effect=RuntimeError("thread limit")):
                     self.assertEqual(service.handle(request)["status"], "unavailable")
-                request["identity"] = GraphIdentity(2, 2, 3).to_mapping()
+                request["identity"] = GraphIdentity(2, 2, 3, "a" * 64).to_mapping()
                 self.assertEqual(service.handle(request)["status"], "building")
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline and service.handle(request)["status"] == "building":

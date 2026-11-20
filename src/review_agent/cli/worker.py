@@ -353,7 +353,8 @@ class ReviewWorker:
                     )
                 result = documentation_preflight.run_preflight(
                     self._runtime,
-                    GatewaySourceSession(
+                    GatewaySourceSession.for_live_lease(
+                        self._runtime,
                         run_id=int(claimed.job.review_run_id),
                         lease=jobs.WorkerLeaseSession(
                             job_id=claimed.job.id, lease_generation=claimed.job.lease_generation,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import atexit
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from functools import wraps
 import json
@@ -192,6 +192,22 @@ class GatewaySourceSession:
     run_id: int
     lease: postgres_jobs.WorkerLeaseSession
     client: ReviewGitHubGatewayClient
+    graph_proof: str = field(repr=False)
+
+    @classmethod
+    def for_live_lease(
+        cls, runtime: PostgreSQLRuntime, *, run_id: int, lease: postgres_jobs.WorkerLeaseSession,
+        client: ReviewGitHubGatewayClient,
+    ) -> GatewaySourceSession:
+        try:
+            with runtime.transaction() as connection:
+                access = postgres_jobs.require_source_access(
+                    connection, review_run_id=ReviewRunId(run_id),
+                    job_id=lease.job_id, lease_generation=lease.lease_generation,
+                )
+        except postgres_jobs.ReviewJobError as exc:
+            raise ToolInputError("review source lease is no longer current") from exc
+        return cls(run_id, lease, client.for_review_source(access.review), access.graph)
 
 
 def gateway_source_session(
@@ -209,7 +225,9 @@ def gateway_source_session(
         client = ReviewGitHubGatewayClient(base_url)
     except (settings.SettingsError, GitHubGatewayError) as exc:
         raise ToolInputError(str(exc)) from exc
-    return GatewaySourceSession(run_id=run_id, lease=lease, client=client)
+    return GatewaySourceSession.for_live_lease(
+        postgres_runtime(), run_id=run_id, lease=lease, client=client,
+    )
 
 
 def source_error(exc: GitHubGatewayError) -> ToolInputError:

@@ -58,9 +58,11 @@ from review_agent.github.publication import (  # noqa: E402
     PullRequestState,
 )
 from review_agent.github.gateway import GitHubGatewayRejected  # noqa: E402
+from review_agent.github.gateway_client import ReviewGitHubGatewayClient  # noqa: E402
 from review_agent.github.publication_gateway import (  # noqa: E402
     PublicationGatewayRequest,
     ReviewPublicationGateway,
+    result_mapping,
 )
 from review_agent.postgres import feedback, publications, quality_report, reporting  # noqa: E402
 from review_agent.postgres import findings as finding_store  # noqa: E402
@@ -157,7 +159,7 @@ class FakePostgresPublicationGitHub:
         return self
 
     def for_posted_publication(
-        self, *, publication_id: int
+        self, *, publication_id: int, finalization_token: str
     ) -> FakePostgresPublicationGitHub:
         self.posted_publications.append(publication_id)
         return self
@@ -2259,13 +2261,21 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 posted_github=direct_github,
             )
 
+        with self.runtime.transaction() as connection:
+            history = publications.publication_for_supersession(
+                connection, superseding_publication_id=second.id, claim_max_comment_bytes=60_000,
+            )
+        assert history is not None and history.finalization_token is not None
+        canonical = publication_publish.supersession_bodies(history)[0]
         tokens = Mock()
+        tokens.app_bot_login.return_value = "review-agent[bot]"
         tokens.token_for.return_value = Mock(value="installation-token")
         provider = Mock()
-        provider.list_issue_comments.return_value = []
+        provider.list_issue_comments.return_value = list(direct_github.comments)
+        provider.issue_comment_on_pull.return_value = direct_github.comments[0]
         provider.update_issue_comment.return_value = IssueComment(
             direct_github.comments[0].comment_id,
-            "superseded",
+            canonical,
             "review-agent[bot]",
         )
         gateway = ReviewPublicationGateway(
@@ -2286,6 +2296,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         posted = PublicationGatewayRequest.from_mapping(
             {
                 "scope_kind": "posted_publication",
+                "finalization_token": history.finalization_token,
                 "scope_id": int(second.id),
                 "operation": "list_issue_comments",
                 "max_pages": 1,
@@ -2295,6 +2306,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         arbitrary_update = PublicationGatewayRequest.from_mapping(
             {
                 "scope_kind": "posted_publication",
+                "finalization_token": history.finalization_token,
                 "scope_id": int(second.id),
                 "operation": "update_issue_comment",
                 "comment_id": 999_999,
@@ -2304,10 +2316,11 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         authorized_update = PublicationGatewayRequest.from_mapping(
             {
                 "scope_kind": "posted_publication",
+                "finalization_token": history.finalization_token,
                 "scope_id": int(second.id),
                 "operation": "update_issue_comment",
                 "comment_id": direct_github.comments[0].comment_id,
-                "body": "superseded",
+                "body": canonical,
             }
         )
 
@@ -2316,7 +2329,13 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         ):
             with self.assertRaises(GitHubGatewayRejected) as rejected:
                 gateway.execute(active)
-            self.assertEqual(gateway.execute(posted), [])
+            with self.assertRaises(GitHubGatewayRejected):
+                gateway.execute(replace(posted, finalization_token="00000000-0000-4000-8000-000000000001"))
+            with self.assertRaises(GitHubGatewayRejected):
+                gateway.execute(replace(authorized_update, body="unplanned historical summary"))
+            self.assertEqual(gateway.execute(posted), [
+                item for item in direct_github.comments if item.comment_id in history.comment_ids
+            ])
             with self.assertRaises(GitHubGatewayRejected) as arbitrary:
                 gateway.execute(arbitrary_update)
             result = gateway.execute(authorized_update)
@@ -2327,6 +2346,10 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                     publication_id=first.id,
                     failure_code=None,
                 )
+                late = publications.record_supersession_result(
+                    connection, publication_id=first.id, failure_code="earlier_attempt_failed",
+                )
+                self.assertIsNone(late.failure_code)
             with self.assertRaises(GitHubGatewayRejected) as completed:
                 gateway.execute(posted)
 
@@ -4055,7 +4078,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             failure = postgres_review_runs.failure_status_target(connection, failed_run)
         self.assertEqual(publication.status.value, "posted")
         self.assertEqual(failure.delivery_status, "posted")
-        self.assertEqual(github.posted_publications, [int(prepared.id)])
+        self.assertEqual(github.posted_publications, [])
 
     def test_newer_success_suppresses_older_pending_failure_status(self) -> None:
         failed_run, _ = self.start_recorded_run(request_key="older-pending-failure")
@@ -4150,13 +4173,26 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             max_comment_bytes=60_000,
         )
         github = FakePostgresPublicationGitHub(self.runtime)
-
-        result = publication_publish.publish_publication(
-            self.runtime,
-            publication_id=int(prepared.id),
-            github=github,
-            max_comment_bytes=60_000,
-        )
+        with self.runtime.transaction() as connection:
+            claim = publications.claim_publication(connection, prepared.id, lease_owner="publisher")
+        generation = claim.publication.delivery_lease_generation
+        tokens = Mock()
+        tokens.app_bot_login.return_value = "review-agent[bot]"
+        gateway = ReviewPublicationGateway(postgres=self.runtime, tokens=tokens, profile="default-standard",
+                                           github_factory=Mock(return_value=github))
+        client = ReviewGitHubGatewayClient("http://gateway.invalid")
+        with (
+            patch.object(github_app, "authorize_review_publication", return_value=Mock()),
+            patch.object(client, "execute_publication_operation",
+                         side_effect=lambda payload: result_mapping(gateway.execute(PublicationGatewayRequest.from_mapping(payload)))),
+        ):
+            result = publication_publish.publish_publication(
+                self.runtime, publication_id=int(prepared.id),
+                github=client.for_publication(publication_id=int(prepared.id), lease_owner="publisher",
+                                              lease_generation=generation),
+                lease_owner="publisher", lease_generation=generation, posted_github=client,
+                max_comment_bytes=60_000,
+            )
 
         self.assertEqual(repeated.suggestions_count, 1)
         self.assertEqual(

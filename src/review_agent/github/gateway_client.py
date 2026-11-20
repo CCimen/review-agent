@@ -108,12 +108,14 @@ class ReviewGitHubGatewayClient:
         *,
         opener: urllib.request.OpenerDirector | None = None,
         operator_key: str | None = None,
+        source_proof: str | None = None,
     ) -> None:
         self._base_url = _base_url(base_url)
         self._opener = opener or urllib.request.build_opener(
             SameOriginHttpsRedirectHandler()
         )
         self._operator_key = operator_key.strip() if operator_key is not None else None
+        self._source_proof = source_proof
         if self._operator_key == "":
             raise GitHubGatewayProtocolError("operator key must not be empty")
         if self._operator_key is not None:
@@ -123,6 +125,10 @@ class ReviewGitHubGatewayClient:
                 raise GitHubGatewayProtocolError(
                     "operator key must contain ASCII characters"
                 ) from exc
+
+    def for_review_source(self, proof: str) -> ReviewGitHubGatewayClient:
+        """Bind the source transport to one live lease, also for worker preflight."""
+        return ReviewGitHubGatewayClient(self._base_url, opener=self._opener, source_proof=proof)
 
     def operator_status(self) -> OperatorAppStatus:
         decoded = self._operator_request("GET", OPERATOR_STATUS_PATH)
@@ -241,12 +247,13 @@ class ReviewGitHubGatewayClient:
         )
 
     def for_posted_publication(
-        self, *, publication_id: int
+        self, *, publication_id: int, finalization_token: str
     ) -> "AuthorizedPublicationGateway":
         return AuthorizedPublicationGateway(
             self,
             scope_kind="posted_publication",
             scope_id=publication_id,
+            finalization_token=finalization_token,
         )
 
     def execute_publication_operation(
@@ -283,7 +290,8 @@ class ReviewGitHubGatewayClient:
     def get_code_graph_subject(self, identity: GraphIdentity) -> GraphSubject:
         decoded = self._post(
             READ_REVIEW_SOURCE_PATH,
-            {**identity.to_mapping(), "operation": "graph_subject"},
+            {**identity.lease_fields(), "operation": "graph_subject"},
+            source_proof=identity.proof,
         )
         try:
             return GraphSubject.from_mapping(decoded)
@@ -293,8 +301,9 @@ class ReviewGitHubGatewayClient:
     def get_code_graph_archive(self, identity: GraphIdentity) -> bytes:
         return self._request_bytes(
             "POST", READ_REVIEW_SOURCE_PATH,
-            {**identity.to_mapping(), "operation": "archive"},
-            headers={"Content-Type": "application/json", "Accept": "application/gzip"},
+            {**identity.lease_fields(), "operation": "archive"},
+            headers={"Content-Type": "application/json", "Accept": "application/gzip",
+                     "Authorization": f"Bearer {identity.proof}"},
             max_response_bytes=ARCHIVE_MAX_BYTES,
         )
 
@@ -435,16 +444,23 @@ class ReviewGitHubGatewayClient:
         path: str,
         payload_value: dict[str, object],
         max_response_bytes: int = _MAX_RESPONSE_BYTES,
+        *, source_proof: str | None = None,
     ) -> dict[str, object]:
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "Review-Agent-GitHub-Events/1.0",
+        }
+        if path == READ_REVIEW_SOURCE_PATH:
+            proof = source_proof if source_proof is not None else self._source_proof
+            if proof is None:
+                raise GitHubGatewayProtocolError("review source proof is required")
+            headers["Authorization"] = f"Bearer {proof}"
         return self._request(
             "POST",
             path,
             payload_value,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "User-Agent": "Review-Agent-GitHub-Events/1.0",
-            },
+            headers=headers,
             max_response_bytes=max_response_bytes,
         )
 
@@ -548,6 +564,7 @@ class AuthorizedPublicationGateway:
         scope_id: int,
         lease_owner: str | None = None,
         lease_generation: int | None = None,
+        finalization_token: str | None = None,
     ) -> None:
         self._client = client
         self._identity: dict[str, object] = {
@@ -555,8 +572,9 @@ class AuthorizedPublicationGateway:
             "scope_id": scope_id,
         }
         if scope_kind == "posted_publication":
-            if lease_owner is not None or lease_generation is not None:
-                raise ValueError("posted publication authority has no lease")
+            if not finalization_token or lease_owner is not None or lease_generation is not None:
+                raise ValueError("posted publication requires its finalization grant")
+            self._identity["finalization_token"] = finalization_token
         elif lease_owner is None or lease_generation is None:
             raise ValueError("active publication authority requires a lease")
         else:

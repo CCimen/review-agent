@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 def _identity(source: GatewaySourceSession) -> GraphIdentity:
-    return GraphIdentity(source.run_id, source.lease.job_id, source.lease.lease_generation)
+    return GraphIdentity(source.run_id, source.lease.job_id, source.lease.lease_generation, source.graph_proof)
 
 
 def prepare_graph(source: GatewaySourceSession) -> dict[str, object] | None:

@@ -392,6 +392,10 @@ class PostgreSQLJobTests(unittest.TestCase):
         assert first_lease is not None
 
         with self.runtime.transaction() as connection:
+            first_access = jobs.require_source_access(
+                connection, job_id=first_lease.id, review_run_id=first_lease.review_run_id,
+                lease_generation=first_lease.lease_generation,
+            )
             requeued = jobs.requeue_unstarted_job(
                 connection,
                 job_id=first_lease.id,
@@ -405,6 +409,27 @@ class PostgreSQLJobTests(unittest.TestCase):
             )
 
         assert second_lease is not None
+        with self.runtime.transaction() as connection:
+            with self.assertRaises(jobs.ReviewJobError):
+                jobs.require_source_access(
+                    connection, job_id=first_lease.id, review_run_id=first_lease.review_run_id,
+                    lease_generation=first_lease.lease_generation,
+                )
+            current = jobs.require_source_access(
+                connection, job_id=second_lease.id, review_run_id=second_lease.review_run_id,
+                lease_generation=second_lease.lease_generation,
+            )
+            # A live job claimed by a pre-040 worker has no matching source grant.
+            connection.execute(
+                "DELETE FROM review_agent.review_job_source_leases WHERE job_id = %s", (second_lease.id,),
+            )
+            with self.assertRaises(jobs.ReviewJobError):
+                jobs.require_source_access(
+                    connection, job_id=second_lease.id, review_run_id=second_lease.review_run_id,
+                    lease_generation=second_lease.lease_generation,
+                )
+        self.assertFalse(current.permits(first_access.review, "review"))
+        self.assertFalse(current.permits(first_access.graph, "graph"))
         self.assertEqual(requeued.status, jobs.ReviewJobStatus.QUEUED)
         self.assertEqual(requeued.attempt_count, 0)
         self.assertIsNone(requeued.started_at)
@@ -603,6 +628,10 @@ class PostgreSQLJobTests(unittest.TestCase):
         assert leased is not None
 
         with self.runtime.transaction() as connection:
+            access = jobs.require_source_access(
+                connection, job_id=leased.id, review_run_id=leased.review_run_id,
+                lease_generation=leased.lease_generation,
+            )
             heartbeated = jobs.heartbeat_job(
                 connection,
                 job_id=leased.id,
@@ -610,6 +639,10 @@ class PostgreSQLJobTests(unittest.TestCase):
                 lease_generation=leased.lease_generation,
                 lease_duration=timedelta(minutes=3),
             )
+            self.assertEqual(access, jobs.require_source_access(
+                connection, job_id=leased.id, review_run_id=leased.review_run_id,
+                lease_generation=leased.lease_generation,
+            ))
         assert heartbeated.lease_expires_at is not None
         assert leased.lease_expires_at is not None
         self.assertGreater(heartbeated.lease_expires_at, leased.lease_expires_at)
@@ -642,6 +675,11 @@ class PostgreSQLJobTests(unittest.TestCase):
                 """,
                 (leased.id,),
             )
+            with self.assertRaises(jobs.ReviewJobError):
+                jobs.require_source_access(
+                    connection, job_id=leased.id, review_run_id=leased.review_run_id,
+                    lease_generation=leased.lease_generation,
+                )
             with self.assertRaises(jobs.ReviewJobLeaseLost) as caught:
                 jobs.heartbeat_job(
                     connection,
@@ -1657,7 +1695,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             session: jobs.WorkerLeaseSession, *, window: ModelWindow | None
         ) -> object:
             return review_source_initialization.initialize_review(
-                GatewaySourceSession(run_id=int(run.run.id), lease=session, client=client),
+                GatewaySourceSession(run_id=int(run.run.id), lease=session, client=client, graph_proof="a" * 64),
                 self.runtime,
                 TEST_REVIEW_CONTRACT,
                 split_window=window,

@@ -82,16 +82,20 @@ class WorkerBoundaryTests(unittest.TestCase):
                 runtime.transaction.side_effect = lambda: nullcontext(Mock())
                 client = Mock(spec=HermesChatClient)
                 client.review.return_value = None
+                source_client = Mock()
                 claimed = replace(self._claim(generation=1), purpose=ReviewPurpose.DOCUMENTATION)
                 worker = ReviewWorker(runtime, client, self._policy(), lease_owner="worker",
-                    stop_event=threading.Event(), source_client=Mock())
+                    stop_event=threading.Event(), source_client=source_client)
                 with (
+                    patch.object(jobs, "require_source_access") as access,
                     patch.object(documentation_preflight, "run_preflight", return_value=Mock(frozen=frozen)) as preflight,
                     patch.object(publication_publish, "prepare_documentation_publication") as publish,
                     patch.object(jobs, "get_job", return_value=replace(claimed.job, status=jobs.ReviewJobStatus.SUCCEEDED)),
                 ):
                     worker._execute(claimed)
                 preflight.assert_called_once()
+                source_client.for_review_source.assert_called_once_with(access.return_value.review)
+                self.assertIs(preflight.call_args.args[1].client, source_client.for_review_source.return_value)
                 self.assertEqual(client.review.call_count, 0 if frozen else 1)
                 self.assertEqual(publish.call_count, 1 if frozen else 0)
 

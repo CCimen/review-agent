@@ -1202,10 +1202,16 @@ class ReviewGitHubGateway:
         except github_app.GitHubAppRepositoryUnauthorized:
             if command.trigger == "automatic":
                 raise GitHubGatewayRejected("repository_not_authorized")
-            activated = self._activate_automatic_repository(
-                command, delivery_id=delivery_id, lease_owner=lease_owner,
-                lease_generation=lease_generation, category=command_category,
-            )
+            # A change during the GitHub verification voids it, so observe and
+            # verify once more; a second change in a row defers the delivery.
+            if not any(
+                self._activate_automatic_repository(
+                    command, delivery_id=delivery_id, lease_owner=lease_owner,
+                    lease_generation=lease_generation, category=command_category,
+                )
+                for _ in range(2)
+            ):
+                raise GitHubGatewayRetryable("repository_access_changed")
 
         try:
             with self._postgres.transaction() as connection:
@@ -1234,9 +1240,6 @@ class ReviewGitHubGateway:
         ) as exc:
             raise GitHubGatewayRejected("delivery_lease_lost") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            if not activated and exc.reason == "repository_not_authorized":
-                # Access changed while GitHub was asked; verify again from current state.
-                raise GitHubGatewayRetryable("repository_access_changed") from exc
             raise GitHubGatewayRejected(exc.reason) from exc
 
     def _delivery_command(self, connection: psycopg.Connection[TupleRow], delivery: webhook_deliveries.WebhookDelivery,
@@ -1281,7 +1284,8 @@ class ReviewGitHubGateway:
         lease_generation: int,
         category: webhook_deliveries.CommandCategory,
     ) -> bool:
-        """Enable the repository, or return False when its access changed meanwhile."""
+        """Enable the repository, or write nothing and return False when its
+        access or installation changed during the GitHub verification."""
         try:
             with self._postgres.transaction() as connection:
                 installation = github_app.get_installation_by_provider_id(
@@ -1328,8 +1332,8 @@ class ReviewGitHubGateway:
         ) as exc:
             raise GitHubGatewayRejected("delivery_lease_lost") from exc
         except github_app.RepositoryAccessChanged:
-            # A removal, a concurrent activation, or another installation change
-            # wrote first. Write nothing; the final admission decides.
+            # A removal, a concurrent activation or another installation change
+            # committed first.
             return False
         except GitHubAppTokenRetryable as exc:
             raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc

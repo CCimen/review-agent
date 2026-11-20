@@ -1358,14 +1358,16 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
         self.assertTrue(enabled)
 
     def activate_while_verifying(
-        self, change: Callable[[psycopg.Connection[Any]], object]
+        self, *changes: Callable[[psycopg.Connection[Any]], object]
     ) -> app_processor.ProcessingResult | None:
-        """Commit a concurrent change while automatic activation asks GitHub."""
+        """Commit one change before each GitHub verification of automatic activation."""
         verify = self.tokens.verify_installation_repository
+        pending = list(changes)
 
         def verify_after_change(*args: Any) -> app_auth.VerifiedInstallationRepository:
-            with self.runtime.transaction() as connection:
-                change(connection)
+            if pending:
+                with self.runtime.transaction() as connection:
+                    pending.pop(0)(connection)
             return verify(*args)
 
         with (
@@ -1375,11 +1377,15 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
             return self.processor().process_next(lease_owner="activating-worker")
 
     @staticmethod
-    def remove_on_github(connection: psycopg.Connection[Any]) -> object:
-        return github_app.remove_repository_access_for_installation(
-            connection, provider_repository_id=9001, expected_provider_installation_id=7001,
+    def remove_on_github(repository_id: int = 9001) -> Callable[[psycopg.Connection[Any]], object]:
+        return lambda connection: github_app.remove_repository_access_for_installation(
+            connection, provider_repository_id=repository_id, expected_provider_installation_id=7001,
             actor="github-app:test", reason="removed on GitHub",
         )
+
+    @staticmethod
+    def refused_by_github(_connection: psycopg.Connection[Any]) -> object:
+        raise app_auth.GitHubAppTokenPermanent("repository is no longer installed")
 
     def test_lease_lost_during_automatic_activation_enables_nothing(self) -> None:
         self.approve_automatic_installation()
@@ -1409,26 +1415,35 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
             )
         self.register("issue_comment", self.review_payload())
 
-        result = self.activate_while_verifying(self.remove_on_github)
+        result = self.activate_while_verifying(self.remove_on_github(), self.refused_by_github)
 
         with self.runtime.transaction() as connection:
             access = github_app.get_repository_access_by_provider_id(connection, 9001)
         self.assertEqual(access.access_state, github_app.RepositoryAccess.REMOVED)
         self.assertFalse(access.enabled)
-        self.assertEqual(result.reason if result else None, "repository_access_changed")
+        self.assertEqual(result.reason if result else None, "provider_authorization_denied")
 
     def test_removal_of_ungranted_repository_during_activation_enables_nothing(self) -> None:
         self.approve_automatic_installation()
         self.register("issue_comment", self.review_payload())
 
-        result = self.activate_while_verifying(self.remove_on_github)
+        result = self.activate_while_verifying(self.remove_on_github(), self.refused_by_github)
 
         with self.runtime.transaction() as connection:
             access = connection.execute(
                 "SELECT count(*) FROM review_agent.github_app_repository_access"
             ).fetchone()
         self.assertEqual(access, (0,))
-        self.assertEqual(result.reason if result else None, "repository_access_changed")
+        self.assertEqual(result.reason if result else None, "provider_authorization_denied")
+
+    def test_unrelated_removal_during_activation_admits_on_the_same_attempt(self) -> None:
+        self.approve_automatic_installation()
+        self.register("issue_comment", self.review_payload())
+
+        result = self.activate_while_verifying(self.remove_on_github(9002))
+
+        self.assertEqual(result.status if result else None, "accepted")
+        self.assertEqual(len(self.tokens.repository_verifications), 2)
 
     def test_concurrent_activation_admits_the_waiting_delivery(self) -> None:
         self.approve_automatic_installation()

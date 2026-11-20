@@ -1333,7 +1333,9 @@ def remove_repository_access_for_installation(
     # Automatic activation compares this version, so the removal is seen even
     # for a repository that has no local grant yet.
     connection.execute(
-        "UPDATE review_agent.github_app_installations SET updated_at = CURRENT_TIMESTAMP WHERE provider_installation_id = %s",
+        """UPDATE review_agent.github_app_installations
+        SET updated_at = GREATEST(updated_at, statement_timestamp())
+        WHERE provider_installation_id = %s""",
         (_positive(expected_provider_installation_id, "expected_provider_installation_id"),),
     )
     row = connection.execute(

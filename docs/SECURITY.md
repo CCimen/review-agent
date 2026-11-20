@@ -57,6 +57,11 @@ Review output reaches GitHub only through a two-stage deterministic path.
 comment parts and validated suggestions in PostgreSQL, and queues that immutable
 publication. A separate publisher writes only those stored parts through the
 lease-bound App gateway, records each GitHub ID, and completes the run.
+The gateway matches each write to the current frozen part and verifies the
+App-owned comment on the same pull request before editing or deleting it.
+After posting, the publisher can obtain a grant for one pending historical
+rewrite. Its stored GitHub comment IDs and render budget determine the allowed
+replacement bodies. Recording successful completion revokes the grant.
 Suggestions are grouped in one non-blocking GitHub `COMMENT` review. The model
 never receives a GitHub mutation tool or a write token.
 

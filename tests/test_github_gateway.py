@@ -22,6 +22,9 @@ from unittest.mock import Mock, call, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from review_agent.domain.publication import (  # noqa: E402
+    InlineSuggestionDelivery, IssueCommentDelivery, PublicationPartStatus, PublicationReviewSide, SuggestionReviewDelivery,
+)
 from review_agent.domain.review import ReviewPurpose  # noqa: E402
 from review_agent.github import gateway as gateway_module  # noqa: E402
 from review_agent.github import (  # noqa: E402
@@ -47,6 +50,8 @@ from review_agent.github.publication import (  # noqa: E402
     GitHubPublicationError,
     GitHubIssueCommentGateway,
     IssueComment,
+    InlineReviewComment,
+    PullRequestState,
 )
 from review_agent.github.publication_gateway import (  # noqa: E402
     PublicationGatewayRequest,
@@ -62,6 +67,7 @@ from review_agent.github.source import (  # noqa: E402
 )
 from review_agent.domain.source_access import ReviewSourceAccess, embedding_proof  # noqa: E402
 from review_agent.postgres.review_runs import ReviewRunScope  # noqa: E402
+from review_agent.publication.publish import failure_status_body, supersession_bodies  # noqa: E402
 from review_agent.code_graph.contract import (  # noqa: E402
     GraphIdentity,
     GraphPolicy,
@@ -769,6 +775,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         request = PublicationGatewayRequest.from_mapping(
             {
                 "scope_kind": "posted_publication",
+                "finalization_token": "00000000-0000-4000-8000-000000000001",
                 "scope_id": 71,
                 "operation": "create_issue_comment",
                 "body": "must not be accepted",
@@ -782,6 +789,140 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             raised.exception.reason, "publication_operation_not_allowed"
         )
         tokens.token_for.assert_not_called()
+
+    def test_issue_write_requires_current_part_frozen_body_and_owned_comment(self) -> None:
+        key = "sha256:" + "c" * 64
+        marker = f"<!-- review-agent:canonical publication={key} part=2/2 -->"
+        current = IssueComment(20, "earlier rendering\n" + marker, "review-agent[bot]")
+        outsider = IssueComment(30, current.body, "contributor")
+        frozen = "Frozen continuation\n" + marker
+        pending = Mock(part_number=2, status=PublicationPartStatus.POSTING, delivery=IssueCommentDelivery(frozen))
+        posted = Mock(part_number=1, status=PublicationPartStatus.POSTED, delivery=IssueCommentDelivery("posted"))
+        publication = Mock(parts=(posted, pending), base_sha="b" * 40, head_sha="a" * 40)
+        publication.plan.publication_key = key
+        scope = publication_gateway_module._PublicationScope(1, "org/repo", 2, publication=publication)
+        tokens, provider = Mock(), Mock()
+        tokens.app_bot_login.return_value = current.author_login
+        provider.list_issue_comments.return_value = [outsider, current]
+        provider.get_pull_request.return_value = PullRequestState("open", False, "b" * 40, "a" * 40)
+        service = ReviewPublicationGateway(postgres=Mock(), tokens=tokens, profile="repo", github_factory=lambda _: provider)
+        request = PublicationGatewayRequest("publication", 17, "publisher", 2, "update_issue_comment",
+                                            comment_id=current.comment_id, body=frozen)
+        with patch.object(service, "_require_authority", return_value=scope):
+            for rejected in (replace(request, body="edited"), replace(request, body="posted"),
+                             replace(request, comment_id=outsider.comment_id), replace(request, comment_id=99),
+                             replace(request, operation="delete_issue_comment")):
+                with self.subTest(operation=rejected.operation, comment_id=rejected.comment_id), self.assertRaises(GitHubGatewayRejected):
+                    service.execute(rejected)
+            provider.update_issue_comment.assert_not_called()
+            provider.delete_issue_comment.assert_not_called()
+            service.execute(request)
+            provider.update_issue_comment.assert_called_once_with("org/repo", 20, frozen)
+            provider.list_issue_comments.return_value = [replace(current, body=frozen)]
+            self.assertEqual(service.execute(replace(request, operation="create_issue_comment", comment_id=None)),
+                             replace(current, body=frozen))
+            provider.create_issue_comment.assert_not_called()
+            provider.list_issue_comments.return_value = []
+            provider.get_pull_request.return_value = PullRequestState("open", False, "b" * 40, "d" * 40)
+            with self.assertRaisesRegex(GitHubGatewayRejected, "head_sha_changed"):
+                service.execute(replace(request, operation="create_issue_comment", comment_id=None))
+            provider.create_issue_comment.assert_not_called()
+
+    def test_suggestion_review_requires_frozen_commit_and_every_inline_field(self) -> None:
+        frozen = SuggestionReviewDelivery("Frozen review", (
+            InlineSuggestionDelivery("file.txt", "Fixed text", 10, PublicationReviewSide.RIGHT, 8, PublicationReviewSide.RIGHT),
+        ))
+        publication = Mock(base_sha="b" * 40, head_sha="a" * 40,
+                           parts=(Mock(status=PublicationPartStatus.POSTING, delivery=frozen),))
+        publication.plan.publication_key = "sha256:" + "c" * 64
+        scope = publication_gateway_module._PublicationScope(1, "org/repo", 2, publication=publication)
+        tokens, provider = Mock(), Mock()
+        tokens.app_bot_login.return_value = "review-agent[bot]"
+        provider.get_pull_request.return_value = PullRequestState("open", False, "b" * 40, "a" * 40)
+        provider.list_pull_request_review_comments.return_value = []
+        service = ReviewPublicationGateway(postgres=Mock(), tokens=tokens, profile="repo", github_factory=lambda _: provider)
+        inline = InlineReviewComment("file.txt", "Fixed text", 10, "RIGHT", 8, "RIGHT")
+        request = PublicationGatewayRequest("publication", 17, "publisher", 2, "create_pull_request_review",
+                                            body=frozen.body, commit_id=publication.head_sha, comments=(inline,))
+        with patch.object(service, "_require_authority", return_value=scope):
+            for rejected in (replace(request, commit_id="d" * 40), replace(request, body="edited"),
+                             replace(request, comments=(replace(inline, path="other.txt"),)),
+                             replace(request, comments=(replace(inline, body="edited"),)),
+                             replace(request, comments=(replace(inline, start_line=7),))):
+                with self.assertRaises(GitHubGatewayRejected):
+                    service.execute(rejected)
+            provider.create_pull_request_review.assert_not_called()
+            service.execute(request)
+        provider.create_pull_request_review.assert_called_once_with(
+            "org/repo", 2, commit_id=publication.head_sha, body=frozen.body, comments=(inline,),
+        )
+
+    def test_historical_overflow_body_is_bound_to_its_original_owned_comment(self) -> None:
+        from review_agent.domain.publication import PublicationId
+        from review_agent.postgres.publications import HistoricalPublication
+
+        key = "sha256:" + "c" * 64
+        historical = HistoricalPublication(
+            publication_id=PublicationId(1), review_number=1, repository="org/repo", pr_number=2, head_sha="a" * 40,
+            publication_key=key, rendered_markdown="Historical report", rendered_blocks_json="",
+            comment_ids=(101, 102), current_findings_count=0, superseding_review_number=2, superseding_comment_id=200,
+            finalization_token="00000000-0000-4000-8000-000000000001", max_comment_bytes=2_000,
+        )
+        first_body, overflow_body = supersession_bodies(historical)
+        self.assertIn("retained only", overflow_body)
+        scope = publication_gateway_module._PublicationScope(1, "org/repo", 2, historical=historical)
+        tokens, provider = Mock(), Mock()
+        tokens.app_bot_login.return_value = "review-agent[bot]"
+        service = ReviewPublicationGateway(postgres=Mock(), tokens=tokens, profile="repo", github_factory=lambda _: provider)
+        original = IssueComment(102, f"Earlier text\n<!-- review-agent:canonical publication={key} part=2/2 -->", "review-agent[bot]")
+        request = PublicationGatewayRequest("posted_publication", 3, None, None, "update_issue_comment",
+                                            body=overflow_body, comment_id=102, finalization_token=historical.finalization_token)
+        with patch.object(service, "_require_authority", return_value=scope):
+            with self.assertRaises(GitHubGatewayRejected):
+                service.execute(replace(request, body=first_body))
+            for wrong in (replace(original, author_login="contributor"), replace(original, body=first_body)):
+                provider.issue_comment_on_pull.return_value = wrong
+                with self.assertRaises(GitHubGatewayRejected):
+                    service.execute(request)
+            provider.update_issue_comment.assert_not_called()
+            provider.issue_comment_on_pull.return_value = original
+            service.execute(request)
+        provider.update_issue_comment.assert_called_once_with("org/repo", 102, overflow_body)
+
+    def test_repository_comment_lookup_requires_the_exact_pull_request(self) -> None:
+        provider = GitHubIssueCommentGateway("fixture")
+        data = {"id": 31, "issue_url": "https://api.github.com/repos/org/repo/issues/2",
+                "body": "Notice", "user": {"login": "app[bot]"}}
+        with patch.object(provider, "_request_json", return_value=data):
+            self.assertEqual(provider.issue_comment_on_pull("org/repo", 2, 31), IssueComment(31, "Notice", "app[bot]"))
+            for repo, pr, comment in (("org/repo", 3, 31), ("org/other", 2, 31), ("org/repo", 2, 11)):
+                with self.assertRaisesRegex(GitHubPublicationError, "publication_comment_not_authorized"):
+                    provider.issue_comment_on_pull(repo, pr, comment)
+
+    def test_failure_cleanup_binds_author_purpose_run_and_closing_marker(self) -> None:
+        failure = Mock(run_id=20, head_sha="a" * 40, failure_code="review_deliver_error")
+        scope = publication_gateway_module._PublicationScope(1, "org/repo", 2, failure=failure)
+        tokens, provider = Mock(), Mock()
+        tokens.app_bot_login.return_value = "review-agent[bot]"
+        service = ReviewPublicationGateway(postgres=Mock(), tokens=tokens, profile="repo", github_factory=lambda _: provider)
+        request = PublicationGatewayRequest("failure_status", 20, "publisher", 2, "delete_issue_comment", comment_id=50)
+        old = IssueComment(50, failure_status_body(19, failure.head_sha, failure.failure_code), "review-agent[bot]")
+        with patch.object(service, "_require_authority", return_value=scope):
+            for rejected in (
+                replace(old, author_login="contributor"), replace(old, body=old.body + "quoted by a review"),
+                replace(old, body=failure_status_body(20, failure.head_sha, failure.failure_code)),
+                replace(old, body=failure_status_body(19, failure.head_sha, failure.failure_code, purpose=ReviewPurpose.DOCUMENTATION)),
+            ):
+                provider.issue_comment_on_pull.return_value = rejected
+                with self.assertRaises(GitHubGatewayRejected):
+                    service.execute(request)
+            with self.assertRaises(GitHubGatewayRejected):
+                service.execute(replace(request, operation="create_issue_comment", comment_id=None, body="edited"))
+            provider.delete_issue_comment.assert_not_called()
+            provider.create_issue_comment.assert_not_called()
+            provider.issue_comment_on_pull.return_value = old
+            service.execute(request)
+        provider.delete_issue_comment.assert_called_once_with("org/repo", 50)
 
     def test_publication_rechecks_lease_and_uses_write_scoped_token(self) -> None:
         runtime = Mock()
@@ -800,12 +941,16 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             profile="default-standard",
             github_factory=factory,
         )
-        scope = SimpleNamespace(
-            purpose=ReviewPurpose.CODE,
-            provider_repository_id=9001,
-            repository="CCimen/review-agent",
-            pr_number=42,
+        scope = publication_gateway_module._PublicationScope(
+            9001, "CCimen/review-agent", 42, publication=Mock(
+                head_sha="a" * 40, base_sha="b" * 40,
+                parts=(Mock(status=PublicationPartStatus.POSTING, part_number=1, delivery=IssueCommentDelivery("published")),),
+            )
         )
+        scope.publication.plan.publication_key = "sha256:" + "c" * 64
+        tokens.app_bot_login.return_value = "review-agent[bot]"
+        github.get_pull_request.return_value = PullRequestState("open", False, "b" * 40, "a" * 40)
+        github.list_issue_comments.return_value = []
         request = PublicationGatewayRequest.from_mapping(
             {
                 "scope_kind": "publication",
@@ -820,12 +965,12 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         with patch.object(
             ReviewPublicationGateway,
             "_require_authority",
-            side_effect=(scope, scope),
+            return_value=scope,
         ) as authorize:
             result = service.execute(request)
 
         self.assertEqual(result, github.create_issue_comment.return_value)
-        self.assertEqual(authorize.call_count, 2)
+        self.assertEqual(authorize.call_count, 3)
         tokens.token_for.assert_called_once_with(9001, purpose="publication")
         factory.assert_called_once_with("installation-token")
         github.create_issue_comment.assert_called_once_with(
@@ -854,12 +999,16 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             profile="default-standard",
             github_factory=Mock(return_value=github),
         )
-        scope = SimpleNamespace(
-            purpose=ReviewPurpose.CODE,
-            provider_repository_id=9001,
-            repository="CCimen/review-agent",
-            pr_number=42,
+        scope = publication_gateway_module._PublicationScope(
+            9001, "CCimen/review-agent", 42, publication=Mock(
+                head_sha="a" * 40, base_sha="b" * 40,
+                parts=(Mock(status=PublicationPartStatus.POSTING, part_number=1, delivery=IssueCommentDelivery("published")),),
+            )
         )
+        scope.publication.plan.publication_key = "sha256:" + "c" * 64
+        tokens.app_bot_login.return_value = "review-agent[bot]"
+        github.get_pull_request.return_value = PullRequestState("open", False, "b" * 40, "a" * 40)
+        github.list_issue_comments.return_value = []
         request = PublicationGatewayRequest.from_mapping(
             {
                 "scope_kind": "publication",
@@ -1580,12 +1729,18 @@ class DocumentationCheckProviderTests(unittest.TestCase):
         delivery = CheckRunDelivery("Documentation review", "a" * 40,
             "review-agent:canonical publication=sha256:" + "b" * 64,
             "neutral", "Docs result", "Frozen report")
-        scope = publication_gateway_module._PublicationScope(901, "team/service", 41, delivery, "Frozen report")
+        scope = publication_gateway_module._PublicationScope(
+            901, "team/service", 41, delivery, "Frozen report", publication=Mock(
+                head_sha="a" * 40, base_sha="b" * 40,
+                parts=(Mock(status=PublicationPartStatus.POSTING, delivery=delivery),),
+            )
+        )
         check = CheckRun(11, delivery.name, delivery.head_sha, delivery.external_id, 17, "completed", "neutral")
         tokens = Mock()
         tokens.token_for.return_value = SimpleNamespace(value="installation-token")
         tokens.app_identity.return_value = SimpleNamespace(provider_app_id=17)
         provider = Mock()
+        provider.get_pull_request.return_value = PullRequestState("open", False, "b" * 40, "a" * 40)
         provider.create_check_run.return_value = check
         service = ReviewPublicationGateway(postgres=Mock(), tokens=tokens,
             profile="default-standard", github_factory=Mock(return_value=provider))
@@ -1611,6 +1766,13 @@ class DocumentationCheckProviderTests(unittest.TestCase):
             with self.assertRaises(GitHubGatewayRejected):
                 service.execute(denied)
             provider.update_check_run.assert_not_called()
+            cancel = replace(denied, check_run_id=check.check_run_id, cancelled=True)
+            with self.assertRaisesRegex(GitHubGatewayRejected, "publication_check_not_stale"):
+                service.execute(cancel)
+            provider.update_check_run.assert_not_called()
+            provider.get_pull_request.return_value = PullRequestState("open", False, "b" * 40, "c" * 40)
+            provider.update_check_run.return_value = replace(check, conclusion="cancelled")
+            self.assertEqual(service.execute(cancel), provider.update_check_run.return_value)
 
 
 if __name__ == "__main__":

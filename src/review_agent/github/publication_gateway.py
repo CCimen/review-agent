@@ -3,13 +3,26 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+import hmac
 import re
 from typing import Literal, cast
 
-from ..domain.publication import CheckRunDelivery, PublicationId, PublicationPartType, PublicationStatus
+import psycopg
+from psycopg.rows import TupleRow
+
+from ..domain import failure_codes
+from ..domain.publication import (
+    CheckRunDelivery, IssueCommentDelivery, PublicationDomainError, PublicationId,
+    PublicationPartStatus, PublicationPartType, PublicationStatus, SuggestionReviewDelivery,
+)
 from ..domain.review import ReviewPurpose, ReviewRunId
-from ..postgres import github_app, publications, review_runs
+from ..postgres import findings, github_app, publications, review_runs
+from ..publication.publish import (
+    existing_part_comment, failure_status_body, failure_status_marker, failure_status_marker_run,
+    issue_comments_by_part, reviews_with_exact_suggestions, suggestion_comments, supersession_bodies,
+    target_failure,
+)
 from ..postgres.runtime import PostgreSQLRuntime
 from .app_auth import (
     GitHubAppTokenPermanent,
@@ -67,6 +80,13 @@ PublicationResult = (
 
 _BASE_FIELDS = {"scope_kind", "scope_id", "operation"}
 _LEASE_FIELDS = {"lease_owner", "lease_generation"}
+_FAILURE_STATUS_OPERATIONS = frozenset({
+    "current_user", "get_pull", "list_issue_comments", "create_issue_comment", "update_issue_comment", "delete_issue_comment",
+})
+_WRITES = frozenset({
+    "create_check_run", "update_check_run", "create_issue_comment", "update_issue_comment",
+    "delete_issue_comment", "create_pull_request_review",
+})
 _POSTED_PUBLICATION_OPERATIONS: frozenset[PublicationOperation] = frozenset(
     {
         "list_issue_comments",
@@ -160,6 +180,7 @@ class PublicationGatewayRequest:
     comments: tuple[InlineReviewComment, ...] = ()
     check_run_id: int | None = None
     cancelled: bool = False
+    finalization_token: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_mapping(
@@ -178,7 +199,7 @@ class PublicationGatewayRequest:
             raise GitHubGatewayProtocolError("operation is invalid")
         typed_operation = operation
         authority_fields: set[str] = (
-            set() if typed_scope_kind == "posted_publication" else _LEASE_FIELDS
+            {"finalization_token"} if typed_scope_kind == "posted_publication" else _LEASE_FIELDS
         )
         if set(value) != (
             _BASE_FIELDS | authority_fields | _OPERATION_FIELDS[typed_operation]
@@ -217,8 +238,14 @@ class PublicationGatewayRequest:
             raise GitHubGatewayProtocolError("cancelled is invalid")
         if "check_run" in typed_operation and typed_scope_kind != "publication":
             raise GitHubGatewayProtocolError("check operations require a publication lease")
+        token = value.get("finalization_token")
+        if typed_scope_kind == "posted_publication" and (
+            not isinstance(token, str) or not re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", token)
+        ):
+            raise GitHubGatewayProtocolError("finalization_token is invalid")
         return cls(
             check_run_id=check_run_id, cancelled=cancelled,
+            finalization_token=token if isinstance(token, str) else None,
             scope_kind=typed_scope_kind,
             scope_id=_positive(value.get("scope_id"), "scope_id"),
             lease_owner=(
@@ -253,6 +280,17 @@ class _PublicationScope:
     check: CheckRunDelivery | None = None
     check_summary: str = ""
     purpose: ReviewPurpose = ReviewPurpose.CODE
+    publication: publications.StoredPublication | None = None
+    historical: publications.HistoricalPublication | None = None
+    failure: review_runs.FailureStatusTarget | None = None
+    stale_reason: str | None = None
+    stored_cleanup_target: bool = False
+
+    @property
+    def next_part(self) -> publications.StoredPublicationPart | None:
+        if self.publication is None:
+            return None
+        return next((part for part in self.publication.parts if part.status is not PublicationPartStatus.POSTED), None)
 
 
 class ReviewPublicationGateway:
@@ -275,6 +313,7 @@ class ReviewPublicationGateway:
 
     def execute(self, request: PublicationGatewayRequest) -> PublicationResult:
         scope = self._require_authority(request)
+        authorized_body = _authorize_write(scope, request) if request.operation in _WRITES else None
 
         if request.operation == "current_user":
             try:
@@ -288,6 +327,28 @@ class ReviewPublicationGateway:
 
         def operation(token: str) -> PublicationResult:
             github = self._github_factory(token)
+
+            def before_write() -> None:
+                pull = (
+                    github.get_pull_request(scope.repository, scope.pr_number)
+                    if request.scope_kind != "posted_publication" and request.operation != "delete_issue_comment"
+                    else None
+                )
+                fresh = self._require_authority(request)
+                if fresh.next_part != scope.next_part or fresh.stored_cleanup_target != scope.stored_cleanup_target:
+                    raise GitHubGatewayRejected("publication_operation_not_allowed")
+                if pull is not None and fresh.publication is not None:
+                    publication = fresh.publication
+                    stale = fresh.stale_reason or target_failure(
+                        base_sha=publication.base_sha, head_sha=publication.head_sha, pull=pull,
+                    )
+                    if request.cancelled and stale is None:
+                        raise GitHubGatewayRejected("publication_check_not_stale")
+                    if not request.cancelled and stale is not None:
+                        raise GitHubGatewayRejected(stale)
+                if pull is not None and fresh.failure is not None and pull.state != "open":
+                    raise GitHubGatewayRejected(failure_codes.PR_NOT_OPEN)
+
             if "check_run" in request.operation:
                 check = scope.check
                 if check is None:
@@ -308,16 +369,29 @@ class ReviewPublicationGateway:
                 if request.operation == "create_check_run":
                     if matches:
                         return matches[0]
+                    before_write()
                     result = github.create_check_run(scope.repository, delivery=check, summary=scope.check_summary)
                 else:
                     if not matches or matches[0].check_run_id != request.check_run_id:
                         raise GitHubGatewayRejected("publication_check_not_authorized")
+                    before_write()
                     result = github.update_check_run(scope.repository, matches[0].check_run_id,
                         delivery=check, summary=scope.check_summary, cancelled=request.cancelled)
                 if (result.app_id, result.head_sha, result.name, result.external_id) != (app_id, check.head_sha, check.name, check.external_id):
                     raise GitHubPublicationError("github_check_subject_mismatch")
                 return result
-            return _execute_provider(github, scope, request)
+            if request.operation in _WRITES:
+                return _execute_write(github, scope, request, authorized_body, self._tokens.app_bot_login(), before_write)
+            if request.operation == "list_issue_comments" and scope.historical is not None:
+                assert request.max_pages is not None and request.newest_first is not None
+                listed = github.list_issue_comments(scope.repository, scope.pr_number,
+                    max_pages=request.max_pages, newest_first=request.newest_first)
+                historical = scope.historical
+                by_part = issue_comments_by_part(listed, author_login=self._tokens.app_bot_login(),
+                    publication_key=historical.publication_key)
+                return [item for number, comment_id in enumerate(historical.comment_ids, 1)
+                        for item in by_part.get(number, ()) if item.comment_id == comment_id]
+            return _execute_read(github, scope, request)
 
         result = self._provider(scope.provider_repository_id, operation,
             purpose="documentation_publication" if scope.purpose is ReviewPurpose.DOCUMENTATION or "check_run" in request.operation else "publication")
@@ -369,6 +443,11 @@ class ReviewPublicationGateway:
                         repository=run_scope.repository,
                         pr_number=run_scope.pr_number,
                         check=check, check_summary=summary, purpose=publication.purpose,
+                        publication=publication,
+                        stale_reason=(
+                            _stale_finding_reason(connection, publication.review_run_id)
+                            if request.operation in _WRITES and request.operation != "delete_issue_comment" else None
+                        ),
                     )
                 elif request.scope_kind == "posted_publication":
                     if request.operation not in _POSTED_PUBLICATION_OPERATIONS:
@@ -388,6 +467,10 @@ class ReviewPublicationGateway:
                         raise GitHubGatewayRejected(
                             "publication_finalization_complete"
                         )
+                    if not finalization.finalization_token or not request.finalization_token or not hmac.compare_digest(
+                        finalization.finalization_token, request.finalization_token
+                    ):
+                        raise GitHubGatewayRejected("publication_finalization_not_authorized")
                     if (
                         request.operation == "update_issue_comment"
                         and request.comment_id not in finalization.comment_ids
@@ -407,8 +490,11 @@ class ReviewPublicationGateway:
                         provider_repository_id=run_scope.provider_repository_id,
                         repository=run_scope.repository,
                         pr_number=run_scope.pr_number,
+                        historical=finalization, purpose=publication.purpose,
                     )
                 else:
+                    if request.operation not in _FAILURE_STATUS_OPERATIONS:
+                        raise GitHubGatewayRejected("publication_operation_not_allowed")
                     assert request.lease_owner is not None
                     assert request.lease_generation is not None
                     run_id = ReviewRunId(request.scope_id)
@@ -429,11 +515,18 @@ class ReviewPublicationGateway:
                         repository=run_scope.repository,
                         pr_number=run_scope.pr_number,
                         purpose=run_scope.run.purpose,
+                        failure=target,
                     )
                 authorize = (github_app.authorize_documentation_review
                     if scope.purpose is ReviewPurpose.DOCUMENTATION
                     else github_app.authorize_review_publication)
                 authorize(connection, scope.provider_repository_id, profile_key=self._profile)
+                if request.operation == "delete_issue_comment":
+                    targets = review_runs.failure_status_comments_for_pull_request(
+                        connection, repository=scope.repository, pr_number=scope.pr_number, purpose=scope.purpose,
+                        exclude_run_id=scope.failure.run_id if scope.failure else None,
+                    )
+                    scope = replace(scope, stored_cleanup_target=any(target.comment_id == request.comment_id for target in targets))
                 return scope
         except (publications.PublicationLeaseLost, review_runs.FailureStatusLeaseLost) as exc:
             raise GitHubGatewayRejected("publication_lease_lost") from exc
@@ -478,7 +571,125 @@ class ReviewPublicationGateway:
                 raise GitHubGatewayRejected(reason) from exc
 
 
-def _execute_provider(
+def _stale_finding_reason(connection: psycopg.Connection[TupleRow], run_id: ReviewRunId) -> str | None:
+    if not findings.finding_relationships_are_current(connection, run_id=run_id):
+        return failure_codes.FINDING_DECISIONS_CHANGED
+    if not findings.finding_groups_are_current(connection, run_id=run_id):
+        return failure_codes.FINDING_GROUPS_CHANGED
+    return None
+
+
+def _authorize_write(scope: _PublicationScope, request: PublicationGatewayRequest) -> str | None:
+    """Bind the operation and every supplied payload field to its durable delivery."""
+    part = scope.next_part
+    if request.operation == "delete_issue_comment":
+        if scope.failure is None and (scope.publication is None or part is not None):
+            raise GitHubGatewayRejected("publication_operation_not_allowed")
+        return None
+    if "check_run" in request.operation:
+        if scope.check is None or (not request.cancelled and (part is None or part.delivery != scope.check)):
+            raise GitHubGatewayRejected("publication_operation_not_allowed")
+        return None
+    if request.operation == "create_pull_request_review":
+        if (scope.publication is None or part is None or not isinstance(part.delivery, SuggestionReviewDelivery)
+                or request.commit_id != scope.publication.head_sha or request.comments != suggestion_comments(part.delivery)
+                or request.body != part.delivery.body):
+            raise GitHubGatewayRejected("publication_review_not_authorized")
+        return part.delivery.body
+    if request.operation not in {"create_issue_comment", "update_issue_comment"}:
+        raise GitHubGatewayRejected("publication_operation_not_allowed")
+    if scope.historical is not None:
+        if request.operation != "update_issue_comment" or request.comment_id not in scope.historical.comment_ids:
+            raise GitHubGatewayRejected("publication_comment_not_authorized")
+        try:
+            body = supersession_bodies(scope.historical)[scope.historical.comment_ids.index(request.comment_id)]
+        except PublicationDomainError as exc:
+            raise GitHubGatewayRejected(exc.code) from exc
+    elif scope.failure is not None:
+        failure = scope.failure
+        body = failure_status_body(failure.run_id, failure.head_sha, failure.failure_code, purpose=scope.purpose)
+    elif part is not None and isinstance(part.delivery, IssueCommentDelivery):
+        body = part.delivery.body
+    else:
+        raise GitHubGatewayRejected("publication_operation_not_allowed")
+    if request.body != body:
+        raise GitHubGatewayRejected("publication_body_not_authorized")
+    return body
+
+
+def _execute_write(
+    github: GitHubIssueCommentGateway, scope: _PublicationScope, request: PublicationGatewayRequest,
+    body: str | None, bot_login: str, before_write: Callable[[], None],
+) -> PublicationResult:
+    """Reconcile only App-owned objects on this PR, using the frozen write payload."""
+    repository, pr = scope.repository, scope.pr_number
+    if request.operation == "delete_issue_comment":
+        assert request.comment_id is not None
+        target = github.issue_comment_on_pull(repository, pr, request.comment_id)
+        marker_run = failure_status_marker_run(target.body, scope.purpose)
+        if (target.author_login.casefold() != bot_login.casefold()
+                or (marker_run is None and not scope.stored_cleanup_target)
+                or (scope.failure is not None and marker_run == scope.failure.run_id)):
+            raise GitHubGatewayRejected("publication_comment_not_authorized")
+        before_write()
+        github.delete_issue_comment(repository, target.comment_id)
+        return None
+
+    assert body is not None
+    if scope.historical is not None:
+        assert request.comment_id is not None
+        historical = scope.historical
+        target = github.issue_comment_on_pull(repository, pr, request.comment_id)
+        number = historical.comment_ids.index(request.comment_id) + 1
+        if number not in issue_comments_by_part([target], author_login=bot_login, publication_key=historical.publication_key):
+            raise GitHubGatewayRejected("publication_comment_not_authorized")
+        if target.body == body:
+            return target
+        before_write()
+        return github.update_issue_comment(repository, target.comment_id, body)
+
+    publication = scope.publication
+    part = scope.next_part
+    if request.operation == "create_pull_request_review":
+        assert publication is not None and part is not None and isinstance(part.delivery, SuggestionReviewDelivery)
+        comments = suggestion_comments(part.delivery)
+        reviews = github.list_pull_request_review_comments(repository, pr, max_pages=PUBLICATION_REQUEST_MAX_PAGES)
+        matches = reviews_with_exact_suggestions(reviews, comments, author_login=bot_login, head_sha=publication.head_sha,
+                                                 publication_key=publication.plan.publication_key)
+        if matches:
+            return PullRequestReview(matches[-1], body, bot_login, publication.head_sha, "COMMENTED")
+        before_write()
+        return github.create_pull_request_review(repository, pr, commit_id=publication.head_sha, body=body, comments=comments)
+
+    listed = github.list_issue_comments(repository, pr, max_pages=PUBLICATION_REQUEST_MAX_PAGES, newest_first=True)
+    if scope.failure is not None:
+        marker = failure_status_marker(scope.failure.run_id, scope.failure.head_sha, purpose=scope.purpose)
+        existing = next((item for item in listed if item.author_login.casefold() == bot_login.casefold()
+                         and item.body.rstrip().endswith(marker)), None)
+    else:
+        assert publication is not None and part is not None
+        by_part = issue_comments_by_part(listed, author_login=bot_login, publication_key=publication.plan.publication_key)
+        existing = existing_part_comment(by_part.get(part.part_number, ()), body)
+    if request.operation == "update_issue_comment" and (existing is None or existing.comment_id != request.comment_id):
+        raise GitHubGatewayRejected("publication_comment_not_authorized")
+    if existing is not None:
+        if existing.body == body:
+            return existing
+        if request.operation != "update_issue_comment":
+            raise GitHubGatewayRejected("publication_comment_not_authorized")
+        try:
+            before_write()
+        except GitHubGatewayRejected as exc:
+            # Failure notices written just before a close are recorded without editing.
+            if scope.failure is not None and exc.reason == failure_codes.PR_NOT_OPEN:
+                return existing
+            raise
+        return github.update_issue_comment(repository, existing.comment_id, body)
+    before_write()
+    return github.create_issue_comment(repository, pr, body)
+
+
+def _execute_read(
     github: GitHubIssueCommentGateway,
     scope: _PublicationScope,
     request: PublicationGatewayRequest,
@@ -497,30 +708,7 @@ def _execute_provider(
             max_pages=request.max_pages,
             newest_first=request.newest_first,
         )
-    if request.operation == "update_issue_comment":
-        assert request.comment_id is not None and request.body is not None
-        return github.update_issue_comment(
-            scope.repository, request.comment_id, request.body
-        )
-    if request.operation == "create_issue_comment":
-        assert request.body is not None
-        return github.create_issue_comment(
-            scope.repository, scope.pr_number, request.body
-        )
-    if request.operation == "delete_issue_comment":
-        assert request.comment_id is not None
-        github.delete_issue_comment(scope.repository, request.comment_id)
-        return None
-    if request.operation == "create_pull_request_review":
-        assert request.commit_id is not None and request.body is not None
-        return github.create_pull_request_review(
-            scope.repository,
-            scope.pr_number,
-            commit_id=request.commit_id,
-            body=request.body,
-            comments=request.comments,
-        )
-    assert request.max_pages is not None
+    assert request.operation == "list_pull_request_review_comments" and request.max_pages is not None
     return github.list_pull_request_review_comments(
         scope.repository, scope.pr_number, max_pages=request.max_pages
     )

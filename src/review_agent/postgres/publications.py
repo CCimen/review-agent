@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -201,6 +201,8 @@ class HistoricalPublication:
     current_findings_count: int
     superseding_review_number: int
     superseding_comment_id: int
+    finalization_token: str | None = field(repr=False)
+    max_comment_bytes: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -992,6 +994,7 @@ def publication_for_supersession(
     connection: psycopg.Connection[TupleRow],
     *,
     superseding_publication_id: PublicationId,
+    claim_max_comment_bytes: int | None = None,
 ) -> HistoricalPublication | None:
     """Load the oldest pending historical rewrite in a posted publication's PR."""
     _require_transaction(connection)
@@ -1002,7 +1005,7 @@ def publication_for_supersession(
         )
     row = connection.execute(
         """
-        SELECT id, superseded_by_publication_id
+        SELECT id, superseded_by_publication_id, supersession_token, supersession_max_comment_bytes
         FROM review_agent.publications
         WHERE pull_request_id = %s
           AND purpose = %s
@@ -1018,6 +1021,23 @@ def publication_for_supersession(
     ).fetchone()
     if row is None:
         return None
+    token, byte_limit = row[2], row[3]
+    if claim_max_comment_bytes is not None and token is None:
+        # Only the trusted publisher claims a rewrite. Gateway lookups are read-only.
+        grant = connection.execute(
+            """
+            UPDATE review_agent.publications
+            SET supersession_token = COALESCE(supersession_token, gen_random_uuid()),
+                supersession_max_comment_bytes = COALESCE(supersession_max_comment_bytes, %s)
+            WHERE id = %s
+              AND (supersession_rendered_at IS NULL OR supersession_failure_code IS NOT NULL)
+            RETURNING supersession_token, supersession_max_comment_bytes
+            """,
+            (claim_max_comment_bytes, row[0]),
+        ).fetchone()
+        if grant is None:
+            return None
+        token, byte_limit = grant
     prior = get_publication(connection, PublicationId(int(row[0])))
     superseding = get_publication(connection, PublicationId(int(row[1])))
     if (
@@ -1063,6 +1083,8 @@ def publication_for_supersession(
         ),
         superseding_review_number=superseding.review_number,
         superseding_comment_id=superseding_summary.external_id,
+        finalization_token=str(token) if token is not None else None,
+        max_comment_bytes=int(byte_limit) if byte_limit is not None else None,
     )
 
 
@@ -1083,18 +1105,27 @@ def record_supersession_result(
         """
         UPDATE review_agent.publications
         SET supersession_rendered_at = statement_timestamp(),
-            supersession_failure_code = %s
+            supersession_failure_code = %s,
+            supersession_token = CASE WHEN %s::text IS NULL THEN NULL ELSE supersession_token END,
+            supersession_max_comment_bytes = CASE WHEN %s::text IS NULL THEN NULL ELSE supersession_max_comment_bytes END
         WHERE id = %s
           AND status = 'posted'
           AND superseded_by_publication_id IS NOT NULL
+          AND (supersession_rendered_at IS NULL OR supersession_failure_code IS NOT NULL)
         RETURNING supersession_rendered_at, supersession_failure_code
         """,
-        (code, publication_id),
+        (code, code, code, publication_id),
     ).fetchone()
     if row is None:
-        raise InvalidPublicationTransition(
-            "only a superseded posted publication can record a rewrite result"
-        )
+        # A concurrent success is final. A delayed worker cannot reopen its grant.
+        row = connection.execute(
+            """SELECT supersession_rendered_at, supersession_failure_code FROM review_agent.publications
+               WHERE id = %s AND status = 'posted' AND superseded_by_publication_id IS NOT NULL
+                 AND supersession_rendered_at IS NOT NULL AND supersession_failure_code IS NULL""",
+            (publication_id,),
+        ).fetchone()
+        if row is None:
+            raise InvalidPublicationTransition("only a superseded posted publication can record a rewrite result")
     rendered_at = row[0]
     if not isinstance(rendered_at, datetime):
         raise PublicationConflict("supersession result has no timestamp")

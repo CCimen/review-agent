@@ -7,15 +7,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 import threading
+import re
 from typing import TYPE_CHECKING, Literal, Protocol
 
 if TYPE_CHECKING:
     from ..domain.review import ReviewRunId
+    from ..postgres.publications import HistoricalPublication
     from ..postgres.runtime import PostgreSQLRuntime
 
 from ..domain import failure_codes
 from ..review import runs as review_runs
-from ..domain.publication import PublicationPartType
+from ..domain.publication import PublicationPartType, SuggestionReviewDelivery
 from ..domain.review import ReviewPurpose
 from ..github.publication import (
     GitHubPublicationAuthorityLost,
@@ -53,6 +55,12 @@ class SupersessionGateway(Protocol):
     def update_issue_comment(
         self, repository: str, comment_id: int, body: str
     ) -> IssueComment: ...
+
+
+class SupersessionGatewayFactory(Protocol):
+    def for_posted_publication(
+        self, *, publication_id: int, finalization_token: str
+    ) -> SupersessionGateway: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,7 +239,7 @@ def prepare_documentation_publication(
     )
 
 
-def _target_failure(
+def target_failure(
     *, base_sha: str, head_sha: str, pull: PullRequestState
 ) -> str | None:
     if pull.state != "open":
@@ -243,25 +251,12 @@ def _target_failure(
     return None
 
 
-def _render_supersession(
-    runtime: "PostgreSQLRuntime",
-    *,
-    github: SupersessionGateway,
-    superseding_publication_id: int,
-    max_comment_bytes: int,
-) -> SupersessionOutcome | None:
-    """Rewrite one prior PostgreSQL publication without holding a checkout."""
-    from ..domain.publication import PublicationDomainError, PublicationId
-    from ..postgres import publications as postgres_publications
+def supersession_bodies(historical: "HistoricalPublication") -> tuple[str, ...]:
+    """Render the frozen historical body for each originally acknowledged comment."""
+    from ..domain.publication import PublicationDomainError
 
-    with runtime.transaction() as connection:
-        historical = postgres_publications.publication_for_supersession(
-            connection,
-            superseding_publication_id=PublicationId(superseding_publication_id),
-        )
-    if historical is None:
-        return None
-
+    if historical.max_comment_bytes is None:
+        raise PublicationDomainError("supersession_unclaimed")
     partition_input: HistoricalPublicationBody = {
         "review_number": historical.review_number,
         "repository": historical.repository,
@@ -274,7 +269,44 @@ def _render_supersession(
         "superseded_by_review_number": historical.superseding_review_number,
         "superseded_by_comment_id": historical.superseding_comment_id,
     }
+    count = len(historical.comment_ids)
+    parts = historical_bodies(
+        partition_input, max_comment_bytes=historical.max_comment_bytes, target_parts=count
+    )
+    if len(parts) > count:
+        raise PublicationDomainError("superseded_body_needs_more_parts")
+    return tuple(part.body for part in parts) + tuple(
+        extra_superseded_body(partition_input, part_number=number, total_parts=count)
+        for number in range(len(parts) + 1, count + 1)
+    )
 
+
+def _render_supersession(
+    runtime: "PostgreSQLRuntime",
+    *,
+    github: SupersessionGateway,
+    posted_github: SupersessionGatewayFactory | None,
+    superseding_publication_id: int,
+    max_comment_bytes: int,
+) -> SupersessionOutcome | None:
+    """Rewrite one prior PostgreSQL publication without holding a checkout."""
+    from ..domain.publication import PublicationDomainError, PublicationId
+    from ..postgres import publications as postgres_publications
+
+    with runtime.transaction() as connection:
+        historical = postgres_publications.publication_for_supersession(
+            connection, superseding_publication_id=PublicationId(superseding_publication_id),
+            claim_max_comment_bytes=max_comment_bytes,
+        )
+    if historical is None:
+        return None
+    if posted_github is not None:
+        assert historical.finalization_token is not None
+        github = posted_github.for_posted_publication(
+            publication_id=superseding_publication_id, finalization_token=historical.finalization_token
+        )
+
+    code = None
     try:
         comments = github.list_issue_comments(
             historical.repository,
@@ -285,23 +317,7 @@ def _render_supersession(
         targets = _comments_by_id(comments, list(historical.comment_ids))
         if len(targets) != len(historical.comment_ids):
             raise PublicationDomainError("superseded_comment_missing")
-        parts = historical_bodies(
-            partition_input,
-            max_comment_bytes=max_comment_bytes,
-            target_parts=len(targets),
-        )
-        if len(parts) > len(targets):
-            raise GitHubPublicationError("superseded_body_needs_more_parts")
-        for index, target in enumerate(targets):
-            body = (
-                parts[index].body
-                if index < len(parts)
-                else extra_superseded_body(
-                    partition_input,
-                    part_number=index + 1,
-                    total_parts=len(targets),
-                )
-            )
+        for target, body in zip(targets, supersession_bodies(historical), strict=True):
             if target.body != body:
                 github.update_issue_comment(
                     historical.repository,
@@ -314,27 +330,16 @@ def _render_supersession(
             if isinstance(exc, (GitHubPublicationError, PublicationDomainError))
             else "supersession_failed"
         )
-        with runtime.transaction() as connection:
-            postgres_publications.record_supersession_result(
-                connection,
-                publication_id=historical.publication_id,
-                failure_code=code,
-            )
-        return SupersessionOutcome(
-            publication_id=int(historical.publication_id),
-            rendered=False,
-            failure_code=code,
-        )
-
     with runtime.transaction() as connection:
-        postgres_publications.record_supersession_result(
+        recorded = postgres_publications.record_supersession_result(
             connection,
             publication_id=historical.publication_id,
-            failure_code=None,
+            failure_code=code,
         )
     return SupersessionOutcome(
         publication_id=int(historical.publication_id),
-        rendered=True,
+        rendered=recorded.failure_code is None,
+        failure_code=recorded.failure_code,
     )
 
 
@@ -384,7 +389,7 @@ def publish_failure_status(
             lease_generation=generation,
         )
         purpose = postgres_review_runs.get_run(connection, resolved_id).purpose
-    body = _failure_status_body(run_id, target.head_sha, target.failure_code, purpose=purpose)
+    body = failure_status_body(run_id, target.head_sha, target.failure_code, purpose=purpose)
     try:
         listed_markers = _my_failure_status_comments(
             github, target.repository, target.pr_number, purpose=purpose
@@ -395,9 +400,9 @@ def publish_failure_status(
             purpose=purpose,
             known_markers=listed_markers,
         )
-        marker = _failure_status_marker(run_id, target.head_sha, purpose=purpose)
+        marker = failure_status_marker(run_id, target.head_sha, purpose=purpose)
         existing = next(
-            (item for item in current_markers if marker in item.body), None
+            (item for item in current_markers if item.body.rstrip().endswith(marker)), None
         )
         # Nobody acts on a failure notice after a close or merge. A comment an
         # earlier delivery created before closing is still recorded, not edited.
@@ -440,6 +445,15 @@ def publish_failure_status(
             "failure-status gateway authority was lost"
         ) from exc
     except GitHubPublicationError as exc:
+        if exc.code == failure_codes.PR_NOT_OPEN:
+            with runtime.transaction() as connection:
+                suppressed = postgres_review_runs.suppress_failure_status(
+                    connection, run_id=resolved_id, lease_owner=owner, lease_generation=generation,
+                )
+            return FailureStatusResult(
+                run_id=run_id, comment_id=None, failure_code=suppressed.failure_code,
+                posted_at=None, delivery_status="suppressed",
+            )
         with runtime.transaction() as connection:
             postgres_review_runs.retry_failure_status(
                 connection, run_id=resolved_id, lease_owner=owner,
@@ -523,9 +537,10 @@ def _cleanup_failure_status(
         marker_comments = known_markers
     current_markers: list[IssueComment] = []
     for comment in marker_comments:
-        if _failure_status_prefix(purpose) not in comment.body:
+        marker_run = failure_status_marker_run(comment.body, purpose)
+        if marker_run is None:
             continue
-        if exclude_run_id is not None and f"run={int(exclude_run_id)} " in comment.body:
+        if marker_run == exclude_run_id:
             current_markers.append(comment)
             continue
         if comment.comment_id in deleted or comment.comment_id in retained:
@@ -548,7 +563,7 @@ def publish_publication(
     lease_generation: int | None = None,
     retry_delay: timedelta = timedelta(seconds=30),
     lease_lost: threading.Event | None = None,
-    posted_github: SupersessionGateway | None = None,
+    posted_github: SupersessionGatewayFactory | None = None,
 ) -> PublicationOutcome:
     """Deliver one prepared PostgreSQL plan without holding a database checkout.
 
@@ -600,11 +615,10 @@ def publish_publication(
                 "lease_owner and lease_generation must be supplied together"
             )
     publication = claim.publication
-    finalizer = posted_github or github
     if publication.status is PublicationStatus.POSTED:
         supersession = _render_supersession(
             runtime,
-            github=finalizer,
+            github=github, posted_github=posted_github,
             superseding_publication_id=publication_id,
             max_comment_bytes=max_comment_bytes,
         )
@@ -683,7 +697,7 @@ def publish_publication(
                 lease_generation=resolved_lease_generation,
             )
 
-    def prove_provider_write() -> None:
+    def prove_provider_write(*, cancelling_stale_check: bool = False) -> None:
         if lease_lost is not None and lease_lost.is_set():
             raise postgres_publications.PublicationLeaseLost(
                 "publication delivery lease is no longer current"
@@ -695,7 +709,7 @@ def publish_publication(
                 lease_owner=resolved_lease_owner,
                 lease_generation=resolved_lease_generation,
             )
-            if not postgres_findings.finding_relationships_are_current(connection, run_id=publication.review_run_id):
+            if not cancelling_stale_check and not postgres_findings.finding_relationships_are_current(connection, run_id=publication.review_run_id):
                 raise postgres_publications.PublicationFindingDecisionsChanged(
                     "human finding decisions changed before a provider write"
                 )
@@ -709,7 +723,7 @@ def publish_publication(
             if not postgres_findings.finding_relationships_are_current(connection, run_id=publication.review_run_id):
                 return failure_codes.FINDING_DECISIONS_CHANGED
         pull = github.get_pull_request(publication.repository, publication.pr_number)
-        return _target_failure(
+        return target_failure(
             base_sha=publication.base_sha,
             head_sha=publication.head_sha,
             pull=pull,
@@ -717,7 +731,7 @@ def publish_publication(
 
     def terminalize_stale(failure_code: str) -> PublicationOutcome:
         if check_external_id is not None:
-            prove_provider_write()
+            prove_provider_write(cancelling_stale_check=True)
             github.update_check_run(publication.repository, check_external_id, cancelled=True)
         with runtime.transaction() as connection:
             postgres_review_runs.lock_run(connection, publication.review_run_id)
@@ -789,20 +803,13 @@ def publish_publication(
                         newest_first=True,
                     )
                     # Newest first, so the first match per part is the newest.
-                    issue_comments = _issue_comments_by_part(
+                    issue_comments = issue_comments_by_part(
                         listed,
                         author_login=author_login,
                         publication_key=publication.plan.publication_key,
                     )
                 candidates = issue_comments.get(part.part_number, [])
-                existing = next(
-                    (
-                        comment
-                        for comment in candidates
-                        if comment.body == part.delivery.body
-                    ),
-                    candidates[0] if candidates else None,
-                )
+                existing = existing_part_comment(candidates, part.delivery.body)
                 if existing is not None:
                     if existing.body != part.delivery.body:
                         stale_code = stale_failure()
@@ -836,7 +843,7 @@ def publish_publication(
                             raise
                         # A failed response can follow a successful POST. Reconcile
                         # even on the last attempt, without issuing another write.
-                        issue_comments = _issue_comments_by_part(
+                        issue_comments = issue_comments_by_part(
                             github.list_issue_comments(
                                 publication.repository, publication.pr_number,
                                 max_pages=_COMMENT_RECOVERY_SCAN_PAGES, newest_first=True,
@@ -859,28 +866,14 @@ def publish_publication(
                     raise postgres_publications.PublicationConflict(
                         "stored suggestion part has the wrong delivery shape"
                     )
-                expected = tuple(
-                    InlineReviewComment(
-                        path=comment.path,
-                        body=comment.body,
-                        line=comment.line,
-                        side=comment.side.value,
-                        start_line=comment.start_line,
-                        start_side=(
-                            comment.start_side.value
-                            if comment.start_side is not None
-                            else None
-                        ),
-                    )
-                    for comment in part.delivery.comments
-                )
+                expected = suggestion_comments(part.delivery)
                 if review_comments is None:
                     review_comments = github.list_pull_request_review_comments(
                         publication.repository,
                         publication.pr_number,
                         max_pages=_COMMENT_RECOVERY_SCAN_PAGES,
                     )
-                exact_review_ids = _reviews_with_exact_suggestions(
+                exact_review_ids = reviews_with_exact_suggestions(
                     review_comments,
                     expected,
                     author_login=author_login,
@@ -915,6 +908,9 @@ def publish_publication(
             "publication gateway authority was lost"
         ) from exc
     except GitHubPublicationError as exc:
+        if exc.code in {failure_codes.PR_NOT_OPEN, failure_codes.BASE_SHA_CHANGED, failure_codes.HEAD_SHA_CHANGED,
+                        failure_codes.FINDING_DECISIONS_CHANGED, failure_codes.FINDING_GROUPS_CHANGED}:
+            return terminalize_stale(exc.code)
         with runtime.transaction() as connection:
             postgres_review_runs.lock_run(connection, publication.review_run_id)
             failed = postgres_publications.fail_publication(
@@ -973,7 +969,7 @@ def publish_publication(
         return terminalize_stale(failure_codes.FINDING_GROUPS_CHANGED)
     supersession = _render_supersession(
         runtime,
-        github=finalizer,
+        github=github, posted_github=posted_github,
         superseding_publication_id=publication_id,
         max_comment_bytes=max_comment_bytes,
     )
@@ -998,7 +994,7 @@ def publish_publication(
     )
 
 
-def _issue_comments_by_part(
+def issue_comments_by_part(
     comments: Sequence[IssueComment], *, author_login: str, publication_key: str
 ) -> dict[int, list[IssueComment]]:
     """The publisher's own comments for one publication, by part number.
@@ -1007,24 +1003,32 @@ def _issue_comments_by_part(
     closing marker carries the publication key; the part number is read from
     that marker. Comments keep their input order within a part.
     """
-    from ..domain.publication import extract_publication_key, publication_marker
+    from ..domain.publication import publication_marker
 
-    token = f"{publication_marker(publication_key)} part="
+    marker = re.compile(
+        r"<!-- " + re.escape(publication_marker(publication_key)) + r" part=([1-9][0-9]{0,8})/[1-9][0-9]{0,8} -->$"
+    )
     found: dict[int, list[IssueComment]] = {}
     for comment in comments:
-        if (
-            comment.author_login.casefold() != author_login.casefold()
-            or extract_publication_key(comment.body) != publication_key
-        ):
-            continue
-        token_index = comment.body.rfind(token)
-        if token_index < 0:
-            continue
-        raw_number = comment.body[token_index + len(token) :].split("/", 1)[0]
-        if not raw_number.isdigit() or int(raw_number) < 1:
-            continue
-        found.setdefault(int(raw_number), []).append(comment)
+        if comment.author_login.casefold() == author_login.casefold():
+            match = marker.search(comment.body.rstrip())
+            if match is not None:
+                found.setdefault(int(match[1]), []).append(comment)
     return found
+
+
+def existing_part_comment(comments: Sequence[IssueComment], body: str) -> IssueComment | None:
+    return next((comment for comment in comments if comment.body == body), comments[0] if comments else None)
+
+
+def suggestion_comments(delivery: SuggestionReviewDelivery) -> tuple[InlineReviewComment, ...]:
+    return tuple(
+        InlineReviewComment(
+            path=comment.path, body=comment.body, line=comment.line, side=comment.side.value,
+            start_line=comment.start_line, start_side=comment.start_side.value if comment.start_side else None,
+        )
+        for comment in delivery.comments
+    )
 
 
 def _inline_comment_signature(
@@ -1040,7 +1044,7 @@ def _inline_comment_signature(
     )
 
 
-def _reviews_with_exact_suggestions(
+def reviews_with_exact_suggestions(
     review_comments: Sequence[PullRequestReviewComment],
     expected: Sequence[InlineReviewComment],
     *,
@@ -1118,10 +1122,18 @@ def _failure_status_prefix(purpose: ReviewPurpose) -> str:
     return f"<!-- {_FAILURE_STATUS_TOKEN}{qualifier} run="
 
 
-def _failure_status_marker(
+def failure_status_marker(
     run_id: int, head_sha: str, *, purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> str:
     return f"{_failure_status_prefix(purpose)}{run_id} head={head_sha} -->"
+
+
+def failure_status_marker_run(body: str, purpose: ReviewPurpose) -> int | None:
+    marker = re.search(
+        re.escape(_failure_status_prefix(purpose)) + r"([1-9][0-9]{0,18}) head=[a-f0-9]{40,64} -->$",
+        body.rstrip(),
+    )
+    return int(marker[1]) if marker else None
 
 
 def _my_failure_status_comments(
@@ -1139,11 +1151,11 @@ def _my_failure_status_comments(
         comment
         for comment in comments
         if comment.author_login.casefold() == login
-        and _failure_status_prefix(purpose) in comment.body
+        and failure_status_marker_run(comment.body, purpose) is not None
     ]
 
 
-def _failure_status_body(
+def failure_status_body(
     run_id: int, head_sha: str, failure_code: str, *, purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> str:
     if failure_code == failure_codes.SNAPSHOT_SUPERSEDED:
@@ -1156,7 +1168,7 @@ def _failure_status_body(
             "top-level PR comment after the latest changes are ready. Deterministic "
             "CI remains the merge gate.\n\n"
             f"- Status code: `{failure_code}`\n\n"
-            f"{_failure_status_marker(run_id, head_sha, purpose=purpose)}\n"
+            f"{failure_status_marker(run_id, head_sha, purpose=purpose)}\n"
         )
     reason = _FAILURE_REASONS.get(
         failure_code, "the review did not complete; see operator logs"
@@ -1172,5 +1184,5 @@ def _failure_status_body(
         "the merge gate. After correcting the cause, post `/review` again as a new "
         "top-level PR comment. If it fails again, share the status code with the "
         "reviewer operator.\n\n"
-        f"{_failure_status_marker(run_id, head_sha, purpose=purpose)}\n"
+        f"{failure_status_marker(run_id, head_sha, purpose=purpose)}\n"
     )

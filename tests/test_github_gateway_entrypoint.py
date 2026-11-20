@@ -405,7 +405,7 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
         self.publication_gateway.execute.return_value = []
 
         comments = client.for_posted_publication(
-            publication_id=71
+            publication_id=71, finalization_token="00000000-0000-4000-8000-000000000001"
         ).list_issue_comments(
             "CCimen/review-agent", 42, max_pages=1, newest_first=False
         )

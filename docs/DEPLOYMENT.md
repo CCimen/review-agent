@@ -529,12 +529,17 @@ kubectl exec deployment/hermes-review -- review-agent-admin doctor
 
 ### Upgrade notes
 
-#### Migration 040 and source access
+#### Migrations 040 and 041 for the GitHub gateway
 
-Drain the workers before upgrading. Apply migration 040 and start the worker,
-Hermes, the GitHub gateway and any graph service on the same revision.
-Each new job claim gets its own source credentials. Any interrupted lease
-can expire and return through normal worker recovery.
+Drain active review and publication work before upgrading. Apply migrations
+040 and 041, then update the worker, publisher, Hermes, GitHub gateway and any
+graph service to the same revision before resuming work.
+
+Each new job claim gets its own source credentials. An interrupted lease
+can expire and return through normal worker recovery. The publisher obtains a
+grant for each pending historical comment rewrite on its first attempt. A
+successful rewrite retires the grant. Follow the [rollback boundary](#rollback-boundary)
+if a previous image must be restored.
 
 #### 0.4.14 to 0.5.0-rc.1
 

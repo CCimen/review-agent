@@ -596,6 +596,20 @@ class GitHubIssueCommentGateway:
             comments.extend(comments_from_page(first_page, reverse=True))
         return comments
 
+    def issue_comment_on_pull(self, repository: str, pr_number: int, comment_id: int) -> IssueComment:
+        """Verify the PR for an operation whose GitHub URL contains only a comment ID."""
+        code = "github_bad_comment_response"
+        owner_repo = _owner_repo(repository)
+        root = _json_object(self._request_json(
+            "GET", f"/repos/{owner_repo}/issues/comments/{comment_id}", operation="get_issue_comment",
+        ), code)
+        expected_issue = f"{_API_ROOT}/repos/{owner_repo}/issues/{pr_number}"
+        if (_positive_int(root.get("id"), code) != comment_id
+                or _nonempty_string(root.get("issue_url"), code).casefold() != expected_issue.casefold()):
+            raise GitHubPublicationError("publication_comment_not_authorized")
+        user = _json_object(root.get("user"), code)
+        return IssueComment(comment_id, str(root.get("body", "")), _nonempty_string(user.get("login"), code))
+
     def update_issue_comment(
         self, repository: str, comment_id: int, body: str
     ) -> IssueComment:

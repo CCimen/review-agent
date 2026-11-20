@@ -247,12 +247,13 @@ class ReviewGitHubGatewayClient:
         )
 
     def for_posted_publication(
-        self, *, publication_id: int
+        self, *, publication_id: int, finalization_token: str
     ) -> "AuthorizedPublicationGateway":
         return AuthorizedPublicationGateway(
             self,
             scope_kind="posted_publication",
             scope_id=publication_id,
+            finalization_token=finalization_token,
         )
 
     def execute_publication_operation(
@@ -563,6 +564,7 @@ class AuthorizedPublicationGateway:
         scope_id: int,
         lease_owner: str | None = None,
         lease_generation: int | None = None,
+        finalization_token: str | None = None,
     ) -> None:
         self._client = client
         self._identity: dict[str, object] = {
@@ -570,8 +572,9 @@ class AuthorizedPublicationGateway:
             "scope_id": scope_id,
         }
         if scope_kind == "posted_publication":
-            if lease_owner is not None or lease_generation is not None:
-                raise ValueError("posted publication authority has no lease")
+            if not finalization_token or lease_owner is not None or lease_generation is not None:
+                raise ValueError("posted publication requires its finalization grant")
+            self._identity["finalization_token"] = finalization_token
         elif lease_owner is None or lease_generation is None:
             raise ValueError("active publication authority requires a lease")
         else:

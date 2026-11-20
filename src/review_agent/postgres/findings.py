@@ -849,19 +849,7 @@ def activate_finding_relationships(
     ).fetchone()
     if posted is None:
         raise FindingConflict("finding groups require a posted publication")
-    conflict = connection.execute(
-        """
-        SELECT change.finding_id
-        FROM review_agent.finding_group_changes AS change
-        LEFT JOIN review_agent.pull_request_finding_groups AS member
-          ON member.pull_request_id = change.pull_request_id AND member.finding_id = change.finding_id
-        WHERE change.review_run_id = %s
-          AND COALESCE(member.canonical_finding_id, change.finding_id) <> change.previous_canonical_finding_id
-        LIMIT 1
-        """,
-        (run_id,),
-    ).fetchone()
-    if conflict is not None:
+    if not finding_groups_are_current(connection, run_id=run_id):
         raise FindingGroupsChanged(
             "finding groups changed after publication preparation"
         )
@@ -877,6 +865,23 @@ def activate_finding_relationships(
         """,
         (run_id,),
     )
+
+
+def finding_groups_are_current(connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId) -> bool:
+    """Check whether the publication still starts from its frozen finding groups."""
+    _require_transaction(connection)
+    return connection.execute(
+        """
+        SELECT change.finding_id
+        FROM review_agent.finding_group_changes AS change
+        LEFT JOIN review_agent.pull_request_finding_groups AS member
+          ON member.pull_request_id = change.pull_request_id AND member.finding_id = change.finding_id
+        WHERE change.review_run_id = %s
+          AND COALESCE(member.canonical_finding_id, change.finding_id) <> change.previous_canonical_finding_id
+        LIMIT 1
+        """,
+        (run_id,),
+    ).fetchone() is None
 
 
 def finding_relationships_are_current(

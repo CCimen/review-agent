@@ -57,7 +57,7 @@ class PublicationGatewayFactory(Protocol):
     ) -> GitHubPublicationGateway: ...
 
     def for_posted_publication(
-        self, *, publication_id: int
+        self, *, publication_id: int, finalization_token: str
     ) -> GitHubPublicationGateway: ...
 
 
@@ -269,9 +269,6 @@ class PublicationWorker:
                 lease_owner=self._lease_owner,
                 lease_generation=publication.delivery_lease_generation,
             )
-            posted_github = self._github.for_posted_publication(
-                publication_id=int(publication.id)
-            )
             result = publish_publication(
                 self._runtime,
                 publication_id=int(publication.id),
@@ -281,7 +278,7 @@ class PublicationWorker:
                 lease_generation=publication.delivery_lease_generation,
                 retry_delay=self._policy.retry_delay,
                 lease_lost=lease_lost,
-                posted_github=posted_github,
+                posted_github=self._github,
             )
             logger.log(
                 logging.WARNING if result.status in {

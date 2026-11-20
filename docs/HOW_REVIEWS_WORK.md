@@ -204,8 +204,8 @@ cannot write. Both can run in several replicas. An interrupted review does not
 continue its model session: its job is claimed again under a new lease and
 starts a new session, until the job's attempt budget
 (`REVIEW_AGENT_JOB_MAX_ATTEMPTS`) is used up; parts of a split review that
-already reported are kept, and reading their reports checks only the worker's
-lease. An interrupted publication continues from its stored parts. See [Operations](./OPERATIONS.md).
+already reported are kept. The final session reads their reports under its
+live lease, without rechecking the GitHub snapshot. An interrupted publication continues from its stored parts. See [Operations](./OPERATIONS.md).
 
 ## Limits
 

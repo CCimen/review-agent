@@ -19,7 +19,7 @@ last_verified: 2026-11-18
   [admin panel](ADMIN_PANEL.md) (`8090`, a separate image). Keep the gateway,
   Hermes (`8642`), and PostgreSQL off the shared proxy network.
 - Only the gateway and the admin panel hold the App key; the admin panel uses
-  it to read App and installation status. Hermes and the publisher never
+  it to read App and installation status and to verify repositories. Hermes and the publisher never
   receive the key or installation tokens.
 - Two one-shot jobs, `review-profile-install` and `review-db-migrate`, prepare
   the start; no service that uses the database starts before the migration.
@@ -127,8 +127,10 @@ Follow the section for your platform:
    **Model.** `REVIEW_AGENT_MODEL` is required. Without it, Compose stops with
    "Set REVIEW_AGENT_MODEL to the review model" and admission answers `/ready`
    with `503`. `REVIEW_AGENT_MODEL_PROVIDER` is `openai-codex` (the default) or
-   `anthropic`; `REVIEW_AGENT_REASONING_EFFORT` defaults to `xhigh`. Once the
-   console saves settings, their model replaces this one for new reviews.
+   `anthropic`; `REVIEW_AGENT_REASONING_EFFORT` defaults to `xhigh`. Choose a
+   model the provider account can use. Settings saved in the console become the
+   deployment default, and a team can choose its own
+   ([model routing](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#model-connections)).
 
    - **Codex** is the simplest first deployment: Hermes supports a ChatGPT
      device-code login, so no API key is needed. Hermes does not document how

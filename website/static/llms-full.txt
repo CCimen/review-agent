@@ -137,7 +137,7 @@ Last verified: 2026-11-18
   [admin panel](ADMIN_PANEL.md) (`8090`, a separate image). Keep the gateway,
   Hermes (`8642`), and PostgreSQL off the shared proxy network.
 - Only the gateway and the admin panel hold the App key; the admin panel uses
-  it to read App and installation status. Hermes and the publisher never
+  it to read App and installation status and to verify repositories. Hermes and the publisher never
   receive the key or installation tokens.
 - Two one-shot jobs, `review-profile-install` and `review-db-migrate`, prepare
   the start; no service that uses the database starts before the migration.
@@ -245,8 +245,10 @@ Follow the section for your platform:
    **Model.** `REVIEW_AGENT_MODEL` is required. Without it, Compose stops with
    "Set REVIEW_AGENT_MODEL to the review model" and admission answers `/ready`
    with `503`. `REVIEW_AGENT_MODEL_PROVIDER` is `openai-codex` (the default) or
-   `anthropic`; `REVIEW_AGENT_REASONING_EFFORT` defaults to `xhigh`. Once the
-   console saves settings, their model replaces this one for new reviews.
+   `anthropic`; `REVIEW_AGENT_REASONING_EFFORT` defaults to `xhigh`. Choose a
+   model the provider account can use. Settings saved in the console become the
+   deployment default, and a team can choose its own
+   ([model routing](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#model-connections)).
 
    - **Codex** is the simplest first deployment: Hermes supports a ChatGPT
      device-code login, so no API key is needed. Hermes does not document how
@@ -850,7 +852,7 @@ There are two ways to use it:
 
 | You want to | Do this |
 | --- | --- |
-| Run your own Review Agent | Deploy it, register your own App (steps 1–5). The App can stay private. |
+| Run your own Review Agent | Register your own App, give the deployment its credentials, then install and approve it (steps 1–5). The App can stay private. |
 | Let another organization use your deployment | Make your App public and approve their installation ([Share the App](#share-the-app-with-other-organizations)). |
 
 Examples use Compose.
@@ -1468,8 +1470,8 @@ cannot write. Both can run in several replicas. An interrupted review does not
 continue its model session: its job is claimed again under a new lease and
 starts a new session, until the job's attempt budget
 (`REVIEW_AGENT_JOB_MAX_ATTEMPTS`) is used up; parts of a split review that
-already reported are kept, and reading their reports checks only the worker's
-lease. An interrupted publication continues from its stored parts. See [Operations](./OPERATIONS.md).
+already reported are kept. The final session reads their reports under its
+live lease, without rechecking the GitHub snapshot. An interrupted publication continues from its stored parts. See [Operations](./OPERATIONS.md).
 
 ## Limits
 
@@ -3602,20 +3604,16 @@ The App delivers these events to `/webhooks/github-app`:
   re-runs;
 - `installation` and `installation_repositories`: the repository inventory.
 
-Admission stores the signed delivery before any provider read. The App worker
-then checks, through the private gateway, the repository's enabled state and
-then the sender's current access before creating a run; see
-[who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review).
-Feedback commands follow the same path, and the gateway rechecks the sender's
-write or admin permission and the open pull request before anything is
-recorded.
+Admission stores the signed delivery before any provider read. For `/review`
+and feedback commands, the App worker then checks, through the private
+gateway, the repository's enabled state and the sender's current access
+([who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review));
+for feedback, the gateway also rechecks the open pull request before anything
+is recorded. Automatic documentation reviews have no sender check.
 
 Installation webhooks and inventory sync record repositories but never enable
-one. A repository is enabled by `github-app onboard`, or, under an installation
-approved for automatic activation, when the gateway processes its first signed
-`/review` command. The gateway enables the repository before it checks the
-sender, so a rejected sender leaves the repository enabled and no run. See
-[Approve the installation](./GITHUB_APP_PILOT.md#4-approve-the-installation).
+one. [Approve the installation](./GITHUB_APP_PILOT.md#4-approve-the-installation)
+explains how a repository is enabled in each mode.
 
 Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` to show the copyable feedback commands
 in the review comment.
@@ -4629,11 +4627,12 @@ write.
 
 - The admission service verifies the GitHub App webhook signature and stores
   only a bounded normalized delivery.
-- The private gateway holds the App key and installation tokens; the optional
-  admin panel also mounts the key
-  ([credential boundaries](#github-credential-boundaries)). Neither enters
-  Hermes, PostgreSQL, admission, worker payloads, or logs. What is stored is
-  listed under [Data handling](#data-handling).
+- The private gateway holds the App key and the installation tokens for
+  review and publication. The optional admin panel also mounts the key and
+  uses metadata-only installation tokens to verify repositories
+  ([credential boundaries](#github-credential-boundaries)). The key and tokens
+  never enter Hermes, PostgreSQL, admission, worker payloads, or logs. What is
+  stored is listed under [Data handling](#data-handling).
 - Before admitting a manual review, the gateway verifies the signed sender's
   stable GitHub ID against the repository's additional-user list, or checks
   current GitHub write or admin permission. Feedback always requires GitHub
@@ -4689,10 +4688,10 @@ handles, it stores a bounded record:
   repository list.
 - **Documentation event:** the pull request or check run, and its sender.
 
-When a delivery reaches a terminal state, its record is erased; a receipt with
-the repository, installation, event, and body hash stays until an operator
-prunes it. Documentation deliveries keep their bounded envelope, including the
-sender, until pruned; see
+When a delivery reaches a terminal state, its normalized payload is cleared,
+except that a documentation delivery keeps its bounded envelope, including the
+sender. A receipt with the repository, installation, event, and body hash stays
+in the same row until an operator prunes it; see
 [Retention ownership](./OPERATIONS.md#retention-ownership).
 
 Before feedback is written, the gateway checks the exact open pull request and
@@ -4711,8 +4710,8 @@ reviewer's `HERMES_HOME`, skills directory or gateway.
 
 The GitHub App key is mounted into the private gateway and, when the optional
 [admin panel](./ADMIN_PANEL.md) is deployed, into the admin service, which uses
-it to read App and installation status for access administration. No other
-service receives it.
+it, with metadata-only installation tokens, to read App and installation status
+and to verify a repository before enabling it. No other service receives it.
 
 The gateway mints short-lived installation tokens restricted to one repository
 and one purpose. For lease-bound review, feedback and publication operations,

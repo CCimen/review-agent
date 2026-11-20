@@ -17,7 +17,7 @@ There are two ways to use it:
 
 | You want to | Do this |
 | --- | --- |
-| Run your own Review Agent | Deploy it, register your own App (steps 1–5). The App can stay private. |
+| Run your own Review Agent | Register your own App, give the deployment its credentials, then install and approve it (steps 1–5). The App can stay private. |
 | Let another organization use your deployment | Make your App public and approve their installation ([Share the App](#share-the-app-with-other-organizations)). |
 
 Examples use Compose.

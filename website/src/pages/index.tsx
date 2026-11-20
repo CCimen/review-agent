@@ -18,7 +18,7 @@ const setupSteps = [
   ['Deploy the service', 'Compose, Dokploy, Coolify, Portainer, or Kubernetes (Helm).'],
   [
     'Install and approve the App',
-    'Choose whether repositories are enabled automatically or one by one.',
+    'Then enable each repository, or let its first command enable it.',
   ],
   ['Run /review', 'Comment on an open pull request from the same repository.'],
 ] as const;
@@ -26,9 +26,9 @@ const setupSteps = [
 const tasks = [
   {
     name: 'Reviewing a pull request',
-    description: 'Understand checks, evidence, publication, and feedback.',
-    label: 'How reviews work',
-    to: '/docs/how-reviews-work',
+    description: 'Who can ask, what to comment, and what gets published.',
+    label: 'Request a review',
+    to: '/docs/getting-started#4-request-a-review',
   },
   {
     name: 'Maintaining a repository',

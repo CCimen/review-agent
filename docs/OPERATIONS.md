@@ -158,20 +158,16 @@ The App delivers these events to `/webhooks/github-app`:
   re-runs;
 - `installation` and `installation_repositories`: the repository inventory.
 
-Admission stores the signed delivery before any provider read. The App worker
-then checks, through the private gateway, the repository's enabled state and
-then the sender's current access before creating a run; see
-[who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review).
-Feedback commands follow the same path, and the gateway rechecks the sender's
-write or admin permission and the open pull request before anything is
-recorded.
+Admission stores the signed delivery before any provider read. For `/review`
+and feedback commands, the App worker then checks, through the private
+gateway, the repository's enabled state and the sender's current access
+([who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review));
+for feedback, the gateway also rechecks the open pull request before anything
+is recorded. Automatic documentation reviews have no sender check.
 
 Installation webhooks and inventory sync record repositories but never enable
-one. A repository is enabled by `github-app onboard`, or, under an installation
-approved for automatic activation, when the gateway processes its first signed
-`/review` command. The gateway enables the repository before it checks the
-sender, so a rejected sender leaves the repository enabled and no run. See
-[Approve the installation](./GITHUB_APP_PILOT.md#4-approve-the-installation).
+one. [Approve the installation](./GITHUB_APP_PILOT.md#4-approve-the-installation)
+explains how a repository is enabled in each mode.
 
 Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` to show the copyable feedback commands
 in the review comment.

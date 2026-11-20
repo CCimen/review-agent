@@ -17,11 +17,12 @@ write.
 
 - The admission service verifies the GitHub App webhook signature and stores
   only a bounded normalized delivery.
-- The private gateway holds the App key and installation tokens; the optional
-  admin panel also mounts the key
-  ([credential boundaries](#github-credential-boundaries)). Neither enters
-  Hermes, PostgreSQL, admission, worker payloads, or logs. What is stored is
-  listed under [Data handling](#data-handling).
+- The private gateway holds the App key and the installation tokens for
+  review and publication. The optional admin panel also mounts the key and
+  uses metadata-only installation tokens to verify repositories
+  ([credential boundaries](#github-credential-boundaries)). The key and tokens
+  never enter Hermes, PostgreSQL, admission, worker payloads, or logs. What is
+  stored is listed under [Data handling](#data-handling).
 - Before admitting a manual review, the gateway verifies the signed sender's
   stable GitHub ID against the repository's additional-user list, or checks
   current GitHub write or admin permission. Feedback always requires GitHub
@@ -77,10 +78,10 @@ handles, it stores a bounded record:
   repository list.
 - **Documentation event:** the pull request or check run, and its sender.
 
-When a delivery reaches a terminal state, its record is erased; a receipt with
-the repository, installation, event, and body hash stays until an operator
-prunes it. Documentation deliveries keep their bounded envelope, including the
-sender, until pruned; see
+When a delivery reaches a terminal state, its normalized payload is cleared,
+except that a documentation delivery keeps its bounded envelope, including the
+sender. A receipt with the repository, installation, event, and body hash stays
+in the same row until an operator prunes it; see
 [Retention ownership](./OPERATIONS.md#retention-ownership).
 
 Before feedback is written, the gateway checks the exact open pull request and
@@ -99,8 +100,8 @@ reviewer's `HERMES_HOME`, skills directory or gateway.
 
 The GitHub App key is mounted into the private gateway and, when the optional
 [admin panel](./ADMIN_PANEL.md) is deployed, into the admin service, which uses
-it to read App and installation status for access administration. No other
-service receives it.
+it, with metadata-only installation tokens, to read App and installation status
+and to verify a repository before enabling it. No other service receives it.
 
 The gateway mints short-lived installation tokens restricted to one repository
 and one purpose. For lease-bound review, feedback and publication operations,

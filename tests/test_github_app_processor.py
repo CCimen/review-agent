@@ -1356,6 +1356,29 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
             enabled = github_app.get_repository_access_by_provider_id(connection, 9001).enabled
         self.assertTrue(enabled)
 
+    def test_lease_lost_during_automatic_activation_enables_nothing(self) -> None:
+        self.approve_automatic_installation()
+        delivery_id = self.register("issue_comment", self.review_payload())
+        verify = self.tokens.verify_installation_repository
+
+        def expire_lease(*args: Any) -> app_auth.VerifiedInstallationRepository:
+            with psycopg.connect(DSN, autocommit=True) as other:
+                other.execute("""UPDATE review_agent.github_webhook_deliveries
+                    SET lease_expires_at = last_heartbeat_at WHERE id = %s""", (delivery_id,))
+            return verify(*args)
+
+        with patch.object(self.tokens, "verify_installation_repository", side_effect=expire_lease):
+            result = self.processor().process_next(lease_owner="expired-worker")
+
+        self.assertEqual(result.reason if result else None, "delivery_lease_lost")
+        self.assertEqual(self.tokens.repository_verifications, [(7001, 9001, "CCimen/review-agent")])
+        with self.runtime.transaction() as connection:
+            counts = connection.execute(
+                "SELECT (SELECT count(*) FROM review_agent.repositories), "
+                "(SELECT count(*) FROM review_agent.github_app_repository_access)"
+            ).fetchone()
+        self.assertEqual(counts, (0, 0))
+
     def test_unapproved_all_repository_installation_does_not_verify_or_admit_repo(
         self,
     ) -> None:

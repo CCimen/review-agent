@@ -1203,7 +1203,8 @@ class ReviewGitHubGateway:
             if command.trigger == "automatic":
                 raise GitHubGatewayRejected("repository_not_authorized")
             self._activate_automatic_repository(
-                command, delivery_id=delivery_id, category=command_category
+                command, delivery_id=delivery_id, lease_owner=lease_owner,
+                lease_generation=lease_generation, category=command_category,
             )
 
         try:
@@ -1273,6 +1274,8 @@ class ReviewGitHubGateway:
         command: _IssueCommentCommand,
         *,
         delivery_id: int,
+        lease_owner: str,
+        lease_generation: int,
         category: webhook_deliveries.CommandCategory,
     ) -> None:
         try:
@@ -1298,14 +1301,21 @@ class ReviewGitHubGateway:
             github = self._github_factory(verified.token.value)
             granted = self._authorize_command_sender(github, command, category)
             if not self._enable_verified_repository(
-                command, verified, delivery_id=delivery_id, grant_required=granted
+                command, verified, delivery_id=delivery_id, lease_owner=lease_owner,
+                lease_generation=lease_generation, grant_required=granted,
             ):
                 # The grant was revoked after admitting the sender; GitHub write
                 # or admin can still admit them.
                 self._authorize_sender(github, command)
                 self._enable_verified_repository(
-                    command, verified, delivery_id=delivery_id, grant_required=False
+                    command, verified, delivery_id=delivery_id, lease_owner=lease_owner,
+                    lease_generation=lease_generation, grant_required=False,
                 )
+        except (
+            webhook_deliveries.DeliveryLeaseLost,
+            webhook_deliveries.DeliveryNotFound,
+        ) as exc:
+            raise GitHubGatewayRejected("delivery_lease_lost") from exc
         except GitHubAppTokenRetryable as exc:
             raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
         except GitHubAppTokenPermanent as exc:
@@ -1323,11 +1333,21 @@ class ReviewGitHubGateway:
         verified: VerifiedInstallationRepository,
         *,
         delivery_id: int,
+        lease_owner: str,
+        lease_generation: int,
         grant_required: bool,
     ) -> bool:
         """Enable a verified repository, or write nothing if a required grant is gone."""
         try:
             with self._postgres.transaction() as connection:
+                # The HTTP reads before this may outlast the lease. Lock the live
+                # delivery first, as admission does, so recovery cannot move it.
+                webhook_deliveries.require_live_delivery(
+                    connection,
+                    delivery_id=delivery_id,
+                    lease_owner=lease_owner,
+                    lease_generation=lease_generation,
+                )
                 github_app.enable_automatic_repository(
                     connection,
                     provider_installation_id=command.provider_installation_id,

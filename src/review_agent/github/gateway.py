@@ -1202,7 +1202,7 @@ class ReviewGitHubGateway:
         except github_app.GitHubAppRepositoryUnauthorized:
             if command.trigger == "automatic":
                 raise GitHubGatewayRejected("repository_not_authorized")
-            self._activate_automatic_repository(
+            activated = self._activate_automatic_repository(
                 command, delivery_id=delivery_id, lease_owner=lease_owner,
                 lease_generation=lease_generation, category=command_category,
             )
@@ -1234,6 +1234,9 @@ class ReviewGitHubGateway:
         ) as exc:
             raise GitHubGatewayRejected("delivery_lease_lost") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
+            if not activated and exc.reason == "repository_not_authorized":
+                # Access changed while GitHub was asked; verify again from current state.
+                raise GitHubGatewayRetryable("repository_access_changed") from exc
             raise GitHubGatewayRejected(exc.reason) from exc
 
     def _delivery_command(self, connection: psycopg.Connection[TupleRow], delivery: webhook_deliveries.WebhookDelivery,
@@ -1277,7 +1280,8 @@ class ReviewGitHubGateway:
         lease_owner: str,
         lease_generation: int,
         category: webhook_deliveries.CommandCategory,
-    ) -> None:
+    ) -> bool:
+        """Enable the repository, or return False when its access changed meanwhile."""
         try:
             with self._postgres.transaction() as connection:
                 installation = github_app.get_installation_by_provider_id(
@@ -1292,8 +1296,10 @@ class ReviewGitHubGateway:
                     raise github_app.GitHubAppRepositoryUnauthorized(
                         "installation requires explicit repository activation"
                     )
-                observation = github_app.observe_repository_access(
-                    connection, repository=command.provider_repository_id
+                observation = github_app.observe_automatic_activation(
+                    connection,
+                    provider_installation_id=command.provider_installation_id,
+                    provider_repository_id=command.provider_repository_id,
                 )
             verified = self._tokens.verify_installation_repository(
                 command.provider_installation_id,
@@ -1315,14 +1321,16 @@ class ReviewGitHubGateway:
                     command, verified, observation, delivery_id=delivery_id, lease_owner=lease_owner,
                     lease_generation=lease_generation, grant_required=False,
                 )
+            return True
         except (
             webhook_deliveries.DeliveryLeaseLost,
             webhook_deliveries.DeliveryNotFound,
         ) as exc:
             raise GitHubGatewayRejected("delivery_lease_lost") from exc
-        except github_app.RepositoryAccessChanged as exc:
-            # A removal or a concurrent activation; the retry re-admits from current state.
-            raise GitHubGatewayRetryable("repository_access_changed") from exc
+        except github_app.RepositoryAccessChanged:
+            # A removal, a concurrent activation, or another installation change
+            # wrote first. Write nothing; the final admission decides.
+            return False
         except GitHubAppTokenRetryable as exc:
             raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
         except GitHubAppTokenPermanent as exc:

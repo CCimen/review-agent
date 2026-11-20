@@ -116,8 +116,8 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     profile_key="default-standard",
                     actor="github-app:review-delivery",
                     reason="verified exact repository access",
-                    observation=github_app.observe_repository_access(
-                        connection, repository=9001
+                    observation=github_app.observe_automatic_activation(
+                        connection, provider_installation_id=7001, provider_repository_id=9001
                     ),
                 )
                 authorization = github_app.authorize_review_admission(
@@ -195,8 +195,8 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     profile_key="default-standard",
                     actor="github-app:review-delivery",
                     reason="verified exact repository access",
-                    observation=github_app.observe_repository_access(
-                        connection, repository=9001
+                    observation=github_app.observe_automatic_activation(
+                        connection, provider_installation_id=7001, provider_repository_id=9001
                     ),
                 )
                 restricted = github_app.set_repository_activation_policy(
@@ -248,8 +248,8 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     profile_key="default-standard",
                     actor="github-app:review-delivery",
                     reason="verified exact repository access",
-                    observation=github_app.observe_repository_access(
-                        connection, repository=9001
+                    observation=github_app.observe_automatic_activation(
+                        connection, provider_installation_id=7001, provider_repository_id=9001
                     ),
                 )
                 github_app.set_repository_activation_policy(
@@ -283,8 +283,8 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                         profile_key="default-standard",
                         actor="github-app:review-delivery",
                         reason="must not override an operator pause",
-                        observation=github_app.observe_repository_access(
-                            connection, repository=9001
+                        observation=github_app.observe_automatic_activation(
+                            connection, provider_installation_id=7001, provider_repository_id=9001
                         ),
                     )
 
@@ -322,8 +322,8 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     profile_key="default-standard",
                     actor="github-app:review-delivery",
                     reason="verified exact repository access",
-                    observation=github_app.observe_repository_access(
-                        connection, repository=9001
+                    observation=github_app.observe_automatic_activation(
+                        connection, provider_installation_id=7001, provider_repository_id=9001
                     ),
                 )
                 github_app.disable_repository(
@@ -357,8 +357,8 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                         profile_key="default-standard",
                         actor="github-app:review-delivery",
                         reason="must preserve the operator pause",
-                        observation=github_app.observe_repository_access(
-                            connection, repository=9001
+                        observation=github_app.observe_automatic_activation(
+                            connection, provider_installation_id=7001, provider_repository_id=9001
                         ),
                     )
                 github_app.remove_repository_access(
@@ -387,8 +387,8 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                         profile_key="default-standard",
                         actor="github-app:review-delivery",
                         reason="must preserve the operator pause",
-                        observation=github_app.observe_repository_access(
-                            connection, repository=9001
+                        observation=github_app.observe_automatic_activation(
+                            connection, provider_installation_id=7001, provider_repository_id=9001
                         ),
                     )
 

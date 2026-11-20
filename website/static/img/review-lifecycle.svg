@@ -41,12 +41,10 @@
   <!-- Gateway -->
   <rect class="gate" x="203" y="92" width="541" height="40" rx="8"/>
   <text class="label" x="473" y="117" text-anchor="middle">Private GitHub gateway · holds the App key</text>
-  <line class="flow" x1="286" y1="62" x2="286" y2="90" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-  <line class="flow" x1="473" y1="62" x2="473" y2="90" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-  <line class="flow" x1="660" y1="62" x2="660" y2="90" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-  <line class="flow" x1="286" y1="134" x2="286" y2="166" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-  <line class="flow" x1="473" y1="134" x2="473" y2="166" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-  <line class="flow" x1="660" y1="134" x2="660" y2="166" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <line class="flow" x1="473" y1="92" x2="473" y2="62" marker-end="url(#arrow)"/>
+  <line class="flow" x1="286" y1="168" x2="286" y2="134" marker-end="url(#arrow)"/>
+  <line class="flow" x1="473" y1="168" x2="473" y2="134" marker-end="url(#arrow)"/>
+  <line class="flow" x1="660" y1="168" x2="660" y2="134" marker-end="url(#arrow)"/>
 
   <!-- 1 Receive -->
   <rect class="box" x="16" y="168" width="167" height="128" rx="8"/>

@@ -7,25 +7,24 @@ status: current
 last_verified: 2026-11-18
 ---
 
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
-
 # Deploy Review Agent
 
 ## Runtime shape
 
-![Review Agent runtime: GitHub App webhooks enter through admission, review workers use Hermes, a separate publisher writes through the private App gateway, and PostgreSQL owns durable state and queues.](../website/static/img/runtime-shape.webp)
+![Compose topology: only admission and the optional console sit behind the reverse proxy. The private GitHub gateway and the optional console hold the App key, Hermes calls the model provider for review inference, and every service shown uses PostgreSQL on an internal network.](../website/static/img/compose-topology.svg)
 
-One box represents one worker type, not one replica. Scale review workers and
-publishers independently. Expose admission on port `8644`. Keep the GitHub
-gateway, Hermes `8642`, and PostgreSQL off the shared proxy network.
-
-The optional [admin panel](ADMIN_PANEL.md) adds a separate image and an
-authenticated service on port `8090` in the same deployment.
-
-The private gateway holds the GitHub App key and uses it for bounded source and
-publication operations. Hermes and the publisher do not receive the key or
-installation tokens.
+- One box is a worker type, not a replica; scale review workers and publishers
+  independently.
+- Expose only admission (`8644`) and, if used, the
+  [admin panel](ADMIN_PANEL.md) (`8090`, a separate image). Keep the gateway,
+  Hermes (`8642`), and PostgreSQL off the shared proxy network.
+- Only the gateway and the admin panel hold the App key; the admin panel uses
+  it to read App and installation status. Hermes and the publisher never
+  receive the key or installation tokens.
+- Two one-shot jobs, `review-profile-install` and `review-db-migrate`, prepare
+  the start; no service that uses the database starts before the migration.
+- Optional add-ons: provider control shares Hermes' network, and the code graph
+  reaches GitHub and its embedding provider only through the gateway.
 
 ## Create the credentials
 
@@ -103,8 +102,12 @@ PostgreSQL major-version change with a Review Agent upgrade.
 
 ## Deploy
 
-<Tabs groupId="deployment-platform">
-<TabItem value="compose" label="Compose / Dokploy" default>
+Follow the section for your platform:
+[Compose or Dokploy](#deploy-with-compose-or-dokploy),
+[Coolify or Portainer](#deploy-with-coolify-or-portainer), or
+[Kubernetes (Helm)](#deploy-with-kubernetes-helm).
+
+### Deploy with Compose or Dokploy
 
 1. Copy `.env.example` to the platform secret store. Replace each
    `replace-with...` placeholder: the webhook secret, `API_SERVER_KEY`, the
@@ -212,13 +215,14 @@ PostgreSQL major-version change with a Review Agent upgrade.
    field with `docker`, so the saved command begins with `compose`. This keeps a
    checkout from being built and tagged over the recorded release image.
 
+> [!WARNING]
+> **Keep private services off the proxy.** Do not route `hermes-review`,
+> `review-worker`, `review-publisher`, `review-github-gateway`, or
+> `review-postgres`. Admission and the optional authenticated admin panel are
+> the only services on the ingress network.
+
 4. Route the review hostname to `review-admission:8644`.
 
-   :::warning[Keep private services off the proxy]
-   Do not route `hermes-review`, `review-worker`, `review-publisher`,
-   `review-github-gateway`, or `review-postgres`. Admission and the optional
-   authenticated admin panel are the only services on the ingress network.
-   :::
    In Dokploy **Advanced > Networks**, detach every service except
    `review-admission` and an explicitly enabled `review-admin` from
    `dokploy-network`. Leave **Enable Isolated
@@ -258,8 +262,7 @@ Use the matching container for operator commands:
 The profile installer and database migrator exit with status `0` after a
 successful deployment. Do not open a shell in those completed containers.
 
-</TabItem>
-<TabItem value="coolify-portainer" label="Coolify / Portainer">
+### Deploy with Coolify or Portainer
 
 Import `compose.yaml` as a Compose stack and enter the required values from
 `.env.example` in the platform secret UI. Set `REVIEW_AGENT_INGRESS_NETWORK` to
@@ -270,8 +273,7 @@ Both platforms run the same containers and health checks. Platform-specific
 work stays at the proxy boundary; do not publish Hermes or PostgreSQL ports to
 the host.
 
-</TabItem>
-<TabItem value="kubernetes" label="Kubernetes (Helm)">
+### Deploy with Kubernetes (Helm)
 
 The chart in `examples/helm/review-agent` deploys the main runtime on a
 Kubernetes cluster that provides the rest. It expects an existing PostgreSQL
@@ -383,8 +385,7 @@ when the storage class supports it.
 The volume holds the model login and is kept when the release is uninstalled.
 `examples/helm/review-agent/values.yaml` lists every value.
 
-</TabItem>
-</Tabs>
+### Finish the setup
 
 After the services are running, install and approve the App as described in
 [Set up and share the GitHub App](./GITHUB_APP_PILOT.md), then run
@@ -423,8 +424,7 @@ release's upgrade notes say when that applies. In that case let the
 those reviews again afterwards, as
 [Failure codes](./OPERATIONS.md#failure-codes) describes.
 
-<Tabs groupId="upgrade-platform">
-<TabItem value="compose-upgrade" label="Compose">
+### Upgrade with Compose
 
 Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to the recorded digest references,
 and `REVIEW_AGENT_ADMIN_IMAGE` when the admin panel is installed. When the
@@ -487,8 +487,7 @@ upgrade it to the same release.
 Afterwards compare the replica counts, the worker concurrency and the active
 job limit with the values recorded before the upgrade.
 
-</TabItem>
-<TabItem value="dokploy-upgrade" label="Dokploy">
+### Upgrade with Dokploy
 
 1. Pause **AutoDeploy** for the maintenance window and take the database backup.
 2. Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to exact digest references in
@@ -512,57 +511,22 @@ Dokploy's stop step may also stop the bundled PostgreSQL container. Its named
 volume remains intact, and Compose starts it before the migration job. Do not
 delete the Compose service or either named volume during an upgrade.
 
-</TabItem>
-<TabItem value="kubernetes-upgrade" label="Kubernetes (Helm)">
+### Upgrade with Kubernetes (Helm)
 
 Check out the release so the chart matches the image, and set `image` in
-`review-agent-values.yaml` to the release manifest digest. Then run the same
-three phases as for the installation:
+`review-agent-values.yaml` to the release manifest digest. Then run the
+three-phase script from
+[Deploy with Kubernetes (Helm)](#deploy-with-kubernetes-helm) again; the
+installation and the upgrade use the same script.
 
-```bash
-bash -euo pipefail <<'HELM_DEPLOY'
-CHART=examples/helm/review-agent
-VALUES=review-agent-values.yaml
-DEPLOYMENTS="hermes-review review-agent-admission review-agent-github-gateway
-  review-agent-github-app-worker review-agent-worker review-agent-publisher"
-
-# 1. Drain: scale every workload to zero, delete the Jobs of an earlier
-#    attempt, and wait until no application or initialization pod is left.
-helm upgrade --install review-agent "$CHART" -f "$VALUES" \
-  --set drained=true --set initialize=false
-for deployment in $DEPLOYMENTS; do
-  generation="$(kubectl get "deployment/$deployment" -o jsonpath='{.metadata.generation}')"
-  kubectl wait "deployment/$deployment" --timeout=5m \
-    --for=jsonpath='{.status.observedGeneration}'="$generation"
-done
-kubectl delete job -l app=review-agent-init --ignore-not-found
-for app in $DEPLOYMENTS review-agent-init; do
-  pods="$(kubectl get pods -l "app=$app" -o name)"
-  if [ -n "$pods" ]; then
-    kubectl wait --for=delete $pods --timeout=5m
-  fi
-done
-
-# 2. Initialize: install the profile and migrate the database.
-helm upgrade review-agent "$CHART" -f "$VALUES" \
-  --set drained=true --set initialize=true --wait --wait-for-jobs --timeout 10m
-
-# 3. Start the workloads.
-helm upgrade review-agent "$CHART" -f "$VALUES" --wait --timeout 10m
-HELM_DEPLOY
-```
-
-The wait loop is the migration fence: phase 2 does not start until every old
+Its wait loop is the migration fence: phase 2 does not start until every old
 application pod and every earlier initialization pod is gone. If a phase fails,
-see the table under Deploy for the state it leaves, fix the cause and run the
+the table below the script shows the state it leaves; fix the cause and run the
 script again from the top. Afterwards, verify:
 
 ```bash
 kubectl exec deployment/hermes-review -- review-agent-admin doctor
 ```
-
-</TabItem>
-</Tabs>
 
 ### Upgrade notes
 

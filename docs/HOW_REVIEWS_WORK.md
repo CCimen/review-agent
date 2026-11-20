@@ -13,7 +13,11 @@ The model reads code and proposes findings. Everything else is ordinary code:
 who may request a review, which commits are reviewed, what is stored, and what
 is written to GitHub.
 
-![Four phases of a review: request and authorize, read and review, verify and publish, then re-review with explicit feedback.](../website/static/img/review-lifecycle.webp)
+![Review lifecycle: admission stores the signed delivery; the App worker authorizes it through the private GitHub gateway and queues a job; the review worker starts a Hermes session in which the model reads source and the review tools record findings; the publisher rechecks both commits and posts the review. PostgreSQL holds each handoff. The figure shows a review that fits one job.](../website/static/img/review-lifecycle.svg)
+
+A [large review](#5-large-pull-requests) can split into several jobs. A
+feedback command stops at the App worker, which stores valid feedback and
+acknowledges the comment through the gateway; no model runs.
 
 ## 1. Request and admission
 

@@ -44,7 +44,7 @@ records the remaining non-secret choices in a validated installation plan.
 
 The assisted path covers Compose-based installations, including Dokploy: the
 installation plan accepts only the `compose` platform. For Kubernetes, follow
-the manual Helm procedure in [Deploy Review Agent](./DEPLOYMENT.md#deploy).
+the manual Helm procedure in [Deploy Review Agent](./DEPLOYMENT.md#deploy-with-kubernetes-helm).
 
 For the optional [admin panel](ADMIN_PANEL.md), ask for it in the assignment.
 The agent can prepare the Compose service and hostname from the same release as

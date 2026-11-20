@@ -410,17 +410,20 @@ class DeploymentConfigTests(unittest.TestCase):
         )
 
     def test_upgrade_procedures_stop_writers_before_migrating(self):
-        upgrade = read("docs/DEPLOYMENT.md").split(
-            "## Upgrade and roll back production", 1
-        )[1]
+        deployment = read("docs/DEPLOYMENT.md")
 
-        def tab(value: str, label: str) -> str:
-            opening = f'<TabItem value="{value}" label="{label}">'
-            return upgrade.split(opening, 1)[1].split("</TabItem>", 1)[0]
+        def section(heading: str) -> str:
+            body = deployment.split(f"\n### {heading}\n", 1)[1]
+            return re.split(r"\n#{2,3} ", body, maxsplit=1)[0]
 
+        # The Helm upgrade reruns the installation script instead of its own copy.
+        helm_upgrade = deployment.split("\n### Upgrade with Kubernetes (Helm)\n", 1)[1]
+        helm_upgrade = helm_upgrade.split("\n### Upgrade notes\n", 1)[0]
+        self.assertIn("(#deploy-with-kubernetes-helm)", helm_upgrade)
+        self.assertNotRegex(helm_upgrade, r"\bhelm\s+upgrade\b")
         procedures = {
             "bash -euo pipefail <<'COMPOSE_UPGRADE'": (
-                tab("compose-upgrade", "Compose"),
+                section("Upgrade with Compose"),
                 (
                     "docker compose stop $APP_SERVICES",
                     "remaining=\"$(docker compose ps --all --format '{{.Service}} {{.State}}' |",
@@ -430,7 +433,7 @@ class DeploymentConfigTests(unittest.TestCase):
                 ),
             ),
             "bash -euo pipefail <<'HELM_DEPLOY'": (
-                tab("kubernetes-upgrade", "Kubernetes (Helm)"),
+                section("Deploy with Kubernetes (Helm)"),
                 (
                     "--set drained=true --set initialize=false",
                     "--for=jsonpath='{.status.observedGeneration}'=\"$generation\"",
@@ -643,9 +646,8 @@ class DeploymentConfigTests(unittest.TestCase):
             deployment,
             flags=re.S,
         )
-        # The installation and the upgrade follow one and the same script.
-        self.assertEqual(2, len(scripts))
-        self.assertEqual(scripts[0], scripts[1])
+        # The installation and the upgrade run this one script.
+        self.assertEqual(1, len(scripts))
 
         def run(failing: str) -> tuple[int, list[str]]:
             with tempfile.TemporaryDirectory() as directory:

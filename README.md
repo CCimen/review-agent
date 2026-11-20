@@ -19,7 +19,7 @@ finding against fixed rules, and publishes the result through a separate
 publisher. [How reviews work](docs/HOW_REVIEWS_WORK.md) describes each step and
 which parts are code and which are the model.
 
-![Four phases of a review: request and authorize, read and review, verify and publish, then re-review with explicit feedback.](website/static/img/review-lifecycle.webp)
+![Review lifecycle: admission stores the signed delivery; the App worker authorizes it through the private GitHub gateway and queues a job; the review worker starts a Hermes session in which the model reads source and the review tools record findings; the publisher rechecks both commits and posts the review. PostgreSQL holds each handoff. The figure shows a review that fits one job.](website/static/img/review-lifecycle.svg)
 
 ## Quick start
 

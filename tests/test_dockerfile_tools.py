@@ -92,7 +92,8 @@ class DockerfileToolsTests(unittest.TestCase):
         )
         self.assertIn(
             "uv pip install --no-config --no-cache --python /opt/hermes/.venv/bin/python \\\n"
-            "        --requirement /opt/review-agent-requirements.txt",
+            "        --requirement /opt/review-agent-requirements.txt \\\n"
+            "        --requirement /opt/review-agent-hermes-requirements.txt",
             dockerfile,
         )
 

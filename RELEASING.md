@@ -228,6 +228,14 @@ The main runtime's `requirements.txt` pins, over versions inherited from Hermes:
 - `urllib3` 2.8.0 for its
   [HTTPS proxy TLS and streaming fixes](https://github.com/urllib3/urllib3/releases/tag/2.8.0).
 
+`requirements/requirements-hermes.txt` pins `pillow` 13.0.0, `pyasn1` 0.6.5,
+`oauthlib` 4.0.1, `certifi` 2026.10.18, `brotlicffi` 1.2.1.0 and `mcp` 2.2.0,
+whose inherited versions fail the release image scan. Only the runtime image
+installs it, into the Hermes environment; the admin lock includes
+`requirements.txt` and stays free of these packages. Hermes declares exact
+Pillow and certifi versions and uses Pillow for image processing, which the
+managed review profile disables.
+
 The runtime image removes the inherited SSH client, C headers, and system
 libxml2 with their dependent build, browser, and media packages; the managed
 review uses HTTPS and text, and graph parsers use prebuilt wheels. The image

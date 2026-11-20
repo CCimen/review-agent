@@ -28,9 +28,11 @@ RUN apt-get -o Acquire::Retries=3 update \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/uvx
 COPY --chmod=0755 --from=review_agent_uv /usr/local/bin/uv /usr/local/bin/uv
 COPY --chown=root:root requirements.txt /opt/review-agent-requirements.txt
+COPY --chown=root:root requirements/requirements-hermes.txt /opt/review-agent-hermes-requirements.txt
 # Hermes' project overrides must not replace Review Agent's dependency pins.
 RUN uv pip install --no-config --no-cache --python /opt/hermes/.venv/bin/python \
-        --requirement /opt/review-agent-requirements.txt
+        --requirement /opt/review-agent-requirements.txt \
+        --requirement /opt/review-agent-hermes-requirements.txt
 
 # Graph parsing runs in a separate service and environment. Its dependencies do
 # not change the Hermes or gateway interpreter, and no CPU model is downloaded.

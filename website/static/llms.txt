@@ -2,7 +2,7 @@
 
 Self-hosted, advisory pull-request review with bounded model tools, deterministic authorization, PostgreSQL state, and GitHub App publication.
 
-Release state: v0.5.0-rc.1
+Release state: v0.5.0-rc.2
 License: EUPL-1.2 (Version 1.2 only). Third-party components retain their original licenses.
 Authentication: GitHub App only; approve each installation once, then organization-managed repositories activate on the first signed `/review` or feedback command from a permitted sender, without a per-repository deployment command (0.5.0-rc.1 and earlier enable the repository before checking the sender). Explicit per-repository activation remains available.
 Model policy: set REVIEW_AGENT_MODEL_PROVIDER, REVIEW_AGENT_MODEL, and REVIEW_AGENT_REASONING_EFFORT; the supported providers are openai-codex and anthropic; the documented default uses Codex device-code OAuth.

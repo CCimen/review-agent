@@ -1,0 +1,8 @@
+# Patch packages that only the pinned Hermes image's environment uses. The
+# admin lock includes requirements.txt, so these stay out of it.
+pillow==13.0.0
+pyasn1==0.6.5
+oauthlib==4.0.1
+certifi==2026.10.18
+brotlicffi==1.2.1.0
+mcp==2.2.0

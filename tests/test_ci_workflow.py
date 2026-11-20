@@ -309,6 +309,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         for manifest in (
             "requirements.txt",
             "requirements/requirements-admin.txt",
+            "requirements/requirements-hermes.txt",
             "console/package-lock.json",
             "install/package-lock.json",
             "website/package-lock.json",
@@ -331,7 +332,11 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             for pattern in cast(list[str], mapping(policy["scan"])["file-patterns"])
             if pattern.startswith("pip:")
         ]
-        for manifest in ("requirements/requirements-admin.txt", "requirements/requirements-code-graph.txt"):
+        for manifest in (
+            "requirements/requirements-admin.txt",
+            "requirements/requirements-code-graph.txt",
+            "requirements/requirements-hermes.txt",
+        ):
             self.assertTrue(
                 any(re.search(pattern, manifest) for pattern in pip_patterns),
                 f"Trivy must discover {manifest}",

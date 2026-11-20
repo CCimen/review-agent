@@ -227,66 +227,54 @@ Follow the section for your platform:
 
 ### Deploy with Compose or Dokploy
 
-1. Copy `.env.example` to the platform secret store. Replace each
-   `replace-with...` placeholder: the webhook secret, `API_SERVER_KEY`, the
-   PostgreSQL password and both database URLs. Set `REVIEW_AGENT_GITHUB_APP_ID`
-   in place of the example `123456`, and `REVIEW_AGENT_MODEL`, which the file
-   leaves empty. The file holds the required values and
-   the optional integrations. Tuning variables keep their Compose defaults and
-   are listed in the
+1. **Fill in the environment.** Copy `.env.example` to the platform secret
+   store and replace each `replace-with...` value: the webhook secret,
+   `API_SERVER_KEY`, the PostgreSQL password, and both database URLs. Set
+   `REVIEW_AGENT_GITHUB_APP_ID` (the example is `123456`) and
+   `REVIEW_AGENT_MODEL`. Tuning variables keep their Compose defaults; see the
    [configuration reference](./OPERATIONS.md#configuration-reference).
 
-   `REVIEW_AGENT_DATABASE_URL` is the migration-owner URL used only by the
-   one-shot `review-db-migrate` service. `REVIEW_AGENT_RUNTIME_DATABASE_URL`
-   uses a different login and password for every live service. Both URLs must
-   target the same host, port, and database. The initialization job rejects a
-   shared login or mismatched effective target before applying a migration.
-   The migration owner must own the application schema, have `CREATEROLE`, and
-   be able to grant `CONNECT` on this database; PostgreSQL superuser is not
-   required. The job refuses to reuse an unrelated role with the requested
-   runtime name and verifies a fresh runtime login before it succeeds.
+   **Database logins.** `REVIEW_AGENT_DATABASE_URL` is the migration owner,
+   used only by `review-db-migrate`. `REVIEW_AGENT_RUNTIME_DATABASE_URL` needs
+   a different login and password, for the live services. Both must target the
+   same host, port, and database; the migration job rejects a shared login or a
+   different target. The owner must own the application schema, have
+   `CREATEROLE`, and be able to grant `CONNECT`; it does not need superuser.
+   The job will not take over an unrelated role with the runtime login's name.
 
-   `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
-   `REVIEW_AGENT_REASONING_EFFORT` select inference behavior for new reviews.
-   `REVIEW_AGENT_MODEL` is required and has no default. Without it, Compose
-   stops with "Set REVIEW_AGENT_MODEL to the review model", the installer and
-   operator preflight report "REVIEW_AGENT_MODEL must name the review model",
-   and admission answers `/ready` with `503`. Set it to a model the provider
-   account can use; after the account is connected, the console suggests the
-   models Hermes lists for it. Once the console saves settings, their model
-   governs new reviews instead of this variable. The provider defaults to
-   `openai-codex` and the effort to `xhigh`. The Codex route is the simplest
-   first deployment: Hermes supports a ChatGPT device-code login, so no model API
-   key is needed. Hermes does not document how this traffic counts against each
-   ChatGPT plan's Codex allowance.
+   **Model.** `REVIEW_AGENT_MODEL` is required. Without it, Compose stops with
+   "Set REVIEW_AGENT_MODEL to the review model" and admission answers `/ready`
+   with `503`. `REVIEW_AGENT_MODEL_PROVIDER` is `openai-codex` (the default) or
+   `anthropic`; `REVIEW_AGENT_REASONING_EFFORT` defaults to `xhigh`. Once the
+   console saves settings, their model replaces this one for new reviews.
 
-   Review Agent supports two providers: `openai-codex` and `anthropic`. Any
-   other value is rejected. For Claude, set provider `anthropic` and choose a
-   Claude model from Hermes. Hermes documents that Claude OAuth requires Claude Max plus
-   extra-usage credits; use an Anthropic API key when that route does not fit.
-   Hermes maps reasoning effort to the selected provider.
+   - **Codex** is the simplest first deployment: Hermes supports a ChatGPT
+     device-code login, so no API key is needed. Hermes does not document how
+     this counts against a ChatGPT plan's Codex allowance.
+   - **Claude**: Hermes documents that Claude OAuth requires Claude Max plus
+     extra-usage credits; otherwise use an Anthropic API key.
 
-   Use Hermes' current [provider guide](https://hermes-agent.nousresearch.com/docs/integrations/providers)
-   and [model catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog)
-   to choose the three values. The [environment reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables)
-   lists the API-key settings. Keep those provider secrets in
-   Hermes' persisted credential store or Hermes-owned `.env`; do not add them
-   to the shared Review Agent `.env`.
+   Choose the values from Hermes'
+   [provider guide](https://hermes-agent.nousresearch.com/docs/integrations/providers)
+   and [model catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog).
+   Keep provider API keys
+   ([settings](https://hermes-agent.nousresearch.com/docs/reference/environment-variables))
+   in Hermes' credential store or Hermes' own `.env`, not in the Review Agent
+   `.env`.
 
-   On Dokploy, create a **File Mount** named `github-app-private-key.pem`, paste
-   the complete PEM including its `BEGIN` and `END` lines, then set:
+   **App private key on Dokploy.** Create a **File Mount** named
+   `github-app-private-key.pem`, paste the complete PEM including its `BEGIN`
+   and `END` lines, then set:
 
    ```dotenv
    REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=../files/github-app-private-key.pem
    ```
 
-   Do not paste the PEM into the environment. Compose reads that host-side file
-   and mounts it read-only into the private GitHub gateway. If the file is
-   absent or unreadable, Compose fails before it creates the gateway container.
-
-   Treat Dokploy project access as secret access because authorized UI and API
-   clients can read file-mount content. Rotate the key if it has appeared in a
-   terminal, log, screenshot, ticket, or model conversation.
+   Do not paste the PEM into the environment. Compose mounts the file read-only
+   into the gateway and stops before creating it if the file is missing.
+   Anyone with Dokploy project access can read file mounts. Rotate the key if
+   it has appeared in a terminal, log, screenshot, ticket, or model
+   conversation.
 2. Create the external ingress network. Dokploy already provides
    `dokploy-network`; a plain Docker host can create its configured name:
 
@@ -341,15 +329,16 @@ Follow the section for your platform:
 
 4. Route the review hostname to `review-admission:8644`.
 
-   In Dokploy **Advanced > Networks**, detach every service except
-   `review-admission` and an explicitly enabled `review-admin` from
-   `dokploy-network`. Leave **Enable Isolated
-   Deployment** off; Dokploy deprecated that option, and `compose.yaml` already
-   declares the networks. `review-database`, `review-runtime` and
-   `review-github-control` are internal and have no outbound access.
-   `review-egress` and `review-github-egress` are ordinary bridges: Hermes
-   reaches the model provider through the first, and the gateway reaches
-   GitHub through the second. Keep their outbound access.
+   In Dokploy **Advanced > Networks**:
+
+   - Detach every service except `review-admission` and an explicitly enabled
+     `review-admin` from `dokploy-network`.
+   - Leave **Enable Isolated Deployment** off; Dokploy deprecated that option,
+     and `compose.yaml` already declares the networks.
+   - Keep outbound access on `review-egress` (Hermes to the model provider) and
+     `review-github-egress` (the gateway to GitHub). `review-database`,
+     `review-runtime` and `review-github-control` are internal and have no
+     outbound access.
 5. Connect the selected provider and restart Hermes:
 
    ```bash
@@ -869,14 +858,15 @@ Examples use Compose.
 ## 1. Register the App
 
 Generate a prefilled registration URL with the release image you will deploy.
-The command needs no network, database or secrets:
+Set `--owner` to the account that will own the App and `--owner-type` to
+`organization` or `user`. The command needs no network, database or secrets:
 
 ```bash
 docker run --rm --network none \
   --entrypoint review-agent-admin \
-  ghcr.io/ccimen/review-agent:<release> \
+  ghcr.io/ccimen/review-agent:vX.Y.Z \
   github-app registration-url \
-  --owner <account> --owner-type <user-or-organization> \
+  --owner ACCOUNT --owner-type organization \
   --public-url https://review.example.org \
   --homepage-url https://docs.example.org/review-agent/
 ```
@@ -965,22 +955,24 @@ Choose one of two modes per installation.
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-admin github-app approve <installation-id> \
-  --actor "github:<operator>" \
+  review-agent-admin github-app approve INSTALLATION_ID \
+  --actor "github:OPERATOR" \
   --reason "approved organization-managed reviews"
 ```
 
 The command re-reads the live installation, requires Contents read, Issues
 write, and Pull requests write, and records who approved it and why. It does
-not list or enable repositories. A repository is enabled when its first signed
-`/review` or feedback command is processed: the gateway requests a token restricted to that
-one repository, verifies its identity, and records it as enabled. Only then
-does the gateway check the sender
-([who can request a review](#who-can-request-a-review)). A command from someone
-who may not request reviews is rejected and starts no review, but the
-repository stays enabled. Anyone who can comment on a pull request in a
-repository the installation reaches can therefore cause it to be enabled. In
-explicit mode a comment never enables a repository.
+not list or enable repositories.
+
+- A repository is enabled when its first signed `/review` or feedback command
+  is processed: the gateway requests a token restricted to that repository,
+  verifies its identity, and records it as enabled.
+- Only then does the gateway check the sender
+  ([who can request a review](#who-can-request-a-review)). A command from
+  someone who may not request reviews starts no review, but the repository
+  stays enabled. Anyone who can comment on a pull request there can therefore
+  enable it.
+- In explicit mode a comment never enables a repository.
 
 Platform administrators can do the same in the console under
 **Repositories → Access management**.
@@ -992,8 +984,8 @@ by one:
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-admin github-app onboard <owner/repository> \
-  --actor "github:<operator>"
+  review-agent-admin github-app onboard OWNER/REPOSITORY \
+  --actor "github:OPERATOR"
 ```
 
 The console offers the same action as **Add repository**.
@@ -1002,9 +994,9 @@ To return an automatic installation to explicit mode:
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-admin github-app approve <installation-id> \
+  review-agent-admin github-app approve INSTALLATION_ID \
   --mode explicit \
-  --actor "github:<operator>" \
+  --actor "github:OPERATOR" \
   --reason "require explicit repository approval"
 ```
 
@@ -1039,7 +1031,7 @@ To prove read and publication access without a model call or a GitHub write:
 ```bash
 docker compose exec hermes-review \
   review-agent-admin smoke-test --dry-run \
-  --repository <owner/repository> --pr <number>
+  --repository OWNER/REPOSITORY --pr PR_NUMBER
 ```
 
 ## Who can request a review
@@ -1103,8 +1095,8 @@ Disable one repository without touching the GitHub installation:
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-admin repositories disable <repository-id> \
-  --actor "github:<operator>" \
+  review-agent-admin repositories disable REPOSITORY_ID \
+  --actor "github:OPERATOR" \
   --reason "pause reviews for this repository"
 ```
 
@@ -1314,8 +1306,8 @@ A review covers exactly one base commit and one head commit. File content is
 read at those commits. The tools that read the pull request's files and diffs,
 record findings, and deliver the review compare the live pull request with
 those commits: if the head or base moved, the run ends as superseded; if the
-pull request closed, the run stops. Reading a stored part report checks only
-the worker's lease. A new `/review` starts a fresh run on the new commits.
+pull request closed, the run stops. A new `/review` starts a fresh run on the
+new commits.
 
 If the repository has a `.review-agent/` package, code reads its instructions,
 indexed context files, and accepted design decisions from the base commit and
@@ -1476,8 +1468,8 @@ cannot write. Both can run in several replicas. An interrupted review does not
 continue its model session: its job is claimed again under a new lease and
 starts a new session, until the job's attempt budget
 (`REVIEW_AGENT_JOB_MAX_ATTEMPTS`) is used up; parts of a split review that
-already reported are kept. An interrupted publication continues from its
-stored parts. See [Operations](./OPERATIONS.md).
+already reported are kept, and reading their reports checks only the worker's
+lease. An interrupted publication continues from its stored parts. See [Operations](./OPERATIONS.md).
 
 ## Limits
 
@@ -1597,6 +1589,12 @@ contract, tools, the model route, and GitHub publication
 ([Behavior ownership](./BEHAVIOR_OWNERSHIP.md)). Repository content can focus the
 review and its wording; it cannot replace authorization, finding gates,
 severity rules, tools, or publication.
+
+> [!TIP]
+> **Quick path:**
+> [copy or edit and validate the package](#start-with-the-copyable-package),
+> then merge it. Changes apply once merged
+> ([when changes take effect](#when-changes-take-effect)).
 
 ## The package
 
@@ -1809,8 +1807,8 @@ GitHub, PostgreSQL, a model, or running repository commands:
 ```bash
 .venv/bin/review-agent-admin repository-context docs-scope \
   /path/to/repository \
-  --base <target-base-commit> \
-  --head <pull-request-head-commit>
+  --base BASE_COMMIT \
+  --head HEAD_COMMIT
 ```
 
 `--base` and `--head` must be local commits. The command computes their merge
@@ -2302,13 +2300,18 @@ repositories, review quality and membership. Owners and admins also manage
 platform access, audit and policy. GitHub remains the source of review requests
 and the destination for published reviews.
 
+**Jump to:** [Repository access](#repositories) ·
+[Review history and run actions](#review-history-and-run-actions) ·
+[Model connections](#managed-model-connections) ·
+[Add the service](#add-the-service)
+
+## Add the service
+
 Run the console from the same release as the main image. The admin API needs
 the migrations of that release, so build or pull both images from one revision
 and run its migrations before starting the services. Do not roll back the
 console image alone; use the coordinated image and database recovery in
 [Deployment](./DEPLOYMENT.md#upgrade-and-roll-back-production).
-
-## Add the service
 
 The console is one additional service, `review-admin`, in the existing Compose
 application, with its own image and hostname. It serves the compiled frontend
@@ -3450,8 +3453,12 @@ Last verified: 2026-11-18
 # Operations
 
 Day-two operation and recovery. First deployment, credentials and upgrades are
-in [Deploy Review Agent](./DEPLOYMENT.md); every environment variable is listed
-in the [configuration reference](#configuration-reference).
+in [Deploy Review Agent](./DEPLOYMENT.md).
+
+**Jump to:** [Runbook](#runbook) ·
+[Diagnose a review run](#diagnose-a-review-run) ·
+[Failure codes](#failure-codes) · [Backup and recovery](#backup-and-recovery) ·
+[Configuration reference](#configuration-reference)
 
 ## Prerequisites
 
@@ -3588,17 +3595,19 @@ GitHub checks or merge requirements.
 
 ## GitHub trigger
 
-The App delivers `issue_comment`, `pull_request`, `check_run`, `installation`
-and `installation_repositories` events to `/webhooks/github-app`.
-`issue_comment` carries `/review` and feedback commands; `pull_request` and
-`check_run` drive automatic documentation review and its re-runs; the
-installation events keep the repository inventory current. Admission persists
-the signed delivery before any provider read. The App worker then checks, through
-the private gateway, the repository's enabled state and then the sender's
-current access before creating a run; see
+The App delivers these events to `/webhooks/github-app`:
+
+- `issue_comment`: `/review` and feedback commands;
+- `pull_request` and `check_run`: automatic documentation review and its
+  re-runs;
+- `installation` and `installation_repositories`: the repository inventory.
+
+Admission stores the signed delivery before any provider read. The App worker
+then checks, through the private gateway, the repository's enabled state and
+then the sender's current access before creating a run; see
 [who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review).
-Feedback commands follow the same durable path, and the gateway rechecks the
-sender's write or admin permission and the open pull request before anything is
+Feedback commands follow the same path, and the gateway rechecks the sender's
+write or admin permission and the open pull request before anything is
 recorded.
 
 Installation webhooks and inventory sync record repositories but never enable
@@ -3663,8 +3672,8 @@ Idle queues have zero waiting and leased counts and null wait ages.
 Release a delayed queued retry, or cancel a job's active run:
 
 ```bash
-review-agent-admin jobs retry <id>
-review-agent-admin jobs cancel <id>
+review-agent-admin jobs retry JOB_ID
+review-agent-admin jobs cancel JOB_ID
 ```
 
 `jobs retry` cannot revive failed or dead-letter work: inspect the failure, fix
@@ -3675,10 +3684,10 @@ retires a publication waiting on a GitHub cooldown.
 ### Runs
 
 ```bash
-review-agent-memory runs --repo <org>/<repo> --limit 10
-review-agent-memory runs --repo <org>/<repo> --stats
-review-agent-memory runs --repo <org>/<repo> --pr <number> --limit 10
-review-agent-memory runs --repo <org>/<repo> --pr <number> --stats
+review-agent-memory runs --repo OWNER/REPOSITORY --limit 10
+review-agent-memory runs --repo OWNER/REPOSITORY --stats
+review-agent-memory runs --repo OWNER/REPOSITORY --pr PR_NUMBER --limit 10
+review-agent-memory runs --repo OWNER/REPOSITORY --pr PR_NUMBER --stats
 ```
 
 `--stats` also counts terminal runs by `failure_code`, failed attempts by cause,
@@ -3692,7 +3701,7 @@ A healthy run moves through `accepted`, `fetching_pr`, `collecting_diff`,
 ### Diagnose a review run
 
 ```bash
-review-agent-memory runs --run-id <id>
+review-agent-memory runs --run-id RUN_ID
 ```
 
 The JSON report is printed on standard output and covers one run:
@@ -3722,8 +3731,8 @@ schedules a new attempt.
 Inspect coverage and publication:
 
 ```bash
-review-agent-memory coverage --run-id <id>
-review-agent-memory publications --repo <org>/<repo> --pr <number>
+review-agent-memory coverage --run-id RUN_ID
+review-agent-memory publications --repo OWNER/REPOSITORY --pr PR_NUMBER
 ```
 
 A GitHub comment POST can succeed even when its response reports a transient
@@ -3738,7 +3747,7 @@ After a crash, mark stale runs failed. The publisher then claims and delivers
 their failure statuses:
 
 ```bash
-review-agent-memory runs --mark-stalled --stale-after-minutes 10 --repo <org>/<repo> --pr <number>
+review-agent-memory runs --mark-stalled --stale-after-minutes 10 --repo OWNER/REPOSITORY --pr PR_NUMBER
 ```
 
 The publisher leases each failure status from PostgreSQL, recovers an existing
@@ -4196,50 +4205,68 @@ pins are listed in
 
 ## Quality report and triage
 
-The weekly and monthly flow is in
-[Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md).
+Run these in the `hermes-review` container.
 
-```bash
-review-agent-memory quality --days 30
-review-agent-memory quality --days 30 --repo <org>/<repo> --json
-```
+1. **Weekly quality report.**
 
-The report shows explicit signal counts, denominators, the current triage
-backlog (regardless of the activity window), coverage, and review-contract
-cohorts. It does not infer accuracy from missing feedback.
+   ```bash
+   review-agent-memory quality --days 30
+   review-agent-memory quality --days 30 --repo OWNER/REPOSITORY --json
+   ```
 
-Only an operator classifies a missed issue. The console's **Review quality**
-page lists the backlog and records the classification
-([triage](./FEEDBACK_AND_DECISIONS.md#use-feedback-to-improve-the-reviewer)). Without the console,
-find the feedback row in an [export](#offline-operator-tools), then append a
-triage state:
+   It shows false positives beside published findings, scope and missed-issue
+   feedback beside completed reviews, coverage, the triage backlog (regardless
+   of the activity window), and cohorts by repository, profile, review
+   contract, provider, model, and policy revision. Compare like-for-like
+   cohorts, do not read missing feedback as accuracy, and do not rank
+   developers or repositories from the counts.
 
-```bash
-review-agent-memory triage-feedback <feedback-id> \
-  --status actionable \
-  --stable-key review-rule.auth-boundary \
-  --target-owner review_rule \
-  --actor "github:<operator>" \
-  --reason "Two independent reviews missed the same authorization boundary."
-```
+2. **Triage missed issues.** Only an operator classifies one; a coding agent
+   may prepare the evidence but must not choose the status or owner. In the
+   console, a team maintainer or platform admin uses **Review quality**
+   ([run actions](./ADMIN_PANEL.md#review-history-and-run-actions)). Without
+   the console, find the feedback ID in an [export](#offline-operator-tools)
+   (table `review_quality_feedback`). The export is private: do not give it to
+   a coding agent or paste it into model context, and delete it after triage.
+   Then append a state:
+
+   ```bash
+   review-agent-memory triage-feedback FEEDBACK_ID \
+     --status actionable \
+     --stable-key review-rule.auth-boundary \
+     --target-owner review_rule \
+     --actor "github:OPERATOR" \
+     --reason "Two independent reviews missed the same authorization boundary."
+   ```
+
+   Statuses are `pending`, `actionable`, `duplicate`, `insufficient`, and
+   `resolved`. Only `actionable` takes `--stable-key` (lowercase) and one
+   `--target-owner`: `source_tool`, `coverage`, `review_rule`, `profile`,
+   `repository_decision`, or `documentation`. Triage is append-only: the
+   latest state counts, and a later `resolved`, `duplicate`, or `insufficient`
+   removes the item from the actionable count without deleting its history.
+
+3. **Change the owner.** Change an actionable item's owner (profile, rule,
+   tool, or repository context) through a normal pull request. Never run
+   Hermes `/learn` in the live reviewer profile.
 
 List, show and decide findings:
 
 ```bash
-review-agent-memory list --repo <org>/<repo>
-review-agent-memory show <fingerprint-prefix> --repo <org>/<repo>
+review-agent-memory list --repo OWNER/REPOSITORY
+review-agent-memory show FINGERPRINT_PREFIX --repo OWNER/REPOSITORY
 
-review-agent-memory decide <fingerprint> false_positive \
-  --repo <org>/<repo> \
-  --pr <number> \
+review-agent-memory decide FINGERPRINT false_positive \
+  --repo OWNER/REPOSITORY \
+  --pr PR_NUMBER \
   --local-reference F2 \
   --actor "github:alice" \
   --reason "The scope-checked repository binds resource_scope_id before this query." \
   --expires-days 180
 
-review-agent-memory decide <fingerprint> resolved \
-  --repo <org>/<repo> \
-  --pr <number> \
+review-agent-memory decide FINGERPRINT resolved \
+  --repo OWNER/REPOSITORY \
+  --pr PR_NUMBER \
   --local-reference F2 \
   --actor "github:alice" \
   --reason "Fixed in the latest commit."
@@ -4261,8 +4288,8 @@ paste a raw database export into a model.
 
 ```bash
 review-agent-memory export \
-  --repo <org>/<repo> \
-  --row-limit <per-table-row-limit> \
+  --repo OWNER/REPOSITORY \
+  --row-limit ROW_LIMIT \
   --output /opt/data/private-review/export.json
 ```
 
@@ -4425,9 +4452,9 @@ Rules the parser applies:
   page in the console, or from the operator CLI:
 
   ```bash
-  review-agent-memory decide <fingerprint> accepted_risk \
-    --repo <org>/<repo> \
-    --pr <number> \
+  review-agent-memory decide FINGERPRINT accepted_risk \
+    --repo OWNER/REPOSITORY \
+    --pr PR_NUMBER \
     --local-reference F2 \
     --actor "github:alice" \
     --reason "The endpoint is reachable only from the internal network; accepted until the next audit."
@@ -4473,9 +4500,9 @@ An operator can record an intentional decision from the CLI with the same
 snapshot and path checks:
 
 ```bash
-review-agent-memory decide <fingerprint> intentional_by_design \
-  --repo <org>/<repo> \
-  --pr <number> \
+review-agent-memory decide FINGERPRINT intentional_by_design \
+  --repo OWNER/REPOSITORY \
+  --pr PR_NUMBER \
   --local-reference F2 \
   --adr-id ADR-0007 \
   --actor "github:alice" \
@@ -4485,50 +4512,10 @@ review-agent-memory decide <fingerprint> intentional_by_design \
 
 ## Use feedback to improve the reviewer
 
-Operators run these in the `hermes-review` container.
-[Operations](./OPERATIONS.md) lists the other `review-agent-memory` commands,
-the private export, and their error codes.
-
-1. **Weekly quality report.** `review-agent-memory quality --days 30`, with
-   `--repo <org>/<repo>` for one repository and `--json` for a reporting job.
-   It shows false positives beside published findings, scope and missed-issue
-   feedback beside completed reviews, coverage, the current triage backlog
-   (including older pending items), and cohorts by repository, profile, review
-   contract, provider, model, and policy revision. Compare like-for-like
-   cohorts, do not read missing feedback as accuracy, and do not rank developers
-   or repositories from the counts.
-2. **Triage missed issues.** Only an operator classifies one; a coding agent may
-   prepare the evidence but must not choose the status or owner. With the admin
-   console, a team maintainer or platform admin classifies pending feedback on
-   **Review quality**, which lists the backlog within their scope
-   ([review history and run actions](ADMIN_PANEL.md#review-history-and-run-actions)).
-   Without the console, find the feedback ID with `review-agent-memory export
-   --repo <org>/<repo> --row-limit <per-table-row-limit> --output
-   /opt/data/private-review/export.json` (table `review_quality_feedback`). The
-   export is private: do not give it to a coding agent or paste it into model
-   context, and delete it after triage. Then:
-
-   ```console
-   review-agent-memory triage-feedback <feedback-id> \
-     --status actionable \
-     --stable-key coverage.generated-files \
-     --target-owner coverage \
-     --path src/generated/client.py \
-     --category correctness \
-     --evidence-reference https://github.com/<org>/<repo>/issues/<number> \
-     --actor "github:<operator>" \
-     --reason "The review skipped generated code that changes the public client."
-   ```
-
-   Statuses are `pending`, `actionable`, `duplicate`, `insufficient`, and
-   `resolved`. Only `actionable` takes `--stable-key` (lowercase) and one
-   `--target-owner`: `source_tool`, `coverage`, `review_rule`, `profile`,
-   `repository_decision`, or `documentation`. Triage is append-only; the latest
-   state counts, and a later `resolved`, `duplicate`, or `insufficient` removes
-   the item from the report's actionable count without deleting its history.
-3. **Change the owner.** For an actionable item, change its target owner
-   (profile, rule, tool, or repository context) through a normal pull request.
-   Never run Hermes `/learn` in the live reviewer profile.
+Feedback never changes the reviewer by itself. Operators read it in a weekly
+quality report, classify missed issues, and change the owning profile, rule,
+tool, or repository context through a normal pull request. The procedure is in
+[Operations](./OPERATIONS.md#quality-report-and-triage).
 
 ## Repository decision contract
 
@@ -4642,8 +4629,11 @@ write.
 
 - The admission service verifies the GitHub App webhook signature and stores
   only a bounded normalized delivery.
-- The private gateway holds the App key and installation tokens. They never
-  enter Hermes, PostgreSQL, admission, worker payloads, or logs.
+- The private gateway holds the App key and installation tokens; the optional
+  admin panel also mounts the key
+  ([credential boundaries](#github-credential-boundaries)). Neither enters
+  Hermes, PostgreSQL, admission, worker payloads, or logs. What is stored is
+  listed under [Data handling](#data-handling).
 - Before admitting a manual review, the gateway verifies the signed sender's
   stable GitHub ID against the repository's additional-user list, or checks
   current GitHub write or admin permission. Feedback always requires GitHub
@@ -4689,22 +4679,25 @@ as evidence only. Repository content cannot change reviewer policy, prompts,
 skills, suppressions, memory decisions or feedback commands.
 
 The admission service, App worker and private gateway are outside the model
-path. Admission does not store the webhook body. For each signed delivery of
-an event it handles, it stores a bounded normalized record whose fields depend
-on the event. A comment command holds the repository and installation, the
-sender's GitHub ID and login, the pull request and the parsed command; a
-feedback command also holds the reason its sender typed. An installation event
-holds the account, its permissions and, when the App is installed, its
-repository list. A documentation event holds the pull request or check run it
-concerns and its sender. When a
-delivery reaches a terminal state, its normalized payload is erased, and a
-receipt with the repository, installation, event and body hash stays until an
-operator prunes it. Documentation deliveries keep their bounded event
-envelope, including the sender, until pruned; see
-[Retention ownership](./OPERATIONS.md#retention-ownership). Before the
-feedback application writes PostgreSQL, the gateway checks the exact open pull
-request and the sender's current write or admin permission. The gateway can then
-post only a code-owned reaction or explanation.
+path. Admission does not store the webhook body. For each signed delivery it
+handles, it stores a bounded record:
+
+- **Comment command:** repository, installation, the sender's GitHub ID and
+  login, pull request, and parsed command; feedback also keeps the sender's
+  reason.
+- **Installation event:** account, permissions, and, on install, the
+  repository list.
+- **Documentation event:** the pull request or check run, and its sender.
+
+When a delivery reaches a terminal state, its record is erased; a receipt with
+the repository, installation, event, and body hash stays until an operator
+prunes it. Documentation deliveries keep their bounded envelope, including the
+sender, until pruned; see
+[Retention ownership](./OPERATIONS.md#retention-ownership).
+
+Before feedback is written, the gateway checks the exact open pull request and
+the sender's current write or admin permission. It can then post only a
+code-owned reaction or explanation.
 
 Human feedback can inform later reviewer changes, but it never rewrites
 prompts, skills or policy by itself. An authorized `false-positive` or
@@ -4719,13 +4712,15 @@ reviewer's `HERMES_HOME`, skills directory or gateway.
 The GitHub App key is mounted into the private gateway and, when the optional
 [admin panel](./ADMIN_PANEL.md) is deployed, into the admin service, which uses
 it to read App and installation status for access administration. No other
-service receives it. The gateway mints short-lived installation tokens restricted to one repository and one purpose.
-For lease-bound review, feedback and publication operations, callers supply a
-durable lease identity, never a repository, URL, HTTP method or credential. The
-gateway derives authority from PostgreSQL and checks the lease before and after
-provider I/O. The operator smoke test is different: its caller names a
-repository and pull request, must present `API_SERVER_KEY`, and is accepted
-only for a repository that is already enabled.
+service receives it.
+
+The gateway mints short-lived installation tokens restricted to one repository
+and one purpose. For lease-bound review, feedback and publication operations,
+callers supply a durable lease identity, never a repository, URL, HTTP method
+or credential. The gateway derives authority from PostgreSQL and checks the
+lease before and after provider I/O. The operator smoke test is different: its
+caller names a repository and pull request, must present `API_SERVER_KEY`, and
+is accepted only for a repository that is already enabled.
 
 | Token purpose | Permissions | Used for |
 | --- | --- | --- |
@@ -4844,17 +4839,22 @@ Last verified: 2026-11-18
 
 # Example review
 
-> **Current** — This sanitized example is what the publication planner
+> **Current** — A sanitized example of what Review Agent posts for the first
+> review of a pull request: one Medium finding with an optional patch,
+> complete diff coverage, no repository decision index, and feedback
+> instructions enabled (`REVIEW_AGENT_FEEDBACK_ENABLED=true`). Feedback
+> instructions are off by default; without them the comment has no **Give
+> feedback on this review** section. The publication planner
 > (`build_publication` in `src/review_agent/publication/planner.py`) produces
-> for one configuration: the first review of a pull request, one Medium finding
-> that carries an optional patch, complete diff coverage, no repository
-> decision index, and feedback instructions enabled
-> (`REVIEW_AGENT_FEEDBACK_ENABLED=true`). Feedback instructions are off by
-> default; without them the comment has no **Give feedback on this review**
-> section.
+> this output. Repository and commit links are illustrative.
 
-The plan has two parts: the pull request comment, and a separate pull request
-review that carries the patch. The comment is:
+Review Agent posts it in two parts:
+
+1. one top-level pull request comment, shown first;
+2. a separate GitHub review that carries the patch as an inline suggestion,
+   shown at the end.
+
+The comment is:
 
 ## AI code & security review · Review 1
 
@@ -4997,12 +4997,12 @@ F1=443196e3a355d0d12738bdd60a20f024a7de72f4323b843e47a330c562902f13
 
 <!-- review-agent:canonical publication=sha256:a130e99192aa57b43dadb1e0541285072d461c7b11e3da34454efab98b70b7b1 part=1/1 -->
 
-The second part is a pull request review with the body
-`Optional atomic patches from this review.` and one inline comment on line
-87 of `src/jobs/retry.py`. The comment above does not mention the patch, and
-its fix brief lists the finding as coordinated implementation: the planner does
-not announce a suggestion before GitHub has accepted the review that carries
-it. The inline comment is:
+The second part is a GitHub review with the body
+`Optional atomic patches from this review.` and one inline comment on line 87
+of `src/jobs/retry.py`. The comment above does not mention the patch, because
+the planner does not announce a suggestion before GitHub has accepted the
+review that carries it; that is also why its fix brief says "Coordinated
+implementation required". The inline comment is:
 
 ````markdown
 **F1 · Optional atomic patch**

@@ -9,8 +9,12 @@ last_verified: 2026-11-18
 # Operations
 
 Day-two operation and recovery. First deployment, credentials and upgrades are
-in [Deploy Review Agent](./DEPLOYMENT.md); every environment variable is listed
-in the [configuration reference](#configuration-reference).
+in [Deploy Review Agent](./DEPLOYMENT.md).
+
+**Jump to:** [Runbook](#runbook) ·
+[Diagnose a review run](#diagnose-a-review-run) ·
+[Failure codes](#failure-codes) · [Backup and recovery](#backup-and-recovery) ·
+[Configuration reference](#configuration-reference)
 
 ## Prerequisites
 
@@ -147,17 +151,19 @@ GitHub checks or merge requirements.
 
 ## GitHub trigger
 
-The App delivers `issue_comment`, `pull_request`, `check_run`, `installation`
-and `installation_repositories` events to `/webhooks/github-app`.
-`issue_comment` carries `/review` and feedback commands; `pull_request` and
-`check_run` drive automatic documentation review and its re-runs; the
-installation events keep the repository inventory current. Admission persists
-the signed delivery before any provider read. The App worker then checks, through
-the private gateway, the repository's enabled state and then the sender's
-current access before creating a run; see
+The App delivers these events to `/webhooks/github-app`:
+
+- `issue_comment`: `/review` and feedback commands;
+- `pull_request` and `check_run`: automatic documentation review and its
+  re-runs;
+- `installation` and `installation_repositories`: the repository inventory.
+
+Admission stores the signed delivery before any provider read. The App worker
+then checks, through the private gateway, the repository's enabled state and
+then the sender's current access before creating a run; see
 [who can request a review](./GITHUB_APP_PILOT.md#who-can-request-a-review).
-Feedback commands follow the same durable path, and the gateway rechecks the
-sender's write or admin permission and the open pull request before anything is
+Feedback commands follow the same path, and the gateway rechecks the sender's
+write or admin permission and the open pull request before anything is
 recorded.
 
 Installation webhooks and inventory sync record repositories but never enable
@@ -222,8 +228,8 @@ Idle queues have zero waiting and leased counts and null wait ages.
 Release a delayed queued retry, or cancel a job's active run:
 
 ```bash
-review-agent-admin jobs retry <id>
-review-agent-admin jobs cancel <id>
+review-agent-admin jobs retry JOB_ID
+review-agent-admin jobs cancel JOB_ID
 ```
 
 `jobs retry` cannot revive failed or dead-letter work: inspect the failure, fix
@@ -234,10 +240,10 @@ retires a publication waiting on a GitHub cooldown.
 ### Runs
 
 ```bash
-review-agent-memory runs --repo <org>/<repo> --limit 10
-review-agent-memory runs --repo <org>/<repo> --stats
-review-agent-memory runs --repo <org>/<repo> --pr <number> --limit 10
-review-agent-memory runs --repo <org>/<repo> --pr <number> --stats
+review-agent-memory runs --repo OWNER/REPOSITORY --limit 10
+review-agent-memory runs --repo OWNER/REPOSITORY --stats
+review-agent-memory runs --repo OWNER/REPOSITORY --pr PR_NUMBER --limit 10
+review-agent-memory runs --repo OWNER/REPOSITORY --pr PR_NUMBER --stats
 ```
 
 `--stats` also counts terminal runs by `failure_code`, failed attempts by cause,
@@ -251,7 +257,7 @@ A healthy run moves through `accepted`, `fetching_pr`, `collecting_diff`,
 ### Diagnose a review run
 
 ```bash
-review-agent-memory runs --run-id <id>
+review-agent-memory runs --run-id RUN_ID
 ```
 
 The JSON report is printed on standard output and covers one run:
@@ -281,8 +287,8 @@ schedules a new attempt.
 Inspect coverage and publication:
 
 ```bash
-review-agent-memory coverage --run-id <id>
-review-agent-memory publications --repo <org>/<repo> --pr <number>
+review-agent-memory coverage --run-id RUN_ID
+review-agent-memory publications --repo OWNER/REPOSITORY --pr PR_NUMBER
 ```
 
 A GitHub comment POST can succeed even when its response reports a transient
@@ -297,7 +303,7 @@ After a crash, mark stale runs failed. The publisher then claims and delivers
 their failure statuses:
 
 ```bash
-review-agent-memory runs --mark-stalled --stale-after-minutes 10 --repo <org>/<repo> --pr <number>
+review-agent-memory runs --mark-stalled --stale-after-minutes 10 --repo OWNER/REPOSITORY --pr PR_NUMBER
 ```
 
 The publisher leases each failure status from PostgreSQL, recovers an existing
@@ -755,50 +761,68 @@ pins are listed in
 
 ## Quality report and triage
 
-The weekly and monthly flow is in
-[Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md).
+Run these in the `hermes-review` container.
 
-```bash
-review-agent-memory quality --days 30
-review-agent-memory quality --days 30 --repo <org>/<repo> --json
-```
+1. **Weekly quality report.**
 
-The report shows explicit signal counts, denominators, the current triage
-backlog (regardless of the activity window), coverage, and review-contract
-cohorts. It does not infer accuracy from missing feedback.
+   ```bash
+   review-agent-memory quality --days 30
+   review-agent-memory quality --days 30 --repo OWNER/REPOSITORY --json
+   ```
 
-Only an operator classifies a missed issue. The console's **Review quality**
-page lists the backlog and records the classification
-([triage](./FEEDBACK_AND_DECISIONS.md#use-feedback-to-improve-the-reviewer)). Without the console,
-find the feedback row in an [export](#offline-operator-tools), then append a
-triage state:
+   It shows false positives beside published findings, scope and missed-issue
+   feedback beside completed reviews, coverage, the triage backlog (regardless
+   of the activity window), and cohorts by repository, profile, review
+   contract, provider, model, and policy revision. Compare like-for-like
+   cohorts, do not read missing feedback as accuracy, and do not rank
+   developers or repositories from the counts.
 
-```bash
-review-agent-memory triage-feedback <feedback-id> \
-  --status actionable \
-  --stable-key review-rule.auth-boundary \
-  --target-owner review_rule \
-  --actor "github:<operator>" \
-  --reason "Two independent reviews missed the same authorization boundary."
-```
+2. **Triage missed issues.** Only an operator classifies one; a coding agent
+   may prepare the evidence but must not choose the status or owner. In the
+   console, a team maintainer or platform admin uses **Review quality**
+   ([run actions](./ADMIN_PANEL.md#review-history-and-run-actions)). Without
+   the console, find the feedback ID in an [export](#offline-operator-tools)
+   (table `review_quality_feedback`). The export is private: do not give it to
+   a coding agent or paste it into model context, and delete it after triage.
+   Then append a state:
+
+   ```bash
+   review-agent-memory triage-feedback FEEDBACK_ID \
+     --status actionable \
+     --stable-key review-rule.auth-boundary \
+     --target-owner review_rule \
+     --actor "github:OPERATOR" \
+     --reason "Two independent reviews missed the same authorization boundary."
+   ```
+
+   Statuses are `pending`, `actionable`, `duplicate`, `insufficient`, and
+   `resolved`. Only `actionable` takes `--stable-key` (lowercase) and one
+   `--target-owner`: `source_tool`, `coverage`, `review_rule`, `profile`,
+   `repository_decision`, or `documentation`. Triage is append-only: the
+   latest state counts, and a later `resolved`, `duplicate`, or `insufficient`
+   removes the item from the actionable count without deleting its history.
+
+3. **Change the owner.** Change an actionable item's owner (profile, rule,
+   tool, or repository context) through a normal pull request. Never run
+   Hermes `/learn` in the live reviewer profile.
 
 List, show and decide findings:
 
 ```bash
-review-agent-memory list --repo <org>/<repo>
-review-agent-memory show <fingerprint-prefix> --repo <org>/<repo>
+review-agent-memory list --repo OWNER/REPOSITORY
+review-agent-memory show FINGERPRINT_PREFIX --repo OWNER/REPOSITORY
 
-review-agent-memory decide <fingerprint> false_positive \
-  --repo <org>/<repo> \
-  --pr <number> \
+review-agent-memory decide FINGERPRINT false_positive \
+  --repo OWNER/REPOSITORY \
+  --pr PR_NUMBER \
   --local-reference F2 \
   --actor "github:alice" \
   --reason "The scope-checked repository binds resource_scope_id before this query." \
   --expires-days 180
 
-review-agent-memory decide <fingerprint> resolved \
-  --repo <org>/<repo> \
-  --pr <number> \
+review-agent-memory decide FINGERPRINT resolved \
+  --repo OWNER/REPOSITORY \
+  --pr PR_NUMBER \
   --local-reference F2 \
   --actor "github:alice" \
   --reason "Fixed in the latest commit."
@@ -820,8 +844,8 @@ paste a raw database export into a model.
 
 ```bash
 review-agent-memory export \
-  --repo <org>/<repo> \
-  --row-limit <per-table-row-limit> \
+  --repo OWNER/REPOSITORY \
+  --row-limit ROW_LIMIT \
   --output /opt/data/private-review/export.json
 ```
 

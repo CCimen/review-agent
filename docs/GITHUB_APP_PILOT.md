@@ -25,14 +25,15 @@ Examples use Compose.
 ## 1. Register the App
 
 Generate a prefilled registration URL with the release image you will deploy.
-The command needs no network, database or secrets:
+Set `--owner` to the account that will own the App and `--owner-type` to
+`organization` or `user`. The command needs no network, database or secrets:
 
 ```bash
 docker run --rm --network none \
   --entrypoint review-agent-admin \
-  ghcr.io/ccimen/review-agent:<release> \
+  ghcr.io/ccimen/review-agent:vX.Y.Z \
   github-app registration-url \
-  --owner <account> --owner-type <user-or-organization> \
+  --owner ACCOUNT --owner-type organization \
   --public-url https://review.example.org \
   --homepage-url https://docs.example.org/review-agent/
 ```
@@ -121,22 +122,24 @@ Choose one of two modes per installation.
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-admin github-app approve <installation-id> \
-  --actor "github:<operator>" \
+  review-agent-admin github-app approve INSTALLATION_ID \
+  --actor "github:OPERATOR" \
   --reason "approved organization-managed reviews"
 ```
 
 The command re-reads the live installation, requires Contents read, Issues
 write, and Pull requests write, and records who approved it and why. It does
-not list or enable repositories. A repository is enabled when its first signed
-`/review` or feedback command is processed: the gateway requests a token restricted to that
-one repository, verifies its identity, and records it as enabled. Only then
-does the gateway check the sender
-([who can request a review](#who-can-request-a-review)). A command from someone
-who may not request reviews is rejected and starts no review, but the
-repository stays enabled. Anyone who can comment on a pull request in a
-repository the installation reaches can therefore cause it to be enabled. In
-explicit mode a comment never enables a repository.
+not list or enable repositories.
+
+- A repository is enabled when its first signed `/review` or feedback command
+  is processed: the gateway requests a token restricted to that repository,
+  verifies its identity, and records it as enabled.
+- Only then does the gateway check the sender
+  ([who can request a review](#who-can-request-a-review)). A command from
+  someone who may not request reviews starts no review, but the repository
+  stays enabled. Anyone who can comment on a pull request there can therefore
+  enable it.
+- In explicit mode a comment never enables a repository.
 
 Platform administrators can do the same in the console under
 **Repositories → Access management**.
@@ -148,8 +151,8 @@ by one:
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-admin github-app onboard <owner/repository> \
-  --actor "github:<operator>"
+  review-agent-admin github-app onboard OWNER/REPOSITORY \
+  --actor "github:OPERATOR"
 ```
 
 The console offers the same action as **Add repository**.
@@ -158,9 +161,9 @@ To return an automatic installation to explicit mode:
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-admin github-app approve <installation-id> \
+  review-agent-admin github-app approve INSTALLATION_ID \
   --mode explicit \
-  --actor "github:<operator>" \
+  --actor "github:OPERATOR" \
   --reason "require explicit repository approval"
 ```
 
@@ -195,7 +198,7 @@ To prove read and publication access without a model call or a GitHub write:
 ```bash
 docker compose exec hermes-review \
   review-agent-admin smoke-test --dry-run \
-  --repository <owner/repository> --pr <number>
+  --repository OWNER/REPOSITORY --pr PR_NUMBER
 ```
 
 ## Who can request a review
@@ -259,8 +262,8 @@ Disable one repository without touching the GitHub installation:
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-admin repositories disable <repository-id> \
-  --actor "github:<operator>" \
+  review-agent-admin repositories disable REPOSITORY_ID \
+  --actor "github:OPERATOR" \
   --reason "pause reviews for this repository"
 ```
 

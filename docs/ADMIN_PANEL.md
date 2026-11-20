@@ -14,13 +14,18 @@ repositories, review quality and membership. Owners and admins also manage
 platform access, audit and policy. GitHub remains the source of review requests
 and the destination for published reviews.
 
+**Jump to:** [Repository access](#repositories) ·
+[Review history and run actions](#review-history-and-run-actions) ·
+[Model connections](#managed-model-connections) ·
+[Add the service](#add-the-service)
+
+## Add the service
+
 Run the console from the same release as the main image. The admin API needs
 the migrations of that release, so build or pull both images from one revision
 and run its migrations before starting the services. Do not roll back the
 console image alone; use the coordinated image and database recovery in
 [Deployment](./DEPLOYMENT.md#upgrade-and-roll-back-production).
-
-## Add the service
 
 The console is one additional service, `review-admin`, in the existing Compose
 application, with its own image and hostname. It serves the compiled frontend

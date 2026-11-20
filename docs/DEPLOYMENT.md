@@ -109,66 +109,54 @@ Follow the section for your platform:
 
 ### Deploy with Compose or Dokploy
 
-1. Copy `.env.example` to the platform secret store. Replace each
-   `replace-with...` placeholder: the webhook secret, `API_SERVER_KEY`, the
-   PostgreSQL password and both database URLs. Set `REVIEW_AGENT_GITHUB_APP_ID`
-   in place of the example `123456`, and `REVIEW_AGENT_MODEL`, which the file
-   leaves empty. The file holds the required values and
-   the optional integrations. Tuning variables keep their Compose defaults and
-   are listed in the
+1. **Fill in the environment.** Copy `.env.example` to the platform secret
+   store and replace each `replace-with...` value: the webhook secret,
+   `API_SERVER_KEY`, the PostgreSQL password, and both database URLs. Set
+   `REVIEW_AGENT_GITHUB_APP_ID` (the example is `123456`) and
+   `REVIEW_AGENT_MODEL`. Tuning variables keep their Compose defaults; see the
    [configuration reference](./OPERATIONS.md#configuration-reference).
 
-   `REVIEW_AGENT_DATABASE_URL` is the migration-owner URL used only by the
-   one-shot `review-db-migrate` service. `REVIEW_AGENT_RUNTIME_DATABASE_URL`
-   uses a different login and password for every live service. Both URLs must
-   target the same host, port, and database. The initialization job rejects a
-   shared login or mismatched effective target before applying a migration.
-   The migration owner must own the application schema, have `CREATEROLE`, and
-   be able to grant `CONNECT` on this database; PostgreSQL superuser is not
-   required. The job refuses to reuse an unrelated role with the requested
-   runtime name and verifies a fresh runtime login before it succeeds.
+   **Database logins.** `REVIEW_AGENT_DATABASE_URL` is the migration owner,
+   used only by `review-db-migrate`. `REVIEW_AGENT_RUNTIME_DATABASE_URL` needs
+   a different login and password, for the live services. Both must target the
+   same host, port, and database; the migration job rejects a shared login or a
+   different target. The owner must own the application schema, have
+   `CREATEROLE`, and be able to grant `CONNECT`; it does not need superuser.
+   The job will not take over an unrelated role with the runtime login's name.
 
-   `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
-   `REVIEW_AGENT_REASONING_EFFORT` select inference behavior for new reviews.
-   `REVIEW_AGENT_MODEL` is required and has no default. Without it, Compose
-   stops with "Set REVIEW_AGENT_MODEL to the review model", the installer and
-   operator preflight report "REVIEW_AGENT_MODEL must name the review model",
-   and admission answers `/ready` with `503`. Set it to a model the provider
-   account can use; after the account is connected, the console suggests the
-   models Hermes lists for it. Once the console saves settings, their model
-   governs new reviews instead of this variable. The provider defaults to
-   `openai-codex` and the effort to `xhigh`. The Codex route is the simplest
-   first deployment: Hermes supports a ChatGPT device-code login, so no model API
-   key is needed. Hermes does not document how this traffic counts against each
-   ChatGPT plan's Codex allowance.
+   **Model.** `REVIEW_AGENT_MODEL` is required. Without it, Compose stops with
+   "Set REVIEW_AGENT_MODEL to the review model" and admission answers `/ready`
+   with `503`. `REVIEW_AGENT_MODEL_PROVIDER` is `openai-codex` (the default) or
+   `anthropic`; `REVIEW_AGENT_REASONING_EFFORT` defaults to `xhigh`. Once the
+   console saves settings, their model replaces this one for new reviews.
 
-   Review Agent supports two providers: `openai-codex` and `anthropic`. Any
-   other value is rejected. For Claude, set provider `anthropic` and choose a
-   Claude model from Hermes. Hermes documents that Claude OAuth requires Claude Max plus
-   extra-usage credits; use an Anthropic API key when that route does not fit.
-   Hermes maps reasoning effort to the selected provider.
+   - **Codex** is the simplest first deployment: Hermes supports a ChatGPT
+     device-code login, so no API key is needed. Hermes does not document how
+     this counts against a ChatGPT plan's Codex allowance.
+   - **Claude**: Hermes documents that Claude OAuth requires Claude Max plus
+     extra-usage credits; otherwise use an Anthropic API key.
 
-   Use Hermes' current [provider guide](https://hermes-agent.nousresearch.com/docs/integrations/providers)
-   and [model catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog)
-   to choose the three values. The [environment reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables)
-   lists the API-key settings. Keep those provider secrets in
-   Hermes' persisted credential store or Hermes-owned `.env`; do not add them
-   to the shared Review Agent `.env`.
+   Choose the values from Hermes'
+   [provider guide](https://hermes-agent.nousresearch.com/docs/integrations/providers)
+   and [model catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog).
+   Keep provider API keys
+   ([settings](https://hermes-agent.nousresearch.com/docs/reference/environment-variables))
+   in Hermes' credential store or Hermes' own `.env`, not in the Review Agent
+   `.env`.
 
-   On Dokploy, create a **File Mount** named `github-app-private-key.pem`, paste
-   the complete PEM including its `BEGIN` and `END` lines, then set:
+   **App private key on Dokploy.** Create a **File Mount** named
+   `github-app-private-key.pem`, paste the complete PEM including its `BEGIN`
+   and `END` lines, then set:
 
    ```dotenv
    REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=../files/github-app-private-key.pem
    ```
 
-   Do not paste the PEM into the environment. Compose reads that host-side file
-   and mounts it read-only into the private GitHub gateway. If the file is
-   absent or unreadable, Compose fails before it creates the gateway container.
-
-   Treat Dokploy project access as secret access because authorized UI and API
-   clients can read file-mount content. Rotate the key if it has appeared in a
-   terminal, log, screenshot, ticket, or model conversation.
+   Do not paste the PEM into the environment. Compose mounts the file read-only
+   into the gateway and stops before creating it if the file is missing.
+   Anyone with Dokploy project access can read file mounts. Rotate the key if
+   it has appeared in a terminal, log, screenshot, ticket, or model
+   conversation.
 2. Create the external ingress network. Dokploy already provides
    `dokploy-network`; a plain Docker host can create its configured name:
 
@@ -223,15 +211,16 @@ Follow the section for your platform:
 
 4. Route the review hostname to `review-admission:8644`.
 
-   In Dokploy **Advanced > Networks**, detach every service except
-   `review-admission` and an explicitly enabled `review-admin` from
-   `dokploy-network`. Leave **Enable Isolated
-   Deployment** off; Dokploy deprecated that option, and `compose.yaml` already
-   declares the networks. `review-database`, `review-runtime` and
-   `review-github-control` are internal and have no outbound access.
-   `review-egress` and `review-github-egress` are ordinary bridges: Hermes
-   reaches the model provider through the first, and the gateway reaches
-   GitHub through the second. Keep their outbound access.
+   In Dokploy **Advanced > Networks**:
+
+   - Detach every service except `review-admission` and an explicitly enabled
+     `review-admin` from `dokploy-network`.
+   - Leave **Enable Isolated Deployment** off; Dokploy deprecated that option,
+     and `compose.yaml` already declares the networks.
+   - Keep outbound access on `review-egress` (Hermes to the model provider) and
+     `review-github-egress` (the gateway to GitHub). `review-database`,
+     `review-runtime` and `review-github-control` are internal and have no
+     outbound access.
 5. Connect the selected provider and restart Hermes:
 
    ```bash

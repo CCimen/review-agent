@@ -21,6 +21,12 @@ contract, tools, the model route, and GitHub publication
 review and its wording; it cannot replace authorization, finding gates,
 severity rules, tools, or publication.
 
+> [!TIP]
+> **Quick path:**
+> [copy or edit and validate the package](#start-with-the-copyable-package),
+> then merge it. Changes apply once merged
+> ([when changes take effect](#when-changes-take-effect)).
+
 ## The package
 
 ```text
@@ -232,8 +238,8 @@ GitHub, PostgreSQL, a model, or running repository commands:
 ```bash
 .venv/bin/review-agent-admin repository-context docs-scope \
   /path/to/repository \
-  --base <target-base-commit> \
-  --head <pull-request-head-commit>
+  --base BASE_COMMIT \
+  --head HEAD_COMMIT
 ```
 
 `--base` and `--head` must be local commits. The command computes their merge

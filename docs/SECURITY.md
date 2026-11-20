@@ -17,8 +17,11 @@ write.
 
 - The admission service verifies the GitHub App webhook signature and stores
   only a bounded normalized delivery.
-- The private gateway holds the App key and installation tokens. They never
-  enter Hermes, PostgreSQL, admission, worker payloads, or logs.
+- The private gateway holds the App key and installation tokens; the optional
+  admin panel also mounts the key
+  ([credential boundaries](#github-credential-boundaries)). Neither enters
+  Hermes, PostgreSQL, admission, worker payloads, or logs. What is stored is
+  listed under [Data handling](#data-handling).
 - Before admitting a manual review, the gateway verifies the signed sender's
   stable GitHub ID against the repository's additional-user list, or checks
   current GitHub write or admin permission. Feedback always requires GitHub
@@ -64,22 +67,25 @@ as evidence only. Repository content cannot change reviewer policy, prompts,
 skills, suppressions, memory decisions or feedback commands.
 
 The admission service, App worker and private gateway are outside the model
-path. Admission does not store the webhook body. For each signed delivery of
-an event it handles, it stores a bounded normalized record whose fields depend
-on the event. A comment command holds the repository and installation, the
-sender's GitHub ID and login, the pull request and the parsed command; a
-feedback command also holds the reason its sender typed. An installation event
-holds the account, its permissions and, when the App is installed, its
-repository list. A documentation event holds the pull request or check run it
-concerns and its sender. When a
-delivery reaches a terminal state, its normalized payload is erased, and a
-receipt with the repository, installation, event and body hash stays until an
-operator prunes it. Documentation deliveries keep their bounded event
-envelope, including the sender, until pruned; see
-[Retention ownership](./OPERATIONS.md#retention-ownership). Before the
-feedback application writes PostgreSQL, the gateway checks the exact open pull
-request and the sender's current write or admin permission. The gateway can then
-post only a code-owned reaction or explanation.
+path. Admission does not store the webhook body. For each signed delivery it
+handles, it stores a bounded record:
+
+- **Comment command:** repository, installation, the sender's GitHub ID and
+  login, pull request, and parsed command; feedback also keeps the sender's
+  reason.
+- **Installation event:** account, permissions, and, on install, the
+  repository list.
+- **Documentation event:** the pull request or check run, and its sender.
+
+When a delivery reaches a terminal state, its record is erased; a receipt with
+the repository, installation, event, and body hash stays until an operator
+prunes it. Documentation deliveries keep their bounded envelope, including the
+sender, until pruned; see
+[Retention ownership](./OPERATIONS.md#retention-ownership).
+
+Before feedback is written, the gateway checks the exact open pull request and
+the sender's current write or admin permission. It can then post only a
+code-owned reaction or explanation.
 
 Human feedback can inform later reviewer changes, but it never rewrites
 prompts, skills or policy by itself. An authorized `false-positive` or
@@ -94,13 +100,15 @@ reviewer's `HERMES_HOME`, skills directory or gateway.
 The GitHub App key is mounted into the private gateway and, when the optional
 [admin panel](./ADMIN_PANEL.md) is deployed, into the admin service, which uses
 it to read App and installation status for access administration. No other
-service receives it. The gateway mints short-lived installation tokens restricted to one repository and one purpose.
-For lease-bound review, feedback and publication operations, callers supply a
-durable lease identity, never a repository, URL, HTTP method or credential. The
-gateway derives authority from PostgreSQL and checks the lease before and after
-provider I/O. The operator smoke test is different: its caller names a
-repository and pull request, must present `API_SERVER_KEY`, and is accepted
-only for a repository that is already enabled.
+service receives it.
+
+The gateway mints short-lived installation tokens restricted to one repository
+and one purpose. For lease-bound review, feedback and publication operations,
+callers supply a durable lease identity, never a repository, URL, HTTP method
+or credential. The gateway derives authority from PostgreSQL and checks the
+lease before and after provider I/O. The operator smoke test is different: its
+caller names a repository and pull request, must present `API_SERVER_KEY`, and
+is accepted only for a repository that is already enabled.
 
 | Token purpose | Permissions | Used for |
 | --- | --- | --- |

@@ -42,8 +42,8 @@ A review covers exactly one base commit and one head commit. File content is
 read at those commits. The tools that read the pull request's files and diffs,
 record findings, and deliver the review compare the live pull request with
 those commits: if the head or base moved, the run ends as superseded; if the
-pull request closed, the run stops. Reading a stored part report checks only
-the worker's lease. A new `/review` starts a fresh run on the new commits.
+pull request closed, the run stops. A new `/review` starts a fresh run on the
+new commits.
 
 If the repository has a `.review-agent/` package, code reads its instructions,
 indexed context files, and accepted design decisions from the base commit and
@@ -204,8 +204,8 @@ cannot write. Both can run in several replicas. An interrupted review does not
 continue its model session: its job is claimed again under a new lease and
 starts a new session, until the job's attempt budget
 (`REVIEW_AGENT_JOB_MAX_ATTEMPTS`) is used up; parts of a split review that
-already reported are kept. An interrupted publication continues from its
-stored parts. See [Operations](./OPERATIONS.md).
+already reported are kept. The final session reads their reports under its
+live lease, without rechecking the GitHub snapshot. An interrupted publication continues from its stored parts. See [Operations](./OPERATIONS.md).
 
 ## Limits
 

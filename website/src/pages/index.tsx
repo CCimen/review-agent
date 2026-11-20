@@ -2,50 +2,39 @@ import type {ReactNode} from 'react';
 import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
-import CodeBlock from '@theme/CodeBlock';
 import {Check, X} from 'lucide-react';
 
 import styles from './index.module.css';
 
 const lifecycle = [
-  [
-    '/review requested',
-    'An authorized maintainer asks for a review with a pull-request comment.',
-  ],
-  ['Snapshot locked', 'The exact base and head commits are pinned and recorded.'],
-  ['Diff analyzed', 'Bounded read tools feed a two-pass, evidence-first review.'],
-  [
-    'Review published',
-    'Stored findings reach GitHub through a recoverable publisher.',
-  ],
+  ['/review requested', 'A permitted user comments /review on a pull request.'],
+  ['Commits pinned', 'The base and head commits are checked and recorded.'],
+  ['Code reviewed', 'The model reads the change and records findings; it cannot write to GitHub.'],
+  ['Review published', 'A separate publisher rechecks the commits and posts the findings.'],
 ] as const;
 
 const setupSteps = [
-  ['Deploy the service', 'Start the reviewer stack and PostgreSQL from compose.yaml.'],
+  ['Register the GitHub App', 'The deployment needs its ID, webhook secret, and key at startup.'],
+  ['Deploy the service', 'Compose, Dokploy, Coolify, Portainer, or Kubernetes (Helm).'],
   [
-    'Connect GitHub',
-    'Install the GitHub App on selected repositories, then enable each approved repository.',
+    'Install and approve the App',
+    'Enable each repository, or approve with automatic activation so its first command enables it.',
   ],
-  [
-    'Run /review',
-    'Comment on an open pull request; a changed snapshot starts a new round.',
-  ],
+  ['Run /review', 'Comment on an open pull request from the same repository.'],
 ] as const;
 
 const tasks = [
   {
     name: 'Reviewing a pull request',
-    description: 'Understand checks, evidence, publication, and feedback.',
-    label: 'How reviews work',
-    to: '/docs/how-reviews-work',
+    description: 'Who can ask, what to comment, and what gets published.',
+    label: 'Request a review',
+    to: '/docs/getting-started#4-request-a-review',
   },
   {
     name: 'Maintaining a repository',
-    description: 'Add a repository and find who owns policy and runtime wiring.',
-    label: 'Behavior ownership',
-    to: '/docs/behavior-ownership',
+    description: 'Give the reviewer instructions and record design decisions.',
+    label: 'Repository context',
+    to: '/docs/repository-context',
   },
   {
     name: 'Operating the platform',
@@ -133,7 +122,9 @@ function Home(): ReactNode {
                 </li>
               ))}
             </ol>
-            <p className={styles.lifecycleReturn}>Human feedback starts a new round.</p>
+            <p className={styles.lifecycleReturn}>
+              To review a fix, push it and comment /review again.
+            </p>
           </div>
         </section>
 
@@ -143,29 +134,14 @@ function Home(): ReactNode {
               Set up the reviewer
             </Heading>
             <div className={styles.setup}>
-              <div className={styles.setupDeploy}>
-                <Tabs groupId="deployment-platform">
-                  <TabItem value="compose" label="Local Compose build" default>
-                    <CodeBlock language="bash">
-                      {'docker compose config --quiet\ndocker compose up -d --build\ndocker compose ps'}
-                    </CodeBlock>
-                    <p className={styles.setupNote}>
-                      Use this only to evaluate an exact reviewed checkout. For
-                      Dokploy or production, deploy the attested release image
-                      pinned to the manifest digest in <code>IMAGE-DIGESTS.txt</code>.
-                    </p>
-                  </TabItem>
-                  <TabItem value="coolify-portainer" label="Coolify / Portainer">
-                    <p className={styles.setupNote}>
-                      Import <code>compose.yaml</code> as a Compose stack and
-                      enter the values from <code>.env.example</code> in the
-                      platform secret UI.
-                    </p>
-                  </TabItem>
-                </Tabs>
+              <div>
+                <p className={styles.setupNote}>
+                  One deployment serves many repositories, and they need no
+                  workflow, secret, or local setup.
+                </p>
                 <p className={styles.setupLinks}>
-                  <Link to="/docs/deployment">Open the deployment guide</Link>
-                  <Link to="/docs/behavior-ownership">Configure behavior</Link>
+                  <Link to="/docs/getting-started">Getting started</Link>
+                  <Link to="/docs/deployment">Deployment guide</Link>
                 </p>
               </div>
               <ol className={styles.setupSteps}>
@@ -245,12 +221,6 @@ function Home(): ReactNode {
                 </ul>
               </div>
             </div>
-            <p className={styles.boundariesNote}>
-              Signed webhook admission stores durable review jobs in one
-              PostgreSQL database per environment, and a transactional
-              publication outbox hands immutable comment parts to a recoverable
-              publisher.
-            </p>
           </div>
         </section>
       </main>

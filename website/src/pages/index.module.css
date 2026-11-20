@@ -334,14 +334,6 @@
   color: var(--landing-danger);
 }
 
-.boundariesNote {
-  border-top: 1px solid var(--ifm-toc-border-color);
-  color: var(--ifm-color-emphasis-700);
-  margin: 2.5rem 0 0;
-  max-width: 48rem;
-  padding-top: 1rem;
-}
-
 /* Responsive */
 
 @media (max-width: 996px) {

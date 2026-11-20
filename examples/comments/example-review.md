@@ -8,17 +8,22 @@ last_verified: 2026-11-18
 
 # Example review
 
-> **Current** — This sanitized example is what the publication planner
+> **Current** — A sanitized example of what Review Agent posts for the first
+> review of a pull request: one Medium finding with an optional patch,
+> complete diff coverage, no repository decision index, and feedback
+> instructions enabled (`REVIEW_AGENT_FEEDBACK_ENABLED=true`). Feedback
+> instructions are off by default; without them the comment has no **Give
+> feedback on this review** section. The publication planner
 > (`build_publication` in `src/review_agent/publication/planner.py`) produces
-> for one configuration: the first review of a pull request, one Medium finding
-> that carries an optional patch, complete diff coverage, no repository
-> decision index, and feedback instructions enabled
-> (`REVIEW_AGENT_FEEDBACK_ENABLED=true`). Feedback instructions are off by
-> default; without them the comment has no **Give feedback on this review**
-> section.
+> this output. Repository and commit links are illustrative.
 
-The plan has two parts: the pull request comment, and a separate pull request
-review that carries the patch. The comment is:
+Review Agent posts it in two parts:
+
+1. one top-level pull request comment, shown first;
+2. a separate GitHub review that carries the patch as an inline suggestion,
+   shown at the end.
+
+The comment is:
 
 ## AI code & security review · Review 1
 
@@ -161,12 +166,12 @@ F1=443196e3a355d0d12738bdd60a20f024a7de72f4323b843e47a330c562902f13
 
 <!-- review-agent:canonical publication=sha256:a130e99192aa57b43dadb1e0541285072d461c7b11e3da34454efab98b70b7b1 part=1/1 -->
 
-The second part is a pull request review with the body
-`Optional atomic patches from this review.` and one inline comment on line
-87 of `src/jobs/retry.py`. The comment above does not mention the patch, and
-its fix brief lists the finding as coordinated implementation: the planner does
-not announce a suggestion before GitHub has accepted the review that carries
-it. The inline comment is:
+The second part is a GitHub review with the body
+`Optional atomic patches from this review.` and one inline comment on line 87
+of `src/jobs/retry.py`. The comment above does not mention the patch, because
+the planner does not announce a suggestion before GitHub has accepted the
+review that carries it; that is also why its fix brief says "Coordinated
+implementation required". The inline comment is:
 
 ````markdown
 **F1 · Optional atomic patch**

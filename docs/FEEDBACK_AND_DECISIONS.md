@@ -74,9 +74,9 @@ Rules the parser applies:
   page in the console, or from the operator CLI:
 
   ```bash
-  review-agent-memory decide <fingerprint> accepted_risk \
-    --repo <org>/<repo> \
-    --pr <number> \
+  review-agent-memory decide FINGERPRINT accepted_risk \
+    --repo OWNER/REPOSITORY \
+    --pr PR_NUMBER \
     --local-reference F2 \
     --actor "github:alice" \
     --reason "The endpoint is reachable only from the internal network; accepted until the next audit."
@@ -122,9 +122,9 @@ An operator can record an intentional decision from the CLI with the same
 snapshot and path checks:
 
 ```bash
-review-agent-memory decide <fingerprint> intentional_by_design \
-  --repo <org>/<repo> \
-  --pr <number> \
+review-agent-memory decide FINGERPRINT intentional_by_design \
+  --repo OWNER/REPOSITORY \
+  --pr PR_NUMBER \
   --local-reference F2 \
   --adr-id ADR-0007 \
   --actor "github:alice" \
@@ -134,50 +134,10 @@ review-agent-memory decide <fingerprint> intentional_by_design \
 
 ## Use feedback to improve the reviewer
 
-Operators run these in the `hermes-review` container.
-[Operations](./OPERATIONS.md) lists the other `review-agent-memory` commands,
-the private export, and their error codes.
-
-1. **Weekly quality report.** `review-agent-memory quality --days 30`, with
-   `--repo <org>/<repo>` for one repository and `--json` for a reporting job.
-   It shows false positives beside published findings, scope and missed-issue
-   feedback beside completed reviews, coverage, the current triage backlog
-   (including older pending items), and cohorts by repository, profile, review
-   contract, provider, model, and policy revision. Compare like-for-like
-   cohorts, do not read missing feedback as accuracy, and do not rank developers
-   or repositories from the counts.
-2. **Triage missed issues.** Only an operator classifies one; a coding agent may
-   prepare the evidence but must not choose the status or owner. With the admin
-   console, a team maintainer or platform admin classifies pending feedback on
-   **Review quality**, which lists the backlog within their scope
-   ([review history and run actions](ADMIN_PANEL.md#review-history-and-run-actions)).
-   Without the console, find the feedback ID with `review-agent-memory export
-   --repo <org>/<repo> --row-limit <per-table-row-limit> --output
-   /opt/data/private-review/export.json` (table `review_quality_feedback`). The
-   export is private: do not give it to a coding agent or paste it into model
-   context, and delete it after triage. Then:
-
-   ```console
-   review-agent-memory triage-feedback <feedback-id> \
-     --status actionable \
-     --stable-key coverage.generated-files \
-     --target-owner coverage \
-     --path src/generated/client.py \
-     --category correctness \
-     --evidence-reference https://github.com/<org>/<repo>/issues/<number> \
-     --actor "github:<operator>" \
-     --reason "The review skipped generated code that changes the public client."
-   ```
-
-   Statuses are `pending`, `actionable`, `duplicate`, `insufficient`, and
-   `resolved`. Only `actionable` takes `--stable-key` (lowercase) and one
-   `--target-owner`: `source_tool`, `coverage`, `review_rule`, `profile`,
-   `repository_decision`, or `documentation`. Triage is append-only; the latest
-   state counts, and a later `resolved`, `duplicate`, or `insufficient` removes
-   the item from the report's actionable count without deleting its history.
-3. **Change the owner.** For an actionable item, change its target owner
-   (profile, rule, tool, or repository context) through a normal pull request.
-   Never run Hermes `/learn` in the live reviewer profile.
+Feedback never changes the reviewer by itself. Operators read it in a weekly
+quality report, classify missed issues, and change the owning profile, rule,
+tool, or repository context through a normal pull request. The procedure is in
+[Operations](./OPERATIONS.md#quality-report-and-triage).
 
 ## Repository decision contract
 

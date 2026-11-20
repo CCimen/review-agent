@@ -23,15 +23,20 @@ stored state, and every GitHub write are handled by code.
 | You want to | Read |
 | --- | --- |
 | Run a first review | [Getting started](./GETTING_STARTED.md) |
+| See what a published review looks like | [Example review](../examples/comments/example-review.md) |
 | Understand what happens in a review | [How reviews work](./HOW_REVIEWS_WORK.md) |
-| Deploy the service | [Deployment](./DEPLOYMENT.md) |
+| Deploy, upgrade, or roll back | [Deployment](./DEPLOYMENT.md) |
 | Register, approve, or share the GitHub App | [GitHub App setup](./GITHUB_APP_PILOT.md) |
+| Hand the setup to a coding agent | [AI-assisted setup](./AI_ASSISTED_SETUP.md) |
 | Give a repository its own instructions and decisions | [Repository context](./REPOSITORY_CONTEXT.md) |
 | Answer findings and record design decisions | [Feedback and decisions](./FEEDBACK_AND_DECISIONS.md) |
 | Check documentation against code changes | [Documentation review](./DOCUMENTATION_REVIEW.md) |
 | Change the reviewer's voice or rules | [Behavior ownership](./BEHAVIOR_OWNERSHIP.md) |
-| Manage teams, access, and model connections | [Admin panel](./ADMIN_PANEL.md) |
+| Add related-code lookups | [Code graph](./CODE_GRAPH.md) |
+| Manage teams, access, model connections, sign-in, and usage | [Admin panel](./ADMIN_PANEL.md) |
+| See what a team can do and which model account it uses | [Team access and model accounts](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md) |
 | Operate and recover the service | [Operations](./OPERATIONS.md) |
 | Assess the trust model | [Security](./SECURITY.md) |
 | See what is and is not supported | [Capabilities](./ROADMAP.md) |
+| Find a short answer | [FAQ](./FAQ.md) |
 | Change the code | [CONTRIBUTING.md](https://github.com/CCimen/review-agent/blob/main/CONTRIBUTING.md) |

@@ -21,28 +21,28 @@ which parts are code and which are the model.
 
 ![Review lifecycle: admission stores the signed delivery; the App worker authorizes it through the private GitHub gateway and queues a job; the review worker starts a Hermes session in which the model reads source and the review tools record findings; the publisher rechecks both commits and posts the review. PostgreSQL holds each handoff. The figure shows a review that fits one job.](website/static/img/review-lifecycle.svg)
 
-## Quick start
+## Start here
 
-1. **Deploy the service** with Compose, Dokploy, Coolify, Portainer,
-   or Kubernetes (Helm): [deployment guide](docs/DEPLOYMENT.md).
-2. **Register and install the GitHub App, then approve the installation once**:
-   [GitHub App setup](docs/GITHUB_APP_PILOT.md).
+**Request a review.** If Review Agent already serves your repository, add a new
+top-level comment to an open pull request whose branch is in the same
+repository:
 
-   ```bash
-   docker compose exec review-github-gateway \
-     review-agent-admin github-app approve <installation-id> \
-     --actor "github:<operator>" \
-     --reason "approved organization-managed reviews"
-   ```
-
-3. **Request a review** with a new top-level pull request comment:
-
-   ```text
-   /review
-   ```
+```text
+/review
+```
 
 Users with GitHub `write` or `admin` permission on the repository can request
-reviews. Others can be allowed per repository in the console.
+reviews. Others can be allowed per repository in the console. The
+[example review](examples/comments/example-review.md) shows what is published.
+
+**Run it for your organization.** Register the GitHub App, deploy the service
+with the App's credentials, then install the App and approve the installation.
+[Getting started](docs/GETTING_STARTED.md) walks through that order and the two
+ways repositories are enabled.
+
+**Assess it.** The [security model](docs/SECURITY.md) covers trust boundaries
+and data handling, and [Capabilities](docs/ROADMAP.md) lists what is and is not
+supported.
 
 ## Share it with other organizations
 
@@ -80,24 +80,8 @@ See [Feedback and design decisions](docs/FEEDBACK_AND_DECISIONS.md) and a
 
 ## Documentation
 
-The [documentation site](https://ccimen.github.io/review-agent/) has search and
-task-based navigation.
-
-| You want to | Read |
-| --- | --- |
-| Run your first review | [Getting started](docs/GETTING_STARTED.md) |
-| Understand a review step by step | [How reviews work](docs/HOW_REVIEWS_WORK.md) |
-| Deploy, upgrade, or roll back | [Deployment](docs/DEPLOYMENT.md) |
-| Register, approve, or share the GitHub App | [GitHub App setup](docs/GITHUB_APP_PILOT.md) |
-| Hand the setup to a coding agent | [AI-assisted setup](docs/AI_ASSISTED_SETUP.md) |
-| Add repository instructions, context, and decisions | [Repository context](docs/REPOSITORY_CONTEXT.md) |
-| Check documentation against code changes | [Documentation review](docs/DOCUMENTATION_REVIEW.md) |
-| Change the reviewer's voice or rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
-| Add related-code lookups | [Code graph](docs/CODE_GRAPH.md) |
-| Manage teams, access, model connections, sign-in, and usage | [Admin panel](docs/ADMIN_PANEL.md) |
-| Operate or recover the service | [Operations](docs/OPERATIONS.md) |
-| Assess trust boundaries | [Security](docs/SECURITY.md) |
-| See capabilities and limits | [Capabilities](docs/ROADMAP.md) |
+The [documentation site](https://ccimen.github.io/review-agent/) has search,
+and the [Overview](docs/OVERVIEW.md) lists every guide by task.
 
 ## Configuration
 
@@ -107,11 +91,11 @@ Repository-specific rules belong in the repository's optional `.review-agent/`
 package. [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) explains what a
 profile can and cannot change.
 
-The model route is set with `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`,
-and `REVIEW_AGENT_REASONING_EFFORT`. `REVIEW_AGENT_MODEL` is required and has no
-default. Two providers are supported. The default, `openai-codex`, uses a
-ChatGPT device-code login through Hermes and needs no API key; `anthropic` uses
-Hermes' [Anthropic route](https://hermes-agent.nousresearch.com/docs/integrations/providers). `.env.example` lists the required values, and
+The model is set with `REVIEW_AGENT_MODEL_PROVIDER` (`openai-codex`, the
+default, or `anthropic`), `REVIEW_AGENT_MODEL`, which is required, and
+`REVIEW_AGENT_REASONING_EFFORT`; the
+[deployment guide](docs/DEPLOYMENT.md#deploy-with-compose-or-dokploy) explains
+each. `.env.example` lists the required values, and
 [Operations](docs/OPERATIONS.md#configuration-reference) lists every variable
 the Compose files read.
 

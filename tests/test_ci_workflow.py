@@ -93,6 +93,9 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             "github.event.workflow_run.conclusion == 'success' }}",
             build["if"],
         )
+        self.assertEqual(
+            {"contents": "read", "actions": "read"}, mapping(build["permissions"])
+        )
         checkout = mapping(named_step(build, "Check out repository")["with"])
         self.assertEqual("refs/heads/main", checkout["ref"])
         self.assertEqual("false", checkout["persist-credentials"])
@@ -103,6 +106,85 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("Release state: ", command)
         self.assertIn('gh release view "$release_tag" --json assets', command)
         self.assertIn("IMAGE-DIGESTS.txt", command)
+        tag_sha = "a" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            llms = temporary / "website" / "static" / "llms.txt"
+            llms.parent.mkdir(parents=True)
+            llms.write_text("Release state: v1.2.3\n", encoding="utf-8")
+            fake_gh = temporary / "bin" / "gh"
+            fake_gh.parent.mkdir()
+            fake_gh.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    set -euo pipefail
+                    query="${@: -1}"
+                    case "$*" in
+                      "release view v1.2.3 --json assets --jq .assets[].name")
+                        echo IMAGE-DIGESTS.txt ;;
+                      "api repos/example/review-agent/commits/v1.2.3 --jq .sha")
+                        echo "$TAG_SHA" ;;
+                      "api --method GET repos/example/review-agent/actions/workflows/release-image.yml/runs -f event=release -f branch=v1.2.3 -f per_page=1 --jq "*)
+                        jq -r "$query" <<<"$FAKE_RUNS" ;;
+                      "api repos/example/review-agent/actions/runs/7/jobs --jq "*)
+                        jq -r "$query" <<<"$FAKE_JOBS" ;;
+                      *) exit 2 ;;
+                    esac
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+            verify = {"name": "verify", "conclusion": "success"}
+            promotion = {"name": "Publish qualified version tags", "conclusion": "success"}
+            for run, run_jobs, qualified in (
+                ((tag_sha, "completed", "success"), [verify, promotion], True),
+                ((tag_sha, "in_progress", None), [verify, promotion], False),
+                ((tag_sha, "completed", "failure"), [verify, promotion], False),
+                (("b" * 40, "completed", "success"), [verify, promotion], False),
+                ((tag_sha, "completed", "success"), [verify], False),
+                (
+                    (tag_sha, "completed", "success"),
+                    [verify, {**promotion, "conclusion": "skipped"}],
+                    False,
+                ),
+            ):
+                head_sha, status, conclusion = run
+                with self.subTest(run=run, jobs=[job["name"] for job in run_jobs]):
+                    environment = os.environ.copy()
+                    environment.update(
+                        {
+                            "FAKE_JOBS": json.dumps({"jobs": run_jobs}),
+                            "FAKE_RUNS": json.dumps(
+                                {
+                                    "workflow_runs": [
+                                        {
+                                            "id": 7,
+                                            "head_sha": head_sha,
+                                            "status": status,
+                                            "conclusion": conclusion,
+                                        }
+                                    ]
+                                }
+                            ),
+                            "GH_REPO": "example/review-agent",
+                            "PATH": f"{fake_gh.parent}{os.pathsep}{environment['PATH']}",
+                            "TAG_SHA": tag_sha,
+                        }
+                    )
+                    # The runner's default shell is bash -e without pipefail.
+                    completed = subprocess.run(
+                        ["bash", "-e", "-c", command],
+                        cwd=temporary,
+                        env=environment,
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        qualified, completed.returncode == 0, completed.stderr
+                    )
         step_names = [
             str(mapping(step).get("name", "")) for step in sequence(build["steps"])
         ]

@@ -9,8 +9,10 @@ import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+from socket import socket
 import sys
 import threading
+from time import monotonic
 from typing import cast
 
 import psycopg
@@ -91,12 +93,10 @@ def decode_request(body: bytes) -> object:
         raise AdmissionError("request body must be valid UTF-8 JSON") from exc
 
 
-def ready_check(config: AdmissionConfig, runtime: PostgreSQLRuntime) -> dict[str, str]:
+def _verify_application(config: AdmissionConfig, runtime: PostgreSQLRuntime) -> None:
     if config.database_url != runtime.database_url:
         raise AdmissionError("admission runtime does not match its configured database")
-    runtime.readiness()
     _admission_contract(config.profile, config.contract_environment)
-    return {"status": "ready"}
 
 
 def _admission_contract(
@@ -246,43 +246,21 @@ def load_server_config(
 
 
 class AdmissionRequestHandler(BaseHTTPRequestHandler):
-    def setup(self) -> None:
-        super().setup()
-        server = self._server()
-        self.connection.settimeout(server.request_timeout_seconds)
-
     def do_GET(self) -> None:
         server = self._server()
         if self.path == "/health":
             self._write(200, response_body("ok"))
             return
         if self.path == "/ready":
-            try:
-                body = response_body(
-                    str(ready_check(server.config, server.runtime)["status"])
-                )
-                self._write(200, body)
-            except Exception as exc:
-                print(
-                    "review admission readiness failed: "
-                    f"{type(exc).__name__}",
-                    file=sys.stderr,
-                )
+            if server.is_ready():
+                self._write(200, response_body("ready"))
+            else:
                 self._write(503, response_body("not_ready"))
             return
         self._write(404, response_body("not_found"))
 
     def do_POST(self) -> None:
         server = self._server()
-        if not server.acquire_request_slot():
-            self._write(503, response_body("busy"), retry_after="5")
-            return
-        try:
-            self._admit(server)
-        finally:
-            server.release_request_slot()
-
-    def _admit(self, server: "AdmissionServer") -> None:
         if self.path != GITHUB_APP_PATH:
             self._write(404, response_body("not_found"))
             return
@@ -350,11 +328,9 @@ class AdmissionRequestHandler(BaseHTTPRequestHandler):
     def _server(self) -> "AdmissionServer":
         return cast(AdmissionServer, self.server)
 
-    def _write(self, status: int, body: bytes, *, retry_after: str = "") -> None:
+    def _write(self, status: int, body: bytes) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        if retry_after:
-            self.send_header("Retry-After", retry_after)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -376,18 +352,78 @@ class AdmissionServer(ThreadingHTTPServer):
         max_concurrent_requests: int,
         request_timeout_seconds: int,
     ) -> None:
-        super().__init__(address, AdmissionRequestHandler)
+        try:
+            _verify_application(config, runtime)
+            self._configuration_ready = True
+        except AdmissionError as exc:
+            print(
+                f"review admission configuration failed: {type(exc).__name__}",
+                file=sys.stderr,
+            )
+            self._configuration_ready = False
         self.config = config
         self.runtime = runtime
         self.github_app_max_body_bytes = github_app_max_body_bytes
         self.request_timeout_seconds = request_timeout_seconds
         self._request_slots = threading.BoundedSemaphore(max_concurrent_requests)
+        self._readiness_lock = threading.Lock()
+        self._next_probe = 0.0
+        self._ready = False
+        super().__init__(address, AdmissionRequestHandler)
 
-    def acquire_request_slot(self) -> bool:
-        return self._request_slots.acquire(blocking=False)
+    def is_ready(self) -> bool:
+        if not self._configuration_ready:
+            return False
+        # A probe shares one result for five seconds, including database failures.
+        if not self._readiness_lock.acquire(blocking=False):
+            return self._ready
+        try:
+            if monotonic() >= self._next_probe:
+                try:
+                    self.runtime.readiness()
+                    self._ready = True
+                except Exception as exc:
+                    print(
+                        f"review admission readiness failed: {type(exc).__name__}",
+                        file=sys.stderr,
+                    )
+                    self._ready = False
+                self._next_probe = monotonic() + 5
+            return self._ready
+        finally:
+            self._readiness_lock.release()
 
-    def release_request_slot(self) -> None:
-        self._request_slots.release()
+    def process_request(
+        self, request: socket | tuple[bytes, socket], client_address: tuple[str, int]
+    ) -> None:
+        if not isinstance(request, socket):
+            raise TypeError("Admission requires a TCP socket")
+        request.settimeout(self.request_timeout_seconds)
+        if not self._request_slots.acquire(blocking=False):
+            try:
+                body = response_body("busy")
+                request.sendall(
+                    b"HTTP/1.0 503 Service Unavailable\r\nRetry-After: 5\r\n"
+                    b"Content-Type: application/json\r\nConnection: close\r\n"
+                    + f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
+                    + body
+                )
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._request_slots.release()
+            raise
+
+    def process_request_thread(
+        self, request: socket | tuple[bytes, socket], client_address: tuple[str, int]
+    ) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._request_slots.release()
 
 
 def serve(host: str, port: int) -> None:
@@ -426,7 +462,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         runtime.open()
         try:
-            ready_check(config, runtime)
+            _verify_application(config, runtime)
+            runtime.readiness()
             print("ok")
             return 0
         finally:

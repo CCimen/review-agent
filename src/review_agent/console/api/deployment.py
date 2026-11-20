@@ -61,10 +61,16 @@ class DokployDeployment:
             or parsed.fragment
         ):
             raise DokployError("Dokploy URL must be one HTTP origin")
+        if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "::1", "localhost"}:
+            raise DokployError("Remote Dokploy origins require HTTPS")
         self.origin = origin.rstrip("/")
         self._api_key = _text(api_key, 4096)
         self._compose_id = _text(compose_id)
-        self._opener = request.build_opener(_NoRedirect())
+        self._opener = (
+            request.build_opener(request.ProxyHandler({}), _NoRedirect())
+            if parsed.scheme == "http"
+            else request.build_opener(_NoRedirect())
+        )
 
     def _read(self, endpoint: str, parameters: dict[str, str]) -> object:
         call = request.Request(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import hashlib
 import hmac
@@ -138,9 +139,14 @@ class AdmissionTests(unittest.TestCase):
                 "load_packaged_contract",
                 return_value=replace(self.contract, profile="other-profile"),
             ),
-            self.assertRaisesRegex(admission.AdmissionError, "configured profile"),
+            admission.AdmissionServer(
+                ("127.0.0.1", 0), config=self.config, runtime=self.runtime,
+                github_app_max_body_bytes=100, max_concurrent_requests=1,
+                request_timeout_seconds=2,
+            ) as server,
         ):
-            admission.ready_check(self.config, self.runtime)
+            self.assertFalse(server.is_ready())
+            self.runtime.readiness.assert_not_called()
 
     def test_configuration_requires_the_app_webhook_secret(self) -> None:
         environment = {
@@ -177,9 +183,13 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
             ),
             profile="default-standard",
             github_app_secret="app-webhook-secret",
-            contract_environment={"REVIEW_AGENT_MODEL": "test-review-model"},
+            contract_environment={
+                "REVIEW_AGENT_MODEL": "test-review-model",
+                "REVIEW_AGENT_HERMES_IMAGE": "review/fixture@sha256:" + "a" * 64,
+            },
         )
         self.runtime = MagicMock()
+        self.runtime.database_url = config.database_url
         self.server = admission.AdmissionServer(
             ("127.0.0.1", 0),
             config=config,
@@ -406,12 +416,46 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
                 self.assertIn(category, diagnostics)
                 self.assertIn(type(failure).__name__, diagnostics)
 
+    def test_health_probe_shares_admission_connection_limit(self) -> None:
+        occupied = threading.Barrier(3, timeout=2)
+        release = threading.Event()
+
+        def wait_for_release(**_input: object) -> admission.WebhookReceiptResponse:
+            occupied.wait()
+            release.wait(timeout=2)
+            return admission.WebhookReceiptResponse("ignored")
+
+        with (
+            patch.object(admission, "receive_github_app_delivery", side_effect=wait_for_release),
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            requests = [pool.submit(self._post_app) for _ in range(2)]
+            try:
+                occupied.wait()
+                status, headers, body = self._get("/health")
+                self.assertEqual((status, json.loads(body)), (503, {"status": "busy"}))
+                self.assertEqual(headers["Retry-After"], "5")
+            finally:
+                release.set()
+            self.assertEqual([req.result()[0] for req in requests], [202, 202])
+        self.assertEqual(self._get("/health")[0], 200)
+
+    def test_readiness_reuses_probe_and_recovers_after_database_failure(self) -> None:
+        self.runtime.readiness.side_effect = [RuntimeError("unavailable"), None]
+        with patch.object(admission, "monotonic", return_value=10) as clock:
+            self.assertEqual(self._get("/ready")[0], 503)
+            self.assertEqual(self._get("/ready")[0], 503)
+            clock.return_value = 15
+            self.assertEqual(self._get("/ready")[0], 200)
+            self.assertEqual(self._get("/ready")[0], 200)
+        self.assertEqual(self.runtime.readiness.call_count, 2)
+
     def test_readiness_failure_uses_secret_safe_diagnostics(self) -> None:
         failure = RuntimeError("readiness secret")
         with (
             patch.object(
-                admission,
-                "ready_check",
+                self.runtime,
+                "readiness",
                 side_effect=failure,
             ),
             patch("builtins.print") as logged,

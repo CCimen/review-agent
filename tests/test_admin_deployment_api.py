@@ -81,6 +81,13 @@ class AdminDeploymentTests(unittest.TestCase):
                 "https://user:password@example.test", "test-key", "approved-compose"
             )
 
+    def test_api_key_requires_https_outside_loopback(self) -> None:
+        with self.assertRaisesRegex(DokployError, "require HTTPS"):
+            DokployDeployment("http://deploy.example.test", "test-key", "approved")
+        for origin in ("http://127.0.0.1:3000", "http://[::1]:3000", "http://localhost"):
+            with self.subTest(origin=origin):
+                self.assertEqual(DokployDeployment(origin, "test-key", "approved").origin, origin)
+
     def test_missing_configuration_is_explicit_and_viewers_are_denied(self) -> None:
         class Auth:
             def current_owner(self) -> object:

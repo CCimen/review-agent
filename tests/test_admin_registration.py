@@ -7,7 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
+import httpx2
 import psycopg
+from starlette.types import Message, Receive, Scope, Send
 from cryptography.fernet import Fernet
 
 from tests import test_admin_api
@@ -424,6 +426,32 @@ class RegistrationAPITests(unittest.TestCase):
         )
         self.fixture.login("staff@example.org")
 
+    def test_public_response_finishes_before_email_delivery(self) -> None:
+        self.enable_registration()
+        events: list[str] = []
+
+        async def observed_app(scope: Scope, receive: Receive, send: Send) -> None:
+            async def observe(message: Message) -> None:
+                await send(message)
+                if message["type"] == "http.response.body" and not message.get("more_body"):
+                    events.append("response sent")
+            await self.fixture.app(scope, receive, observe)
+
+        async def submit() -> int:
+            async with httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=observed_app),
+                base_url=test_admin_api.ORIGIN,
+                headers={"Origin": test_admin_api.ORIGIN},
+            ) as client:
+                response = await client.post("/api/auth/register", json={"email": "staff@example.org"})
+                return response.status_code
+
+        sender = self.smtp.return_value.__enter__.return_value.send_message
+        sender.side_effect = lambda _message: events.append("email sent")
+        assert self.client.portal is not None
+        self.assertEqual(self.client.portal.call(submit), 202)
+        self.assertEqual(events, ["response sent", "email sent"])
+
     def test_delivery_failure_and_resends_preserve_limits_and_replace_old_links(
         self,
     ) -> None:
@@ -432,7 +460,7 @@ class RegistrationAPITests(unittest.TestCase):
         sender.side_effect = smtplib.SMTPException("private mail relay details")
         payload = {"email": "staff@example.org"}
         failed = self.client.post("/api/auth/register", json=payload)
-        self.assertEqual(failed.status_code, 503, failed.text)
+        self.assertEqual(failed.status_code, 202, failed.text)
         self.assertNotIn("private mail relay details", failed.text)
         old_token = self.token()
         self.assertEqual(
@@ -479,11 +507,10 @@ class RegistrationAPITests(unittest.TestCase):
         busy = self.client.post(
             "/api/auth/register", json={"email": "next@example.org"}
         )
-        self.assertEqual(busy.status_code, 429, busy.text)
-        self.assertEqual(busy.headers["retry-after"], "60")
+        self.assertEqual((busy.status_code, busy.content), (failed.status_code, failed.content))
         self.assertEqual(sender.call_count, 2)
 
-    def test_registration_pending_bound_rejects_new_addresses(self) -> None:
+    def test_registration_pending_bound_suppresses_mail(self) -> None:
         self.enable_registration()
         with psycopg.connect(DSN) as connection:
             connection.execute("""
@@ -497,6 +524,5 @@ class RegistrationAPITests(unittest.TestCase):
         response = self.client.post(
             "/api/auth/register", json={"email": "new@example.org"}
         )
-        self.assertEqual(response.status_code, 429, response.text)
-        self.assertEqual(response.headers["Retry-After"], "60")
+        self.assertEqual(response.status_code, 202, response.text)
         self.smtp.assert_not_called()

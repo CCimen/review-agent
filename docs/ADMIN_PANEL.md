@@ -706,7 +706,7 @@ configured, container state.
 
 ### Dokploy container state
 
-Set `REVIEW_AGENT_DOKPLOY_URL` to the Dokploy origin,
+Set `REVIEW_AGENT_DOKPLOY_URL` to the Dokploy HTTPS origin (loopback also accepts HTTP),
 `REVIEW_AGENT_DOKPLOY_COMPOSE_ID` to this stack's ID, and
 `REVIEW_AGENT_DOKPLOY_API_KEY` to a server-side API key with the narrowest read
 access your Dokploy installation supports, then restart `review-admin`. The
@@ -794,8 +794,8 @@ The connector never writes passwords, platform roles or team memberships.
 SCIM cannot adopt existing local accounts or change privileged accounts.
 Duplicates return `409` with `scimType: uniqueness`. `DELETE` revokes sessions,
 disables the account and hides it from SCIM, keeping its audit and team history;
-deleted identifiers and emails are not reused. Requests are limited to 64 KiB
-and 100 PATCH operations. The contract follows
+deleted identifiers and emails are not reused. Console requests are limited to
+1 MiB. SCIM requests are limited to 64 KiB and 100 PATCH operations. The contract follows
 [OpenID Connect Core](https://openid.net/specs/openid-connect-core-1_0.html),
 [RFC 7643](https://www.rfc-editor.org/rfc/rfc7643.html) and
 [RFC 7644](https://www.rfc-editor.org/rfc/rfc7644.html).
@@ -850,8 +850,11 @@ address receives a link to choose a password. Links expire after 30 minutes,
 work once, and carry the token in the URL fragment; the server stores only its
 hash and checks the allowlist again before creating the account. One request
 per address per minute; a new link replaces the old one. The console sends at
-most 30 emails per minute and holds at most 1,000 pending addresses. Responses
-do not reveal whether an address is allowed or registered.
+most 30 emails per minute and holds at most 1,000 pending addresses. When
+registration is available, every valid address receives the same HTTP 202
+response before the console checks the recipient or contacts SMTP. Reaching a
+delivery limit suppresses the email. After a delivery failure, the recipient
+can request another link after one minute.
 
 A configured OIDC provider can also register allowed addresses without SMTP when
 its identity carries a verified email. Both methods create Members without team

@@ -212,7 +212,7 @@ Follow the section for your platform:
 > `review-postgres`. Admission and the optional authenticated admin panel are
 > the only services on the ingress network.
 
-4. Route the review hostname to `review-admission:8644`.
+4. Route the exact path `/webhooks/github-app` on the review hostname to `review-admission:8644`. Keep `/health` and `/ready` inside the deployment.
 
    In Dokploy **Advanced > Networks**:
 
@@ -230,7 +230,7 @@ Follow the section for your platform:
    docker compose exec hermes-review hermes model
    docker compose exec hermes-review /opt/review-agent-bootstrap/install.sh
    docker compose restart hermes-review
-   curl -fsS https://review.example.org/ready
+   docker compose exec review-admission curl -fsS http://127.0.0.1:8644/ready
    ```
 
    `hermes model` is Hermes' provider setup wizard for OAuth and API-key
@@ -240,7 +240,7 @@ Follow the section for your platform:
    after replacing that volume or when Hermes reports an authorization failure.
 
 Dokploy reads `compose.yaml` as a Compose application. Add one HTTPS domain to
-admission and keep the generated Traefik settings. The checked-in health checks
+the admission webhook path. The checked-in health checks
 cover admission, the private gateway, Hermes, and PostgreSQL.
 
 Use the matching container for operator commands:

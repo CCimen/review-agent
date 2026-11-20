@@ -52,6 +52,20 @@ class AdminAPITests(unittest.TestCase):
             TestClient(self.app, base_url=ORIGIN, headers={"Origin": ORIGIN})
         )
 
+    def test_registration_rejects_oversized_declared_and_streamed_bodies(self) -> None:
+        for content, headers in (
+            (b"{}", {"Content-Length": "1048577"}),
+            (iter([b" " * 524288, b" " * 524288, b"{}"]), {}),
+        ):
+            with self.subTest(headers=headers):
+                response = self.client.post(
+                    "/api/auth/register",
+                    content=content,
+                    headers={"Content-Type": "application/json", **headers},
+                )
+                self.assertEqual(response.status_code, 413, response.text)
+                self.assertEqual(response.json(), {"detail": "Request exceeds 1 MiB"})
+
     def login(self, email: str = "admin@example.com", password: str = PASSWORD) -> None:
         self.assertEqual(
             self.client.post(

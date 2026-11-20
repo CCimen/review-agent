@@ -81,7 +81,9 @@ private database and gateway, which the chart does not supply.
    deployment, include both Compose files in its command.
 
 3. In Dokploy Domains, route a separate HTTPS hostname to service `review-admin`,
-   container port `8090`, path `/`, with the HTTPS redirect enabled. Admission
+   container port `8090`, path `/`, with the HTTPS redirect enabled. Set
+   the reverse proxy’s maximum request body to 1 MiB for this hostname. The
+   console additionally enforces a 64 KiB limit on SCIM requests. Admission
    keeps its own hostname and port `8644`. Only admission and the console join
    the ingress network; the database, gateway and Hermes stay private.
 

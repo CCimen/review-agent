@@ -53,6 +53,7 @@ from .app_auth import (
     GitHubAppTokenPermanent,
     GitHubAppTokenRetryable,
     GitHubAppTokenService,
+    VerifiedInstallationRepository,
 )
 from .source import (
     GIT_BLOB_SHA_RE,
@@ -114,6 +115,10 @@ class GitHubGatewayRetryable(GitHubGatewayError):
         super().__init__(reason)
         self.reason = reason
         self.retry_at = retry_at
+
+
+class _RequesterGrantRevoked(Exception):
+    """Roll back an activation whose admitting grant was revoked meanwhile."""
 
 
 def _positive(value: object, field: str) -> int:
@@ -712,7 +717,7 @@ class ReviewGitHubGateway:
             lease_owner=lease_owner,
             lease_generation=lease_generation,
         )
-        snapshot = self._provider_snapshot(command, allow_requester_grant=True)
+        snapshot = self._provider_snapshot(command, webhook_deliveries.CommandCategory.REVIEW)
         self._validate_pull_snapshot(snapshot, provider_repository_id=command.provider_repository_id,
             repository=command.repository, pr_number=command.pr_number,
             allow_closed=command.trigger == "automatic")
@@ -747,7 +752,7 @@ class ReviewGitHubGateway:
             lease_generation=lease_generation,
             command_category=webhook_deliveries.CommandCategory.FEEDBACK,
         )
-        snapshot = self._provider_snapshot(command)
+        snapshot = self._provider_snapshot(command, webhook_deliveries.CommandCategory.FEEDBACK)
         self._validate_snapshot(command, snapshot)
         self._require_authority(
             delivery_id=delivery_id,
@@ -1150,13 +1155,7 @@ class ReviewGitHubGateway:
                     self._tokens.invalidate(provider_repository_id)
                     attempt += 1
                     continue
-                if exc.retryable:
-                    raise GitHubGatewayRetryable("github_read_unavailable", retry_at=exc.retry_at) from exc
-                if exc.kind in {"unauthorized", "forbidden"}:
-                    raise GitHubGatewayRejected(
-                        "provider_authorization_denied"
-                    ) from exc
-                raise GitHubGatewayRejected("github_read_invalid") from exc
+                raise _github_read_failure(exc) from exc
             except GitHubComparisonUnavailable as exc:
                 raise GitHubGatewayRejected("documentation_comparison_unavailable") from exc
             except GitHubSourceError as exc:
@@ -1203,7 +1202,9 @@ class ReviewGitHubGateway:
         except github_app.GitHubAppRepositoryUnauthorized:
             if command.trigger == "automatic":
                 raise GitHubGatewayRejected("repository_not_authorized")
-            self._activate_automatic_repository(command, delivery_id=delivery_id)
+            self._activate_automatic_repository(
+                command, delivery_id=delivery_id, category=command_category
+            )
 
         try:
             with self._postgres.transaction() as connection:
@@ -1272,6 +1273,7 @@ class ReviewGitHubGateway:
         command: _IssueCommentCommand,
         *,
         delivery_id: int,
+        category: webhook_deliveries.CommandCategory,
     ) -> None:
         try:
             with self._postgres.transaction() as connection:
@@ -1292,6 +1294,39 @@ class ReviewGitHubGateway:
                 command.provider_repository_id,
                 command.repository,
             )
+            # Only a sender who may run this command can enable its repository.
+            github = self._github_factory(verified.token.value)
+            granted = self._authorize_command_sender(github, command, category)
+            if not self._enable_verified_repository(
+                command, verified, delivery_id=delivery_id, grant_required=granted
+            ):
+                # The grant was revoked after admitting the sender; GitHub write
+                # or admin can still admit them.
+                self._authorize_sender(github, command)
+                self._enable_verified_repository(
+                    command, verified, delivery_id=delivery_id, grant_required=False
+                )
+        except GitHubAppTokenRetryable as exc:
+            raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
+        except GitHubAppTokenPermanent as exc:
+            raise GitHubGatewayRejected("provider_authorization_denied") from exc
+        except GitHubReadError as exc:
+            raise _github_read_failure(exc) from exc
+        except github_app.GitHubAppRepositoryUnauthorized as exc:
+            raise GitHubGatewayRejected(exc.reason) from exc
+        except github_app.GitHubAppStateError as exc:
+            raise GitHubGatewayRejected("repository_not_authorized") from exc
+
+    def _enable_verified_repository(
+        self,
+        command: _IssueCommentCommand,
+        verified: VerifiedInstallationRepository,
+        *,
+        delivery_id: int,
+        grant_required: bool,
+    ) -> bool:
+        """Enable a verified repository, or write nothing if a required grant is gone."""
+        try:
             with self._postgres.transaction() as connection:
                 github_app.enable_automatic_repository(
                     connection,
@@ -1302,14 +1337,17 @@ class ReviewGitHubGateway:
                     actor="github-app:review-delivery",
                     reason=f"verified repository for delivery {delivery_id}",
                 )
-        except GitHubAppTokenRetryable as exc:
-            raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
-        except GitHubAppTokenPermanent as exc:
-            raise GitHubGatewayRejected("provider_authorization_denied") from exc
-        except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected(exc.reason) from exc
-        except github_app.GitHubAppStateError as exc:
-            raise GitHubGatewayRejected("repository_not_authorized") from exc
+                # Grant and revoke lock this repository row too, so the read is current.
+                if grant_required and not review_requesters.is_allowed(
+                    connection,
+                    provider_repository_id=command.provider_repository_id,
+                    github_user_id=command.sender_id,
+                    for_update=True,
+                ):
+                    raise _RequesterGrantRevoked
+        except _RequesterGrantRevoked:
+            return False
+        return True
 
     def _provider_feedback(
         self,
@@ -1389,14 +1427,28 @@ class ReviewGitHubGateway:
                 provider_repository_id=command.provider_repository_id,
                 github_user_id=command.sender_id)
 
+    def _authorize_command_sender(
+        self, github: GitHubReadClient, command: _IssueCommentCommand,
+        category: webhook_deliveries.CommandCategory,
+    ) -> bool:
+        """Admit the sender of a command and return whether a requester grant did.
+
+        A sender needs GitHub write or admin, or a requester grant for a review
+        request. Automatic documentation reviews have no sender to check.
+        """
+        if command.trigger == "automatic":
+            return False
+        if (category is webhook_deliveries.CommandCategory.REVIEW
+                and self._requester_allowed(command)):
+            return True
+        self._authorize_sender(github, command)
+        return False
+
     def _provider_snapshot(
-        self, command: _IssueCommentCommand, *, allow_requester_grant: bool = False,
+        self, command: _IssueCommentCommand, category: webhook_deliveries.CommandCategory,
     ) -> PullSnapshot:
         def operation(github: GitHubReadClient) -> PullSnapshot:
-            granted = (command.trigger != "automatic" and allow_requester_grant
-                and self._requester_allowed(command))
-            if command.trigger != "automatic" and not granted:
-                self._authorize_sender(github, command)
+            granted = self._authorize_command_sender(github, command, category)
             snapshot = read_pull_snapshot(github, command.repository, command.pr_number)
             # A grant revoked while GitHub was being read cannot authorize this request.
             if granted and not self._requester_allowed(command):
@@ -1476,6 +1528,14 @@ class ReviewGitHubGateway:
             or snapshot.head_repository.casefold() != snapshot.repository.casefold()
         ):
             raise GitHubGatewayRejected("fork_source_not_supported")
+
+
+def _github_read_failure(exc: GitHubReadError) -> GitHubGatewayError:
+    if exc.retryable:
+        return GitHubGatewayRetryable("github_read_unavailable", retry_at=exc.retry_at)
+    if exc.kind in {"unauthorized", "forbidden"}:
+        return GitHubGatewayRejected("provider_authorization_denied")
+    return GitHubGatewayRejected("github_read_invalid")
 
 
 def _gateway_github_client(token: str) -> GitHubReadClient:

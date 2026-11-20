@@ -5,7 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import sys
-from typing import cast
+from typing import Any, cast
 import unittest
 from unittest.mock import Mock, patch
 from uuid import uuid4
@@ -42,6 +42,7 @@ from review_agent.postgres import (  # noqa: E402
     review_runs as postgres_review_runs,
     jobs,
     registry,
+    review_requesters,
     webhook_deliveries,
 )
 from review_agent.postgres.runtime import PostgreSQLRuntime  # noqa: E402
@@ -100,6 +101,9 @@ class _Tokens:
         return app_auth.VerifiedInstallationRepository(
             provider_repository_id=provider_repository_id,
             full_name=expected_full_name,
+            token=InstallationToken(
+                "metadata-token", datetime.now(timezone.utc) + timedelta(hours=1)
+            ),
         )
 
 
@@ -1208,9 +1212,7 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
         self.assertEqual(busy_delivery.attempt_count, 3)
         self.assertIsNone(busy_delivery.normalized_payload)
 
-    def test_approved_all_repository_installation_activates_exact_repo_on_first_review(
-        self,
-    ) -> None:
+    def approve_automatic_installation(self) -> None:
         installation_delivery = self.register(
             "installation", self.installation_payload(selection="all")
         )
@@ -1230,6 +1232,11 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
                 actor="operator:owner",
                 reason="approved organization-managed reviews",
             )
+
+    def test_approved_all_repository_installation_activates_exact_repo_on_first_review(
+        self,
+    ) -> None:
+        self.approve_automatic_installation()
         delivery_id = self.register("issue_comment", self.review_payload())
 
         with patch.object(
@@ -1253,6 +1260,101 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
         self.assertTrue(access.enabled)
         self.assertEqual(access.trigger_mode, github_app.TriggerMode.AUTOMATIC)
         self.assertEqual(access.profile_key, "default-standard")
+
+    def test_automatic_activation_requires_a_permitted_sender(self) -> None:
+        self.approve_automatic_installation()
+        feedback = self.review_payload()
+        comment = feedback["comment"]
+        assert isinstance(comment, dict)
+        comment.update(
+            id=6002,
+            body="/review false-positive F2 because Existing validation covers it.",
+        )
+
+        for payload in (self.review_payload(), feedback):
+            delivery_id = self.register("issue_comment", payload)
+            result = self.processor(_GitHub(permission="read")).process_next(
+                lease_owner="worker-reader"
+            )
+            self.assertEqual(result.delivery_id if result else None, delivery_id)
+            self.assertEqual(result.status if result else None, "rejected")
+            self.assertEqual(result.reason if result else None, "sender_not_authorized")
+
+        self.assertEqual(self.tokens.token_requests, [])
+        with self.runtime.transaction() as connection:
+            counts = connection.execute(
+                "SELECT (SELECT count(*) FROM review_agent.repositories), "
+                "(SELECT count(*) FROM review_agent.github_app_repository_access)"
+            ).fetchone()
+        self.assertEqual(counts, (0, 0))
+
+    def test_requester_grant_lets_read_only_sender_activate_repo(self) -> None:
+        self.approve_automatic_installation()
+        with self.runtime.transaction() as connection:
+            repository = registry.ensure_repository(connection, registry.RepositoryDefinition(
+                provider="github", provider_repository_id=9001, full_name="CCimen/review-agent"))
+            connection.execute("""INSERT INTO review_agent.repository_review_requesters
+                (repository_id, github_user_id, github_login) VALUES (%s, 5001, 'ccimen')""",
+                (repository.id,))
+        self.register("issue_comment", self.review_payload())
+
+        with patch.object(app_processor.review_contract, "load_packaged_contract",
+                return_value=self.contract):
+            result = self.processor(_GitHub(permission="read")).process_next(
+                lease_owner="granted-reader"
+            )
+
+        self.assertEqual(result.status if result else None, "accepted")
+        with self.runtime.transaction() as connection:
+            enabled = github_app.get_repository_access_by_provider_id(connection, 9001).enabled
+        self.assertTrue(enabled)
+
+    def test_grant_revoked_during_automatic_activation_leaves_only_github_access(self) -> None:
+        self.approve_automatic_installation()
+        with self.runtime.transaction() as connection:
+            repository = registry.ensure_repository(connection, registry.RepositoryDefinition(
+                provider="github", provider_repository_id=9001, full_name="CCimen/review-agent"))
+        check = review_requesters.is_allowed
+
+        def revoke_after_check(connection: Any, **values: Any) -> bool:
+            allowed = check(connection, **values)
+            with psycopg.connect(DSN, autocommit=True) as other:
+                other.execute("DELETE FROM review_agent.repository_review_requesters")
+            return allowed
+
+        def request(permission: str, comment_id: int) -> app_processor.ProcessingResult | None:
+            with self.runtime.transaction() as connection:
+                connection.execute("""INSERT INTO review_agent.repository_review_requesters
+                    (repository_id, github_user_id, github_login) VALUES (%s, 5001, 'ccimen')""",
+                    (repository.id,))
+            payload = self.review_payload()
+            comment = payload["comment"]
+            assert isinstance(comment, dict)
+            comment["id"] = comment_id
+            self.register("issue_comment", payload)
+            with (
+                patch.object(review_requesters, "is_allowed", side_effect=revoke_after_check),
+                patch.object(app_processor.review_contract, "load_packaged_contract",
+                    return_value=self.contract),
+            ):
+                return self.processor(_GitHub(permission=permission)).process_next(
+                    lease_owner=f"revoked-{permission}"
+                )
+
+        reader = request("read", 6001)
+        self.assertEqual(reader.reason if reader else None, "sender_not_authorized")
+        self.assertEqual(self.tokens.token_requests, [])
+        with self.runtime.transaction() as connection:
+            access = connection.execute(
+                "SELECT count(*) FROM review_agent.github_app_repository_access"
+            ).fetchone()
+        self.assertEqual(access, (0,))
+
+        writer = request("write", 6002)
+        self.assertEqual(writer.status if writer else None, "accepted")
+        with self.runtime.transaction() as connection:
+            enabled = github_app.get_repository_access_by_provider_id(connection, 9001).enabled
+        self.assertTrue(enabled)
 
     def test_unapproved_all_repository_installation_does_not_verify_or_admit_repo(
         self,

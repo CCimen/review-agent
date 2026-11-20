@@ -278,7 +278,7 @@ installation inventory and repository activation.
    `review-agent-admin repositories list` in `review-github-gateway`. In
    automatic mode, confirm the
    installation is `automatic`; zero repositories before the first signed
-   `/review` delivery is valid. Requester authorization still gates the review.
+   `/review` or feedback command from a permitted sender is valid.
    Repository configuration is optional. If the team approved a local
    `.review-agent/` package, validate its checkout without network or database
    access before the configuration PR is merged:

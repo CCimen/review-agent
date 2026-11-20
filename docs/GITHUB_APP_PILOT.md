@@ -133,13 +133,16 @@ not list or enable repositories.
 
 - A repository is enabled when its first signed `/review` or feedback command
   is processed: the gateway requests a token restricted to that repository,
-  verifies its identity, and records it as enabled.
-- Only then does the gateway check the sender
-  ([who can request a review](#who-can-request-a-review)). A command from
-  someone who may not request reviews starts no review, but the repository
-  stays enabled. Anyone who can comment on a pull request there can therefore
-  enable it.
+  verifies its identity, checks the sender
+  ([who can request a review](#who-can-request-a-review)), and only then
+  records the repository as enabled.
+- A command from someone who may not send it is rejected with
+  `sender_not_authorized` and leaves the repository disabled.
 - In explicit mode a comment never enables a repository.
+
+Release 0.5.0-rc.1 and earlier enable the repository before checking the
+sender, so on those releases anyone who can comment on a pull request there can
+enable it. Use explicit mode on them if that matters.
 
 Platform administrators can do the same in the console under
 **Repositories → Access management**.
@@ -274,7 +277,7 @@ Suspending or uninstalling the App on GitHub blocks every repository of that
 installation. Removing one repository from a selected-repositories installation
 blocks that repository. When GitHub access returns, a repository of an
 automatic installation is enabled again by the next `/review` or feedback
-command processed for it, before the sender is checked, as described under
+command from a permitted sender, as described under
 [automatic activation](#automatic-approve-once); a repository an operator
 disabled stays disabled. In explicit mode, run `github-app onboard` again.
 

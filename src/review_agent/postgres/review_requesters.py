@@ -118,8 +118,15 @@ def revoke(
 
 def is_allowed(
     connection: psycopg.Connection[TupleRow], *,
-    provider_repository_id: int, github_user_id: int,
+    provider_repository_id: int, github_user_id: int, for_update: bool = False,
 ) -> bool:
+    if for_update:
+        # Wait for, then block, a grant or revocation, which lock this row too.
+        connection.execute(
+            """SELECT id FROM review_agent.repositories
+               WHERE provider = 'github' AND provider_repository_id = %s FOR UPDATE""",
+            (provider_repository_id,),
+        )
     return connection.execute(
         """SELECT 1 FROM review_agent.repository_review_requesters requester
            JOIN review_agent.repositories repository ON repository.id = requester.repository_id

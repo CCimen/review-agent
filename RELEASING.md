@@ -226,7 +226,11 @@ The main runtime's `requirements.txt` pins, over versions inherited from Hermes:
 - `anyio` 4.15.1 over the inherited 4.12.1 for the critical CVE-2026-63374,
   matching the admin and code-graph environments;
 - `urllib3` 2.8.0 for its
-  [HTTPS proxy TLS and streaming fixes](https://github.com/urllib3/urllib3/releases/tag/2.8.0).
+  [HTTPS proxy TLS and streaming fixes](https://github.com/urllib3/urllib3/releases/tag/2.8.0);
+- `pillow` 13.0.0, `pyasn1` 0.6.5, `oauthlib` 4.0.1, `certifi` 2026.10.18,
+  `brotlicffi` 1.2.1.0 and `mcp` 2.2.0, whose inherited versions fail the
+  release image scan. Hermes declares exact Pillow and certifi versions and
+  imports Pillow only to read images.
 
 The runtime image removes the inherited SSH client, C headers, and system
 libxml2 with their dependent build, browser, and media packages; the managed

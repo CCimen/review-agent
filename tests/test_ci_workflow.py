@@ -370,8 +370,12 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         direct = names(
             lines("requirements.txt") + lines("requirements/requirements-admin.in")
         )
-        # These three only patch packages inherited from the Hermes image.
-        self.assertEqual(set(), direct - declared - {"tornado", "anyio", "urllib3"})
+        # These only patch packages inherited from the Hermes image.
+        inherited = {
+            "tornado", "anyio", "urllib3", "pillow", "pyasn1", "oauthlib",
+            "certifi", "brotlicffi", "mcp",
+        }
+        self.assertEqual(set(), direct - declared - inherited)
 
     def test_ruff_keeps_correctness_rules_enabled(self):
         project = mapping(tomllib.loads(PYPROJECT.read_text(encoding="utf-8")))

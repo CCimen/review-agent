@@ -1384,6 +1384,20 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
         )
 
     @staticmethod
+    def activate_elsewhere(connection: psycopg.Connection[Any]) -> object:
+        installation = github_app.get_installation_by_provider_id(connection, 7001)
+        access = github_app.grant_repository_access(
+            connection, installation_id=installation.id, provider_repository_id=9001,
+            full_name="CCimen/review-agent", actor="github-app:test", reason="other command",
+            trigger_mode=github_app.TriggerMode.AUTOMATIC,
+        )
+        return github_app.enable_repository(
+            connection, repository_id=access.repository_id, profile_key="default-standard",
+            trigger_mode=github_app.TriggerMode.AUTOMATIC, actor="github-app:test",
+            reason="other command",
+        )
+
+    @staticmethod
     def refused_by_github(_connection: psycopg.Connection[Any]) -> object:
         raise app_auth.GitHubAppTokenPermanent("repository is no longer installed")
 
@@ -1440,7 +1454,8 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
         self.approve_automatic_installation()
         self.register("issue_comment", self.review_payload())
 
-        result = self.activate_while_verifying(self.remove_on_github(9002))
+        # Another repository is removed, then another command enables this one.
+        result = self.activate_while_verifying(self.remove_on_github(9002), self.activate_elsewhere)
 
         self.assertEqual(result.status if result else None, "accepted")
         self.assertEqual(len(self.tokens.repository_verifications), 2)
@@ -1449,23 +1464,12 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
         self.approve_automatic_installation()
         delivery_id = self.register("issue_comment", self.review_payload())
 
-        def activate(connection: psycopg.Connection[Any]) -> object:
-            installation = github_app.get_installation_by_provider_id(connection, 7001)
-            access = github_app.grant_repository_access(
-                connection, installation_id=installation.id, provider_repository_id=9001,
-                full_name="CCimen/review-agent", actor="github-app:test", reason="other command",
-                trigger_mode=github_app.TriggerMode.AUTOMATIC,
-            )
-            return github_app.enable_repository(
-                connection, repository_id=access.repository_id, profile_key="default-standard",
-                trigger_mode=github_app.TriggerMode.AUTOMATIC, actor="github-app:test",
-                reason="other command",
-            )
-
-        result = self.activate_while_verifying(activate)
+        # Admission takes the other command's activation without asking GitHub again.
+        result = self.activate_while_verifying(self.activate_elsewhere, self.refused_by_github)
 
         self.assertEqual(result.delivery_id if result else None, delivery_id)
         self.assertEqual(result.status if result else None, "accepted")
+        self.assertEqual(len(self.tokens.repository_verifications), 1)
 
     def test_unapproved_all_repository_installation_does_not_verify_or_admit_repo(
         self,

@@ -580,7 +580,7 @@ Durable history is kept unless this table says otherwise:
 | `admin_audit_events` | Deployment owner | Preserve access changes and human audit evidence. Successful application read receipts can be pruned only with the bounded integration command below. |
 | `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage and idempotency receipts. |
 | `coach_runs`, `coach_candidates`, `coach_intervention_outcomes` | None | No longer read or written. This release keeps the tables and their rows. Whether an earlier release can run against the current schema is decided as the [rollback boundary](./DEPLOYMENT.md#rollback-boundary) describes. |
-| `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | None | Empty and no longer read or written. This release keeps the tables; the same [rollback boundary](./DEPLOYMENT.md#rollback-boundary) applies. |
+| `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | None | No longer read or written. This release keeps the tables and their rows; the same [rollback boundary](./DEPLOYMENT.md#rollback-boundary) applies. |
 
 Raw webhook bodies are not stored. Terminal documentation deliveries keep their
 bounded normalized event envelope until the pruning command removes the

@@ -50,7 +50,7 @@ It registers a **private** App: only the owning account can install it.
 | Setup URL | Leave blank |
 | Webhook | Active |
 | Webhook URL | `https://review.example.org/webhooks/github-app` |
-| Webhook secret | A new random value used only by this App |
+| Webhook secret | A new random value used only by this App, for example from `openssl rand -hex 32` |
 | SSL verification | On |
 
 Repository permissions:

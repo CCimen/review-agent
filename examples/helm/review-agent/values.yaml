@@ -7,7 +7,7 @@ model: ""
 modelProvider: openai-codex
 reasoningEffort: xhigh
 profile: default-standard
-# Accept /review false-positive, intentional and feedback commands.
+# Include feedback instructions in reviews. Feedback commands work either way.
 feedbackEnabled: false
 
 # Concurrent reviews per worker pod.

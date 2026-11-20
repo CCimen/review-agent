@@ -106,11 +106,19 @@ No other service receives the key.
 
 The gateway mints short-lived installation tokens restricted to one repository
 and one purpose. For lease-bound review, feedback and publication operations,
-callers supply a durable lease identity, never a repository, URL, HTTP method
-or credential. The gateway derives authority from PostgreSQL and checks the
+callers supply a durable lease identity. The gateway resolves the repository
+and the GitHub operation, uses its own installation token and checks the
 lease before and after provider I/O. The operator smoke test is different: its
 caller names a repository and pull request, must present `API_SERVER_KEY`, and
 is accepted only for a repository that is already enabled.
+
+Each review-job claim generates a fresh secret in PostgreSQL. The worker and
+Hermes obtain source credentials for their live job, run and lease generation.
+The gateway checks both the credential and current repository access before
+reading GitHub. The optional graph service receives a credential for its
+subject, archive and embeddings. It gives its parser an embedding credential
+only for indexing vectors or semantic queries. A reclaimed or expired lease
+loses all three permissions.
 
 | Token purpose | Permissions | Used for |
 | --- | --- | --- |

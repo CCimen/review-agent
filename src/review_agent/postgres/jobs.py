@@ -19,6 +19,7 @@ from ..domain import failure_codes
 from ..domain.model_execution import QUOTA_RECHECK_SECONDS, QuotaCheck
 from ..review.contract import SHARED_CONNECTION_ID
 from ..domain.review import PullRequestId, ReviewRunId, ReviewStatus
+from ..domain.source_access import ReviewSourceAccess
 from . import registry
 
 
@@ -361,6 +362,32 @@ def retry_queued_job(
     return _job(row)
 
 
+_LIVE_LEASE = """id = %s AND review_run_id = %s AND status = 'leased'
+                 AND lease_generation = %s AND lease_expires_at > statement_timestamp()"""
+
+
+def require_source_access(
+    connection: psycopg.Connection[TupleRow], *, job_id: int, review_run_id: ReviewRunId,
+    lease_generation: int,
+) -> ReviewSourceAccess:
+    """Read the private nonce only for its live lease. Job reports never select it."""
+    _require_transaction(connection)
+    row = connection.execute(
+        f"""
+        SELECT source.nonce
+        FROM (SELECT id, lease_generation FROM review_agent.review_jobs WHERE {_LIVE_LEASE}) AS job
+        JOIN review_agent.review_job_source_leases AS source
+          ON source.job_id = job.id AND source.lease_generation = job.lease_generation
+        """,
+        (job_id, review_run_id, lease_generation),
+    ).fetchone()
+    if row is None or not isinstance(row[0], UUID):
+        raise ReviewJobError("review source lease is unavailable")
+    return ReviewSourceAccess.for_lease(
+        row[0], run_id=review_run_id, job_id=job_id, generation=lease_generation,
+    )
+
+
 def require_live_lease(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -380,11 +407,7 @@ def require_live_lease(
             f"""
             SELECT {_JOB_COLUMNS}
             FROM review_agent.review_jobs
-            WHERE id = %s
-              AND review_run_id = %s
-              AND status = 'leased'
-              AND lease_generation = %s
-              AND lease_expires_at > statement_timestamp()
+            WHERE {_LIVE_LEASE}
             """,
             (resolved_job_id, resolved_run_id, generation),
         ).fetchone()
@@ -611,6 +634,12 @@ def claim_next_job(
             FROM candidate
             WHERE job.id = candidate.id AND job.status = 'queued'
             RETURNING job.*
+            ),
+            source_lease AS (
+                INSERT INTO review_agent.review_job_source_leases (job_id, lease_generation, nonce)
+                SELECT id, lease_generation, gen_random_uuid() FROM claimed
+                ON CONFLICT (job_id) DO UPDATE
+                SET lease_generation = EXCLUDED.lease_generation, nonce = EXCLUDED.nonce
             ),
             advance_turn AS (
                 INSERT INTO review_agent.review_dispatch_turns (team_id, last_claimed_at)

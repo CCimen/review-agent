@@ -151,8 +151,10 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
                 lease_duration=timedelta(minutes=5), priority_aging_interval=timedelta(minutes=15))
         client = Mock()
         client.get_documentation_policy.side_effect = [policy(POLICY, BASE), policy(POLICY, HEAD)]
-        source = GatewaySourceSession(run_id=int(run_id),
-            lease=jobs.WorkerLeaseSession(job_id=job.id, lease_generation=job.lease_generation), client=client)
+        source = GatewaySourceSession(
+            run_id=int(run_id), lease=jobs.WorkerLeaseSession(job.id, job.lease_generation),
+            client=client, graph_proof="a" * 64,
+        )
         with patch.object(documentation_preflight.github_app, "authorize_documentation_review"), patch.object(
             documentation_preflight, "initialize_review", return_value=Mock(file_index=Mock(registration_complete=True)),
         ), patch.object(documentation_preflight.repository_guidance_loader, "load") as guidance:
@@ -182,7 +184,10 @@ class PostgreSQLDocumentationReviewsTests(unittest.TestCase):
             job = jobs.claim_next_job(connection, lease_owner="preflight-worker", lease_duration=timedelta(minutes=5), priority_aging_interval=timedelta(minutes=15))
         client = Mock()
         client.get_documentation_policy.side_effect = [policy(POLICY, BASE), policy(POLICY, HEAD)]
-        source = GatewaySourceSession(run_id=int(run_id), lease=jobs.WorkerLeaseSession(job_id=job.id, lease_generation=job.lease_generation), client=client)
+        source = GatewaySourceSession(
+            run_id=int(run_id), lease=jobs.WorkerLeaseSession(job.id, job.lease_generation),
+            client=client, graph_proof="a" * 64,
+        )
         with patch.object(documentation_preflight.github_app, "authorize_documentation_review"), patch.object(documentation_preflight, "initialize_review", return_value=Mock(file_index=Mock(registration_complete=True))):
             client.get_documentation_comparison.side_effect = GitHubGatewayRejected("github_read_invalid")
             with self.assertRaisesRegex(GitHubGatewayRejected, "github_read_invalid"):

@@ -200,6 +200,7 @@ class ReviewPartToolTests(unittest.TestCase):
             ]).encode(),
         )
         source = review_tool_runtime.GatewaySourceSession(
+            graph_proof="a" * 64,
             run_id=41,
             lease=review_tool_runtime.postgres_jobs.WorkerLeaseSession(7, 3),
             client=client,

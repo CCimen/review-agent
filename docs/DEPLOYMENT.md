@@ -410,8 +410,9 @@ the other overlay services; the Helm chart deploys the main runtime only.
 The review worker requires the private GitHub gateway at startup, even when
 documentation review is disabled. In Compose, its `REVIEW_AGENT_GITHUB_GATEWAY_URL`
 is `http://review-github-gateway:8646` and it is attached to
-`review-github-control`. It uses the existing `API_SERVER_KEY`. Keep this
-wiring if you maintain a modified Compose file.
+`review-github-control`. It uses `API_SERVER_KEY` for Hermes and a credential
+from its current job lease for GitHub source. Keep this wiring if you maintain
+a modified Compose file.
 
 Drain every long-running Review Agent component before running a migration.
 This prevents an old process from writing against a schema that changed after
@@ -527,6 +528,13 @@ kubectl exec deployment/hermes-review -- review-agent-admin doctor
 ```
 
 ### Upgrade notes
+
+#### Migration 040 and source access
+
+Drain the workers before upgrading. Apply migration 040 and start the worker,
+Hermes, the GitHub gateway and any graph service on the same revision.
+Each new job claim gets its own source credentials. Any interrupted lease
+can expire and return through normal worker recovery.
 
 #### 0.4.14 to 0.5.0-rc.1
 

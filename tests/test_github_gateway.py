@@ -13,6 +13,7 @@ import sys
 from types import SimpleNamespace
 from typing import cast
 import unittest
+from uuid import uuid4
 import urllib.error
 import urllib.request
 from unittest.mock import Mock, call, patch
@@ -59,6 +60,7 @@ from review_agent.github.source import (  # noqa: E402
     read_review_comparison,
     read_review_pull,
 )
+from review_agent.domain.source_access import ReviewSourceAccess, embedding_proof  # noqa: E402
 from review_agent.postgres.review_runs import ReviewRunScope  # noqa: E402
 from review_agent.code_graph.contract import (  # noqa: E402
     GraphIdentity,
@@ -69,6 +71,9 @@ from review_agent.github.client import (  # noqa: E402
     PullSnapshot,
 )
 from review_agent.https import SameOriginHttpsRedirectHandler  # noqa: E402
+
+
+_SOURCE_ACCESS = ReviewSourceAccess.for_lease(uuid4(), run_id=51, job_id=61, generation=7)
 
 
 class _Response:
@@ -1017,6 +1022,49 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         tokens.token_for.assert_not_called()
         factory.assert_not_called()
 
+    def test_source_and_graph_credentials_are_scoped_to_their_lease_and_operation(self) -> None:
+        runtime = Mock()
+        runtime.transaction.return_value = nullcontext(Mock())
+        tokens = Mock()
+        service = ReviewGitHubGateway(
+            postgres=runtime, tokens=tokens, profile="default-standard",
+            github_factory=Mock(),
+            graph_policy=GraphPolicy(enabled=True, embeddings="openai", openai_api_key="synthetic-test-key"),
+        )
+        fields = {"run_id": 51, "job_id": 61, "lease_generation": 7}
+        source = ReviewSourceRequest.from_mapping({**fields, "operation": "pull"})
+        archive = ReviewSourceRequest.from_mapping({**fields, "operation": "archive"})
+        subject = ReviewSourceRequest.from_mapping({**fields, "operation": "graph_subject"})
+        parser = embedding_proof(_SOURCE_ACCESS.graph)
+        other = ReviewSourceAccess.for_lease(uuid4(), run_id=52, job_id=62, generation=7)
+        with (
+            patch.object(gateway_module.jobs, "require_source_access", return_value=_SOURCE_ACCESS),
+            patch.object(gateway_module.review_runs, "get_run_scope", return_value=self._scope()),
+            patch.object(gateway_module.github_app, "authorize_review_read"),
+            patch.object(gateway_module, "read_review_pull") as pull,
+            patch.object(gateway_module, "openai_embeddings", return_value={"data": []}) as provider,
+        ):
+            self.assertTrue(service.read_review_source(subject, proof=_SOURCE_ACCESS.graph).enabled)
+            for request, denied in (
+                (source, other.review), (source, _SOURCE_ACCESS.graph), (source, parser),
+                (archive, _SOURCE_ACCESS.review), (archive, parser), (archive, other.graph),
+            ):
+                with self.assertRaisesRegex(GitHubGatewayRejected, "review_job_lease_lost"):
+                    service.read_review_source(request, proof=denied)
+            for denied in (_SOURCE_ACCESS.review, _SOURCE_ACCESS.graph, embedding_proof(other.graph)):
+                with self.assertRaisesRegex(GitHubGatewayRejected, "review_job_lease_lost"):
+                    service.embed_code_graph(GraphIdentity(51, 61, 7, denied), {})
+            tokens.token_for.assert_not_called()
+            provider.assert_not_called()
+            self.assertIs(service.read_review_source(source, proof=_SOURCE_ACCESS.review), pull.return_value)
+            result = service.embed_code_graph(
+                GraphIdentity(51, 61, 7, parser),
+                {"model": "text-embedding-3-small", "input": ["symbol"]},
+            )
+            self.assertEqual(result, {"data": []})
+            pull.assert_called_once()
+            provider.assert_called_once()
+
     def test_source_read_rechecks_authority_after_provider_io(self) -> None:
         runtime = Mock()
         runtime.transaction.return_value = nullcontext(Mock())
@@ -1059,7 +1107,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                 GitHubGatewayRejected, "review_job_lease_lost"
             ),
         ):
-            service.read_review_source(request)
+            service.read_review_source(request, proof=_SOURCE_ACCESS.review)
 
         self.assertEqual(authorize.call_count, 2)
         read.assert_called_once_with(github, scope)
@@ -1081,14 +1129,14 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         with patch.object(
             ReviewGitHubGateway, "_require_source_authority", return_value=scope,
         ) as authority:
-            self.assertEqual(service.read_review_source(request), b"archive")
+            self.assertEqual(service.read_review_source(request, proof=_SOURCE_ACCESS.graph), b"archive")
             self.assertEqual(authority.call_count, 2)
         self.assertEqual(github.request_archive.call_args.args, (scope.repository, scope.head_sha))
         with patch.object(
             ReviewGitHubGateway, "_require_source_authority",
             side_effect=(scope, GitHubGatewayRejected("repository_not_authorized")),
         ), self.assertRaises(GitHubGatewayRejected):
-            service.read_review_source(request)
+            service.read_review_source(request, proof=_SOURCE_ACCESS.graph)
 
     def test_graph_disabled_never_downloads_repository_or_requests_token(self) -> None:
         tokens = Mock()
@@ -1097,12 +1145,12 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         with patch.object(ReviewGitHubGateway, "_require_source_authority", return_value=self._scope()):
             subject = service.read_review_source(ReviewSourceRequest.from_mapping({
                 **identity, "operation": "graph_subject",
-            }))
+            }), proof=_SOURCE_ACCESS.graph)
             self.assertFalse(subject.enabled)
             with self.assertRaises(GitHubGatewayRejected):
                 service.read_review_source(ReviewSourceRequest.from_mapping({
                     **identity, "operation": "archive",
-                }))
+                }), proof=_SOURCE_ACCESS.graph)
         tokens.token_for.assert_not_called()
 
     def test_graph_access_follows_current_review_repository_authorization(self) -> None:
@@ -1121,24 +1169,24 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         subject_request = ReviewSourceRequest.from_mapping({**identity, "operation": "graph_subject"})
         archive_request = ReviewSourceRequest.from_mapping({**identity, "operation": "archive"})
         with (
-            patch.object(gateway_module.jobs, "require_live_lease"),
+            patch.object(gateway_module.jobs, "require_source_access", return_value=_SOURCE_ACCESS),
             patch.object(gateway_module.review_runs, "get_run_scope") as run_scope,
             patch.object(gateway_module.github_app, "authorize_review_read") as authorize,
         ):
             for scope in (self._scope(), replace(self._scope(), provider_repository_id=9002,
                                                 repository="example/another", head_sha="c" * 40)):
                 run_scope.return_value = scope
-                subject = service.read_review_source(subject_request)
+                subject = service.read_review_source(subject_request, proof=_SOURCE_ACCESS.graph)
                 self.assertTrue(subject.enabled)
                 self.assertEqual(subject.repository_id, scope.provider_repository_id)
-                self.assertEqual(service.read_review_source(archive_request), b"archive")
+                self.assertEqual(service.read_review_source(archive_request, proof=_SOURCE_ACCESS.graph), b"archive")
                 self.assertEqual(github.request_archive.call_args.args, (scope.repository, scope.head_sha))
             authorize.side_effect = gateway_module.github_app.GitHubAppRepositoryUnauthorized("disabled")
             github.reset_mock()
             tokens.reset_mock()
             for request in (subject_request, archive_request):
                 with self.assertRaisesRegex(GitHubGatewayRejected, "repository_not_authorized"):
-                    service.read_review_source(request)
+                    service.read_review_source(request, proof=_SOURCE_ACCESS.graph)
             github.request_archive.assert_not_called()
             tokens.token_for.assert_not_called()
 
@@ -1147,7 +1195,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             postgres=Mock(), tokens=Mock(), profile="default-standard",
             graph_policy=GraphPolicy(enabled=True, embeddings="openai", openai_api_key="synthetic-test-key"),
         )
-        identity = GraphIdentity(51, 61, 7)
+        identity = GraphIdentity(51, 61, 7, embedding_proof(_SOURCE_ACCESS.graph))
         request = {"model": "text-embedding-3-small", "input": ["public function metadata"]}
         with (
             patch.object(ReviewGitHubGateway, "_require_source_authority",
@@ -1188,11 +1236,11 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             side_effect=(scope, scope, scope, GitHubGatewayRejected("review_job_lease_lost"),
                          GitHubGatewayRejected("repository_not_authorized")),
         ) as authority:
-            service.read_review_source(request)
+            service.read_review_source(request, proof=_SOURCE_ACCESS.review)
             with self.assertRaises(GitHubGatewayRejected):
-                service.read_review_source(request)
+                service.read_review_source(request, proof=_SOURCE_ACCESS.review)
             with self.assertRaises(GitHubGatewayRejected):
-                service.read_review_source(request)
+                service.read_review_source(request, proof=_SOURCE_ACCESS.review)
         self.assertEqual(authority.call_count, 5)
         self.assertEqual(tokens.token_for.call_count, 2)
         self.assertEqual(github.request_json.call_count, 1)
@@ -1218,14 +1266,14 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         )
         request = ReviewSourceRequest.from_mapping({**identity, "path": "a.ts", "blob_sha": blob})
         with patch.object(ReviewGitHubGateway, "_require_source_authority", return_value=self._scope()):
-            result = service.read_review_source(request)
+            result = service.read_review_source(request, proof=_SOURCE_ACCESS.review)
         self.assertEqual(result, ReviewFilePatch("ok", "@@ -0,0 +1,2 @@\n+first\n+second"))
         self.assertIn("ref=" + "a" * 40, github.request_json.call_args.args[0])
 
         opener = _Opener(json.dumps(result.to_mapping()).encode("utf-8"))
         client = ReviewGitHubGatewayClient(
             "http://review-github-gateway:8646",
-            opener=cast(urllib.request.OpenerDirector, opener),
+            opener=cast(urllib.request.OpenerDirector, opener), source_proof=_SOURCE_ACCESS.review,
         )
         self.assertEqual(
             client.get_added_file_patch(
@@ -1241,7 +1289,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         with self.assertRaises(GitHubGatewayProtocolError):
             ReviewGitHubGatewayClient(
                 "http://review-github-gateway:8646",
-                opener=cast(urllib.request.OpenerDirector, refused),
+                opener=cast(urllib.request.OpenerDirector, refused), source_proof=_SOURCE_ACCESS.review,
             ).get_added_file_patch(
                 run_id=51, job_id=61, lease_generation=7, path="a.ts", blob_sha=blob
             )
@@ -1289,7 +1337,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                 ),
                 self.assertRaises(expected) as raised,
             ):
-                service.read_review_source(request)
+                service.read_review_source(request, proof=_SOURCE_ACCESS.review)
 
             if isinstance(raised.exception, GitHubGatewayRetryable):
                 self.assertEqual(raised.exception.retry_at, retry_at)
@@ -1328,7 +1376,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             ),
             self.assertRaises(GitHubGatewayRejected),
         ):
-            service.read_review_source(request)
+            service.read_review_source(request, proof=_SOURCE_ACCESS.review)
 
         self.assertEqual(tokens.token_for.call_count, 2)
         tokens.invalidate.assert_called_once_with(9001)
@@ -1449,7 +1497,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         )
         client = ReviewGitHubGatewayClient(
             "http://review-github-gateway:8646",
-            opener=cast(urllib.request.OpenerDirector, opener),
+            opener=cast(urllib.request.OpenerDirector, opener), source_proof=_SOURCE_ACCESS.review,
         )
 
         result = client.get_review_pull(
@@ -1460,6 +1508,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
 
         self.assertEqual(result.repository, "CCimen/review-agent")
         request = opener.requests[0]
+        self.assertEqual(request.get_header("Authorization"), f"Bearer {_SOURCE_ACCESS.review}")
         self.assertEqual(
             getattr(request, "full_url"),
             "http://review-github-gateway:8646/v1/review-sources/read",

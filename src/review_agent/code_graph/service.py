@@ -33,6 +33,7 @@ from .contract import (
     SNAPSHOT_MAX_BYTES,
 )
 from ..github.gateway_client import ReviewGitHubGatewayClient
+from ..domain.source_access import embedding_proof
 
 _MANIFEST_MAX_BYTES = 16_000_000
 _PREPARATION_QUEUE_LIMIT = 4
@@ -333,10 +334,13 @@ class CodeGraphService:
             "CRG_ALLOW_REMOTE_CODE": "0", "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_TERMINAL_PROMPT": "0",
         }
-        embeddings = "none" if request["operation"] == "build" else subject.embeddings
+        uses_embeddings = request["operation"] == "embed" or request.get("pattern") == "semantic"
+        embeddings = subject.embeddings if uses_embeddings else "none"
         if embeddings == "openai":
             environment.update({
-                "CRG_OPENAI_API_KEY": base64.b64encode(json.dumps(identity.to_mapping()).encode()).decode("ascii"),
+                "CRG_OPENAI_API_KEY": base64.b64encode(json.dumps({
+                    **identity.lease_fields(), "proof": embedding_proof(identity.proof),
+                }).encode()).decode("ascii"),
                 "CRG_OPENAI_BASE_URL": self.gateway_url.rstrip("/") + "/v1/code-graph",
                 "CRG_OPENAI_MODEL": EMBEDDING_MODEL,
                 "CRG_OPENAI_DIMENSION": str(EMBEDDING_DIMENSIONS),

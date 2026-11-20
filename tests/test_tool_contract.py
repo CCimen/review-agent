@@ -360,6 +360,7 @@ class ToolContractTests(unittest.TestCase):
             }]).encode(),
         )
         source = review_tool_runtime.GatewaySourceSession(
+            graph_proof="a" * 64,
             run_id=41,
             lease=review_tool_runtime.postgres_jobs.WorkerLeaseSession(7, 3),
             client=client,
@@ -401,6 +402,7 @@ class ToolContractTests(unittest.TestCase):
             repository=self.repository, pr_number=1, payload={"state": "open"}
         )
         source = review_tool_runtime.GatewaySourceSession(
+            graph_proof="a" * 64,
             run_id=41,
             lease=review_tool_runtime.postgres_jobs.WorkerLeaseSession(7, 3),
             client=client,
@@ -1249,7 +1251,7 @@ class ToolContractTests(unittest.TestCase):
         runtime.assert_not_called()
 
     def test_graph_context_matches_repository_and_commit_and_fails_without_blocking_source_work(self) -> None:
-        source = SimpleNamespace(run_id=41, lease=SimpleNamespace(job_id=7, lease_generation=3))
+        source = SimpleNamespace(run_id=41, lease=SimpleNamespace(job_id=7, lease_generation=3), graph_proof="a" * 64)
         pull = {"head": {"sha": "a" * 40, "repo": {"id": 91}}}
         response = {"status": "ready", "repository_id": 91, "head_sha": "a" * 40,
                     "results": [{"path": "validation.py", "line_start": 3, "line_end": 8}]}

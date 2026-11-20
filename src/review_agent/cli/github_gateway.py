@@ -16,6 +16,7 @@ from typing import Mapping, cast
 
 import psycopg
 
+from ..domain.source_access import valid_proof
 from ..github.app_auth import (
     GitHubAppConfigurationError,
     GitHubAppTokenService,
@@ -314,6 +315,10 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         self._write(200, {"acknowledged": acknowledged})
 
     def _read_source(self, server: "GatewayServer") -> None:
+        authorization = self.headers.get("Authorization", "")
+        if not authorization.startswith("Bearer ") or not valid_proof(authorization[7:]):
+            self._write(401, {"reason": "review_source_authentication_required"})
+            return
         try:
             length = int(self.headers.get("Content-Length", ""))
         except ValueError:
@@ -339,7 +344,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     self._write(503, {"reason": "code_graph_archive_busy"})
                     return
                 archive_slot = True
-            result = server.gateway.read_review_source(request)
+            result = server.gateway.read_review_source(request, proof=authorization[7:])
             response_started = True
             if isinstance(result, bytes):
                 self.send_response(200)

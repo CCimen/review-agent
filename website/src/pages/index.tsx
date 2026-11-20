@@ -18,7 +18,7 @@ const setupSteps = [
   ['Deploy the service', 'Compose, Dokploy, Coolify, Portainer, or Kubernetes (Helm).'],
   [
     'Install and approve the App',
-    'Then enable each repository, or let its first command enable it.',
+    'Enable each repository, or approve with automatic activation so its first command enables it.',
   ],
   ['Run /review', 'Comment on an open pull request from the same repository.'],
 ] as const;
@@ -136,9 +136,8 @@ function Home(): ReactNode {
             <div className={styles.setup}>
               <div>
                 <p className={styles.setupNote}>
-                  One deployment serves every repository where the App is
-                  installed and approved. Repositories need no workflow,
-                  secret, or local setup.
+                  One deployment serves many repositories, and they need no
+                  workflow, secret, or local setup.
                 </p>
                 <p className={styles.setupLinks}>
                   <Link to="/docs/getting-started">Getting started</Link>

@@ -99,9 +99,10 @@ reviewer's `HERMES_HOME`, skills directory or gateway.
 ## GitHub credential boundaries
 
 The GitHub App key is mounted into the private gateway and, when the optional
-[admin panel](./ADMIN_PANEL.md) is deployed, into the admin service, which uses
-it, with metadata-only installation tokens, to read App and installation status
-and to verify a repository before enabling it. No other service receives it.
+[admin panel](./ADMIN_PANEL.md) is deployed, into the admin service. The admin
+service signs App JWTs to read App and installation status, and requests
+metadata-only installation tokens to verify a repository before enabling it.
+No other service receives the key.
 
 The gateway mints short-lived installation tokens restricted to one repository
 and one purpose. For lease-bound review, feedback and publication operations,

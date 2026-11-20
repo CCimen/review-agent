@@ -66,7 +66,8 @@ has the copy and validate commands.
 
 ## Serve many repositories
 
-One approved installation covers every repository the App can reach. All
+One approved installation can serve every repository the App can reach, once
+each is enabled ([step 3](#3-install-and-approve-the-app)). All
 repositories share one queue and one database, and reviews of one repository
 run one at a time;
 [add review workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when waits

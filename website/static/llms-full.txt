@@ -110,7 +110,8 @@ has the copy and validate commands.
 
 ## Serve many repositories
 
-One approved installation covers every repository the App can reach. All
+One approved installation can serve every repository the App can reach, once
+each is enabled ([step 3](#3-install-and-approve-the-app)). All
 repositories share one queue and one database, and reviews of one repository
 run one at a time;
 [add review workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when waits
@@ -4709,9 +4710,10 @@ reviewer's `HERMES_HOME`, skills directory or gateway.
 ## GitHub credential boundaries
 
 The GitHub App key is mounted into the private gateway and, when the optional
-[admin panel](./ADMIN_PANEL.md) is deployed, into the admin service, which uses
-it, with metadata-only installation tokens, to read App and installation status
-and to verify a repository before enabling it. No other service receives it.
+[admin panel](./ADMIN_PANEL.md) is deployed, into the admin service. The admin
+service signs App JWTs to read App and installation status, and requests
+metadata-only installation tokens to verify a repository before enabling it.
+No other service receives the key.
 
 The gateway mints short-lived installation tokens restricted to one repository
 and one purpose. For lease-bound review, feedback and publication operations,

@@ -53,6 +53,7 @@ from .app_auth import (
     GitHubAppTokenPermanent,
     GitHubAppTokenRetryable,
     GitHubAppTokenService,
+    VerifiedInstallationRepository,
 )
 from .source import (
     GIT_BLOB_SHA_RE,
@@ -114,6 +115,10 @@ class GitHubGatewayRetryable(GitHubGatewayError):
         super().__init__(reason)
         self.reason = reason
         self.retry_at = retry_at
+
+
+class _RequesterGrantRevoked(Exception):
+    """Roll back an activation whose admitting grant was revoked meanwhile."""
 
 
 def _positive(value: object, field: str) -> int:
@@ -1290,27 +1295,17 @@ class ReviewGitHubGateway:
                 command.repository,
             )
             # Only a sender who may run this command can enable its repository.
-            granted = self._authorize_command_sender(
-                self._github_factory(verified.token.value), command, category
-            )
-            with self._postgres.transaction() as connection:
-                github_app.enable_automatic_repository(
-                    connection,
-                    provider_installation_id=command.provider_installation_id,
-                    provider_repository_id=verified.provider_repository_id,
-                    full_name=verified.full_name,
-                    profile_key=self._profile,
-                    actor="github-app:review-delivery",
-                    reason=f"verified repository for delivery {delivery_id}",
+            github = self._github_factory(verified.token.value)
+            granted = self._authorize_command_sender(github, command, category)
+            if not self._enable_verified_repository(
+                command, verified, delivery_id=delivery_id, grant_required=granted
+            ):
+                # The grant was revoked after admitting the sender; GitHub write
+                # or admin can still admit them.
+                self._authorize_sender(github, command)
+                self._enable_verified_repository(
+                    command, verified, delivery_id=delivery_id, grant_required=False
                 )
-                # A grant revoked since it admitted the sender rolls this back.
-                if granted and not review_requesters.is_allowed(
-                    connection,
-                    provider_repository_id=command.provider_repository_id,
-                    github_user_id=command.sender_id,
-                    for_update=True,
-                ):
-                    raise GitHubGatewayRejected("sender_not_authorized")
         except GitHubAppTokenRetryable as exc:
             raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
         except GitHubAppTokenPermanent as exc:
@@ -1321,6 +1316,38 @@ class ReviewGitHubGateway:
             raise GitHubGatewayRejected(exc.reason) from exc
         except github_app.GitHubAppStateError as exc:
             raise GitHubGatewayRejected("repository_not_authorized") from exc
+
+    def _enable_verified_repository(
+        self,
+        command: _IssueCommentCommand,
+        verified: VerifiedInstallationRepository,
+        *,
+        delivery_id: int,
+        grant_required: bool,
+    ) -> bool:
+        """Enable a verified repository, or write nothing if a required grant is gone."""
+        try:
+            with self._postgres.transaction() as connection:
+                github_app.enable_automatic_repository(
+                    connection,
+                    provider_installation_id=command.provider_installation_id,
+                    provider_repository_id=verified.provider_repository_id,
+                    full_name=verified.full_name,
+                    profile_key=self._profile,
+                    actor="github-app:review-delivery",
+                    reason=f"verified repository for delivery {delivery_id}",
+                )
+                # Grant and revoke lock this repository row too, so the read is current.
+                if grant_required and not review_requesters.is_allowed(
+                    connection,
+                    provider_repository_id=command.provider_repository_id,
+                    github_user_id=command.sender_id,
+                    for_update=True,
+                ):
+                    raise _RequesterGrantRevoked
+        except _RequesterGrantRevoked:
+            return False
+        return True
 
     def _provider_feedback(
         self,

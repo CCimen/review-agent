@@ -153,6 +153,7 @@ jobs:
             --require-target "requirements.txt" \
             --require-target "requirements/requirements-code-graph.txt" \
             --require-target "requirements/requirements-admin.txt" \
+            --require-target "requirements/requirements-hermes.txt" \
             --require-target "console/package-lock.json" \
             --require-target "install/package-lock.json" \
             --require-target "website/package-lock.json" \

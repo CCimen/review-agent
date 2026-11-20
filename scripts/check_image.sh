@@ -29,11 +29,12 @@ for package in ("linux-libc-dev", "openssh-client", "libxml2"):
     assert status.returncode in (0, 1), status.stderr
     assert status.stdout.strip() in ("", "not-installed"), package
 
-for line in Path("/opt/review-agent-requirements.txt").read_text().splitlines():
-    if line and not line.startswith("#"):
-        requirement = Requirement(line)
-        installed = version(requirement.name)
-        assert installed in requirement.specifier, f"{requirement}: installed {installed}"
+for pins in ("/opt/review-agent-requirements.txt", "/opt/review-agent-hermes-requirements.txt"):
+    for line in Path(pins).read_text().splitlines():
+        if line and not line.startswith("#"):
+            requirement = Requirement(line)
+            installed = version(requirement.name)
+            assert installed in requirement.specifier, f"{requirement}: installed {installed}"
 '
 
 # The graph service starts the indexer as a child in the graph environment. Go

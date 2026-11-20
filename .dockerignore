@@ -5,6 +5,7 @@
 !requirements.txt
 !requirements/
 !requirements/requirements-code-graph.txt
+!requirements/requirements-hermes.txt
 !hermes/
 !hermes/**
 !profiles/

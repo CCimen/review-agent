@@ -7,6 +7,7 @@ scan:
   file-patterns:
     - 'pip:requirements-code-graph\.txt'
     - 'pip:requirements-admin\.txt'
+    - 'pip:requirements-hermes\.txt'
   disable-telemetry: true
   scanners:
     - vuln

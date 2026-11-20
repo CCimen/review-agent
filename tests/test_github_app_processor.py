@@ -1288,6 +1288,27 @@ class WebhookDeliveryProcessorTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(counts, (0, 0))
 
+    def test_requester_grant_lets_read_only_sender_activate_repo(self) -> None:
+        self.approve_automatic_installation()
+        with self.runtime.transaction() as connection:
+            repository = registry.ensure_repository(connection, registry.RepositoryDefinition(
+                provider="github", provider_repository_id=9001, full_name="CCimen/review-agent"))
+            connection.execute("""INSERT INTO review_agent.repository_review_requesters
+                (repository_id, github_user_id, github_login) VALUES (%s, 5001, 'ccimen')""",
+                (repository.id,))
+        self.register("issue_comment", self.review_payload())
+
+        with patch.object(app_processor.review_contract, "load_packaged_contract",
+                return_value=self.contract):
+            result = self.processor(_GitHub(permission="read")).process_next(
+                lease_owner="granted-reader"
+            )
+
+        self.assertEqual(result.status if result else None, "accepted")
+        with self.runtime.transaction() as connection:
+            enabled = github_app.get_repository_access_by_provider_id(connection, 9001).enabled
+        self.assertTrue(enabled)
+
     def test_grant_revoked_during_automatic_activation_leaves_only_github_access(self) -> None:
         self.approve_automatic_installation()
         with self.runtime.transaction() as connection:

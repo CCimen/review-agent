@@ -119,15 +119,16 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     """\
                     #!/usr/bin/env bash
                     set -euo pipefail
-                    case "$1 $2" in
-                      "release view") echo IMAGE-DIGESTS.txt ;;
-                      "api repos/example/review-agent/commits/v1.2.3") echo "$TAG_SHA" ;;
-                      "api --method")
-                        [[ " $* " == *" repos/example/review-agent/actions/workflows/release-image.yml/runs "* ]]
-                        [[ " $* " == *" event=release "* ]]
-                        [[ " $* " == *" branch=v1.2.3 "* ]]
-                        [[ " $* " == *" per_page=1 "* ]]
-                        echo "$FAKE_RELEASE_RUN" ;;
+                    query="${@: -1}"
+                    case "$*" in
+                      "release view v1.2.3 --json assets --jq .assets[].name")
+                        echo IMAGE-DIGESTS.txt ;;
+                      "api repos/example/review-agent/commits/v1.2.3 --jq .sha")
+                        echo "$TAG_SHA" ;;
+                      "api --method GET repos/example/review-agent/actions/workflows/release-image.yml/runs -f event=release -f branch=v1.2.3 -f per_page=1 --jq "*)
+                        jq -r "$query" <<<"$FAKE_RUNS" ;;
+                      "api repos/example/review-agent/actions/runs/7/jobs --jq "*)
+                        jq -r "$query" <<<"$FAKE_JOBS" ;;
                       *) exit 2 ;;
                     esac
                     """
@@ -135,17 +136,33 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 encoding="utf-8",
             )
             fake_gh.chmod(0o755)
-            for release_run, qualified in (
-                (f"{tag_sha} completed success", True),
-                (f"{tag_sha} in_progress null", False),
-                (f"{tag_sha} completed failure", False),
-                (f"{'b' * 40} completed success", False),
+            verify = {"name": "verify", "conclusion": "success"}
+            promotion = {"name": "Publish qualified version tags", "conclusion": "success"}
+            for run, run_jobs, qualified in (
+                ((tag_sha, "completed", "success"), [verify, promotion], True),
+                ((tag_sha, "in_progress", None), [verify, promotion], False),
+                ((tag_sha, "completed", "failure"), [verify, promotion], False),
+                (("b" * 40, "completed", "success"), [verify, promotion], False),
+                ((tag_sha, "completed", "success"), [verify], False),
             ):
-                with self.subTest(release_run=release_run):
+                head_sha, status, conclusion = run
+                with self.subTest(run=run, jobs=[job["name"] for job in run_jobs]):
                     environment = os.environ.copy()
                     environment.update(
                         {
-                            "FAKE_RELEASE_RUN": release_run,
+                            "FAKE_JOBS": json.dumps({"jobs": run_jobs}),
+                            "FAKE_RUNS": json.dumps(
+                                {
+                                    "workflow_runs": [
+                                        {
+                                            "id": 7,
+                                            "head_sha": head_sha,
+                                            "status": status,
+                                            "conclusion": conclusion,
+                                        }
+                                    ]
+                                }
+                            ),
                             "GH_REPO": "example/review-agent",
                             "PATH": f"{fake_gh.parent}{os.pathsep}{environment['PATH']}",
                             "TAG_SHA": tag_sha,

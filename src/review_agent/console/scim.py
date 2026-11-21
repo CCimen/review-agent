@@ -21,7 +21,6 @@ from pydantic import (
 )
 from sqlalchemy import func, select
 from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .auth import ConsoleAuth
 from .accounts import (
@@ -60,43 +59,6 @@ class SCIMErrorBody(BaseModel):
 
 class SCIMResponse(JSONResponse):
     media_type = "application/scim+json"
-
-
-class SCIMBodyLimit:
-    """Bound SCIM JSON before the framework parses it, including chunked input."""
-
-    def __init__(self, app: ASGIApp) -> None:
-        self.app = app
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not scope["path"].startswith("/scim/v2/"):
-            await self.app(scope, receive, send)
-            return
-        body = bytearray()
-        while True:
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                return
-            chunk = message.get("body", b"")
-            if len(body) + len(chunk) > 65536:
-                response = SCIMError(
-                    413, "SCIM requests may contain at most 64 KiB"
-                ).response()
-                await response(scope, receive, send)
-                return
-            body.extend(chunk)
-            if not message.get("more_body", False):
-                break
-        delivered = False
-
-        async def receive_body() -> Message:
-            nonlocal delivered
-            if delivered:
-                return await receive()
-            delivered = True
-            return {"type": "http.request", "body": bytes(body), "more_body": False}
-
-        await self.app(scope, receive_body, send)
 
 
 class SCIMError(Exception):

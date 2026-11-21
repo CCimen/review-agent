@@ -20,8 +20,8 @@ spec:
   - host: {{ required "Set ingress.host" .Values.ingress.host | quote }}
     http:
       paths:
-      - path: /
-        pathType: Prefix
+      - path: /webhooks/github-app
+        pathType: Exact
         backend:
           service:
             name: review-agent-admission

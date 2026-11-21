@@ -9,7 +9,7 @@ from typing import Annotated
 from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from fastapi_users import FastAPIUsers
 from fastapi_users.authentication import AuthenticationBackend, CookieTransport
 from fastapi_users.authentication.strategy.db import DatabaseStrategy
@@ -155,10 +155,11 @@ class ConsoleAuth:
 
         async def register(
             change: RegistrationSignup,
-            session: Annotated[AsyncSession, Depends(session_dependency)],
+            background: BackgroundTasks,
         ) -> None:
             await registration.request_registration(
-                session, change, email_secret=email_secret, origin=self.origin
+                self.sessions, change, background,
+                email_secret=email_secret, origin=self.origin,
             )
 
         async def complete_registration(

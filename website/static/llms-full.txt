@@ -332,7 +332,7 @@ Follow the section for your platform:
 > `review-postgres`. Admission and the optional authenticated admin panel are
 > the only services on the ingress network.
 
-4. Route the review hostname to `review-admission:8644`.
+4. Route the exact path `/webhooks/github-app` on the review hostname to `review-admission:8644`. Keep `/health` and `/ready` inside the deployment.
 
    In Dokploy **Advanced > Networks**:
 
@@ -350,7 +350,7 @@ Follow the section for your platform:
    docker compose exec hermes-review hermes model
    docker compose exec hermes-review /opt/review-agent-bootstrap/install.sh
    docker compose restart hermes-review
-   curl -fsS https://review.example.org/ready
+   docker compose exec review-admission curl -fsS http://127.0.0.1:8644/ready
    ```
 
    `hermes model` is Hermes' provider setup wizard for OAuth and API-key
@@ -360,7 +360,7 @@ Follow the section for your platform:
    after replacing that volume or when Hermes reports an authorization failure.
 
 Dokploy reads `compose.yaml` as a Compose application. Add one HTTPS domain to
-admission and keep the generated Traefik settings. The checked-in health checks
+the admission webhook path. The checked-in health checks
 cover admission, the private gateway, Hermes, and PostgreSQL.
 
 Use the matching container for operator commands:
@@ -2392,7 +2392,9 @@ private database and gateway, which the chart does not supply.
    deployment, include both Compose files in its command.
 
 3. In Dokploy Domains, route a separate HTTPS hostname to service `review-admin`,
-   container port `8090`, path `/`, with the HTTPS redirect enabled. Admission
+   container port `8090`, path `/`, with the HTTPS redirect enabled. Set
+   the reverse proxy’s maximum request body to 1 MiB for this hostname. The
+   console additionally enforces a 64 KiB limit on SCIM requests. Admission
    keeps its own hostname and port `8644`. Only admission and the console join
    the ingress network; the database, gateway and Hermes stay private.
 
@@ -3022,7 +3024,7 @@ configured, container state.
 
 ### Dokploy container state
 
-Set `REVIEW_AGENT_DOKPLOY_URL` to the Dokploy origin,
+Set `REVIEW_AGENT_DOKPLOY_URL` to the Dokploy HTTPS origin (loopback also accepts HTTP),
 `REVIEW_AGENT_DOKPLOY_COMPOSE_ID` to this stack's ID, and
 `REVIEW_AGENT_DOKPLOY_API_KEY` to a server-side API key with the narrowest read
 access your Dokploy installation supports, then restart `review-admin`. The
@@ -3110,8 +3112,8 @@ The connector never writes passwords, platform roles or team memberships.
 SCIM cannot adopt existing local accounts or change privileged accounts.
 Duplicates return `409` with `scimType: uniqueness`. `DELETE` revokes sessions,
 disables the account and hides it from SCIM, keeping its audit and team history;
-deleted identifiers and emails are not reused. Requests are limited to 64 KiB
-and 100 PATCH operations. The contract follows
+deleted identifiers and emails are not reused. Console requests are limited to
+1 MiB. SCIM requests are limited to 64 KiB and 100 PATCH operations. The contract follows
 [OpenID Connect Core](https://openid.net/specs/openid-connect-core-1_0.html),
 [RFC 7643](https://www.rfc-editor.org/rfc/rfc7643.html) and
 [RFC 7644](https://www.rfc-editor.org/rfc/rfc7644.html).
@@ -3166,8 +3168,11 @@ address receives a link to choose a password. Links expire after 30 minutes,
 work once, and carry the token in the URL fragment; the server stores only its
 hash and checks the allowlist again before creating the account. One request
 per address per minute; a new link replaces the old one. The console sends at
-most 30 emails per minute and holds at most 1,000 pending addresses. Responses
-do not reveal whether an address is allowed or registered.
+most 30 emails per minute and holds at most 1,000 pending addresses. When
+registration is available, every valid address receives the same HTTP 202
+response before the console checks the recipient or contacts SMTP. Reaching a
+delivery limit suppresses the email. After a delivery failure, the recipient
+can request another link after one minute.
 
 A configured OIDC provider can also register allowed addresses without SMTP when
 its identity carries a verified email. Both methods create Members without team
@@ -4351,7 +4356,7 @@ Services read these values at startup.
 | `REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH` | `./secrets/github-app-private-key.pem` | Secret mounted in `review-github-gateway`, `review-admin` | Host path of the App private key. Never put the PEM contents in the environment. |
 | `REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET` | required | `review-admission` | Webhook signature secret. |
 | `REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES` | `2097152` | `review-admission`, `review-admin` | Maximum webhook body; 2,097,152 is also the protocol maximum. |
-| `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS` | `8` | `review-admission`, `review-admin` | Concurrent signed requests per admission process. |
+| `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS` | `8` | `review-admission`, `review-admin` | Maximum concurrent HTTP connections per admission process, including health probes. |
 | `REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS` | `30` | `review-admission`, `review-admin` | Admission request timeout. |
 | `REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS` | `8` | `review-github-gateway`, `review-admin` | Concurrent GitHub responses per gateway process. |
 | `API_SERVER_KEY` | required | `hermes-review`, `review-worker`, `review-github-gateway`, `review-provider-control` | Key for the private Hermes API. |

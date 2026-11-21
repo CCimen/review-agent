@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .api import (
     audit as audit_api,
@@ -74,6 +75,61 @@ Limit = Annotated[int, Query(ge=1, le=100)]
 Repository = Annotated[
     str | None, Query(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", max_length=200)
 ]
+
+
+class ConsoleBodyLimit:
+    """Bound the HTTP body before FastAPI parses JSON or forms."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        scim = scope["path"].startswith("/scim/v2/")
+        limit = 65_536 if scim else 1_048_576
+
+        async def reject() -> None:
+            response = (
+                console_scim.SCIMError(
+                    413, "SCIM requests may contain at most 64 KiB"
+                ).response()
+                if scim
+                else JSONResponse({"detail": "Request exceeds 1 MiB"}, status_code=413)
+            )
+            await response(scope, receive, send)
+
+        for name, value in scope["headers"]:
+            if name.lower() == b"content-length" and value.isdigit():
+                digits = value.lstrip(b"0") or b"0"
+                if len(digits) > len(str(limit)) or int(digits) > limit:
+                    await reject()
+                    return
+
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            chunk = message.get("body", b"")
+            if len(body) + len(chunk) > limit:
+                await reject()
+                return
+            body.extend(chunk)
+            if not message.get("more_body", False):
+                break
+
+        delivered = False
+
+        async def receive_body() -> Message:
+            nonlocal delivered
+            if delivered:
+                return await receive()
+            delivered = True
+            return {"type": "http.request", "body": bytes(body), "more_body": False}
+
+        await self.app(scope, receive_body, send)
 
 
 def create_app(
@@ -347,10 +403,10 @@ def create_app(
     def api_docs() -> FileResponse:
         return FileResponse(static_dir / "api-docs.html")
 
+    app.add_middleware(ConsoleBodyLimit)
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=[auth.hostname, "127.0.0.1", "localhost"]
     )
-    app.add_middleware(console_scim.SCIMBodyLimit)
     app.middleware("http")(response_headers)
     app.add_exception_handler(PostgreSQLRuntimeError, database_unavailable)
     app.add_exception_handler(SQLAlchemyError, database_unavailable)

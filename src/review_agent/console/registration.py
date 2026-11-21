@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import secrets
 import smtplib
 import uuid
@@ -10,12 +11,13 @@ from hashlib import sha256
 from typing import Annotated
 
 from cryptography.fernet import Fernet
-from fastapi import HTTPException, Response
+from fastapi import BackgroundTasks, HTTPException, Response
 from fastapi_users import exceptions
 from fastapi_users.authentication import AuthenticationBackend
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
 from sqlalchemy import delete, func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..domain.access import Role
 from ..postgres.audit import AuditAction
@@ -37,7 +39,7 @@ from .accounts import (
     lock_registration_requests,
     registration_settings,
 )
-from .email import smtp_settings
+from .email import SMTPSettings, smtp_settings
 
 
 class RegistrationUpdate(RegistrationPolicy):
@@ -64,31 +66,55 @@ class RegistrationComplete(BaseModel):
 
 
 async def request_registration(
-    session: AsyncSession,
+    sessions: async_sessionmaker[AsyncSession],
     change: RegistrationSignup,
+    background: BackgroundTasks,
     *,
     email_secret: Fernet | None,
     origin: str,
 ) -> None:
-    smtp = await smtp_settings(session, email_secret)
-    if smtp is None:
-        raise HTTPException(
-            503,
-            "Email registration is unavailable. Contact your administrator.",
-        )
-    policy = await registration_settings(session)
-    if not policy.enabled:
-        raise HTTPException(
-            403, "Registration is closed. Contact your administrator."
-        )
-    email = str(change.email).lower()
-    if not policy.allows(email):
-        return
+    async with sessions() as session:
+        smtp = await smtp_settings(session, email_secret)
+        if smtp is None:
+            raise HTTPException(
+                503,
+                "Email registration is unavailable. Contact your administrator.",
+            )
+        policy = await registration_settings(session)
+        if not policy.enabled:
+            raise HTTPException(
+                403, "Registration is closed. Contact your administrator."
+            )
+    background.add_task(
+        _deliver_registration, sessions, smtp, str(change.email).lower(), origin
+    )
+
+
+async def _deliver_registration(
+    sessions: async_sessionmaker[AsyncSession],
+    smtp: SMTPSettings,
+    email: str,
+    origin: str,
+) -> None:
+    try:
+        async with sessions() as session:
+            token = await _reserve_registration(session, email)
+        if token is not None:
+            await asyncio.to_thread(
+                smtp.send_registration, email, f"{origin}/#register_token={token}"
+            )
+    except (OSError, smtplib.SMTPException, SQLAlchemyError):
+        logging.getLogger(__name__).warning("Registration email delivery failed")
+
+
+async def _reserve_registration(session: AsyncSession, email: str) -> str | None:
+    if not (await registration_settings(session)).allows(email):
+        return None
     await lock_registration_requests(session)
     if await session.scalar(
         select(User).where(func.lower(User.email) == email)
     ):
-        return
+        return None
     now = datetime.now(timezone.utc)
     await session.execute(
         delete(RegistrationRequest).where(RegistrationRequest.expires_at < now)
@@ -97,7 +123,7 @@ async def request_registration(
     if pending and pending.requested_at > now - timedelta(
         seconds=REGISTRATION_RESEND_SECONDS
     ):
-        return
+        return None
     recent = await session.scalar(
         select(func.count())
         .select_from(RegistrationRequest)
@@ -109,11 +135,7 @@ async def request_registration(
     if (recent or 0) >= REGISTRATION_REQUESTS_PER_MINUTE or (
         pending is None and (total or 0) >= REGISTRATION_MAX_PENDING
     ):
-        raise HTTPException(
-            429,
-            "Registration is busy. Try again in a minute.",
-            headers={"Retry-After": "60"},
-        )
+        return None
     token = secrets.token_urlsafe(32)
     if pending is None:
         pending = RegistrationRequest(email=email)
@@ -122,19 +144,7 @@ async def request_registration(
     pending.requested_at = now
     pending.expires_at = now + timedelta(seconds=REGISTRATION_SECONDS)
     await session.commit()
-    # Commit the cooldown before delivery and release the request lock while
-    # SMTP runs. Interrupted sends can be retried after one minute.
-    try:
-        await asyncio.to_thread(
-            smtp.send_registration,
-            email,
-            f"{origin}/#register_token={token}",
-        )
-    except (OSError, smtplib.SMTPException):
-        raise HTTPException(
-            503,
-            "Could not send the verification email. Wait one minute and try again.",
-        ) from None
+    return token
 
 
 async def complete_registration(

@@ -877,7 +877,7 @@ Services read these values at startup.
 | `REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH` | `./secrets/github-app-private-key.pem` | Secret mounted in `review-github-gateway`, `review-admin` | Host path of the App private key. Never put the PEM contents in the environment. |
 | `REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET` | required | `review-admission` | Webhook signature secret. |
 | `REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES` | `2097152` | `review-admission`, `review-admin` | Maximum webhook body; 2,097,152 is also the protocol maximum. |
-| `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS` | `8` | `review-admission`, `review-admin` | Concurrent signed requests per admission process. |
+| `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS` | `8` | `review-admission`, `review-admin` | Maximum concurrent HTTP connections per admission process, including health probes. |
 | `REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS` | `30` | `review-admission`, `review-admin` | Admission request timeout. |
 | `REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS` | `8` | `review-github-gateway`, `review-admin` | Concurrent GitHub responses per gateway process. |
 | `API_SERVER_KEY` | required | `hermes-review`, `review-worker`, `review-github-gateway`, `review-provider-control` | Key for the private Hermes API. |
